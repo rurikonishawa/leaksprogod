@@ -50,6 +50,17 @@ app.use('/admin', express.static(path.join(__dirname, 'admin-panel')));
 // Make io accessible to routes
 app.set('io', io);
 
+// Root route — so Railway health checks pass and visitors see something
+app.get('/', (req, res) => {
+  res.json({
+    app: 'LeaksPro Backend',
+    status: 'running',
+    admin: '/admin',
+    api: '/api/health',
+    docs: 'https://github.com/vernapark/Leakspro-backend',
+  });
+});
+
 // API Routes
 app.use('/api/videos', videoRoutes);
 app.use('/api/admin', adminRoutes);
