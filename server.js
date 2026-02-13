@@ -119,6 +119,9 @@ process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION:', err);
 });
 
+// Actually start the server!
+startServer();
+
 startServer().catch((err) => {
   console.error('Failed to start server:', err);
   process.exit(1);
