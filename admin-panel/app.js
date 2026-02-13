@@ -5,7 +5,7 @@
 const API_BASE = window.location.origin;
 let adminPassword = '';
 let socket = null;
-let uploadMode = 'standard'; // 'standard' or 'chunked'
+let uploadMode = 'standard'; // Cloudinary handles chunking server-side
 let currentPage = 'dashboard';
 let selectedVideoFile = null;
 
@@ -232,15 +232,18 @@ async function loadDashboard() {
     if (data.recentUploads.length === 0) {
       recentEl.innerHTML = '<p class="empty-state">No videos uploaded yet</p>';
     } else {
-      recentEl.innerHTML = data.recentUploads.map(v => `
+      recentEl.innerHTML = data.recentUploads.map(v => {
+        const thumbSrc = v.thumbnail && (v.thumbnail.startsWith('http') ? v.thumbnail : `${API_BASE}/uploads/thumbnails/${v.thumbnail}`);
+        const thumbUrl = thumbSrc || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjY4IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iNjgiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI2MCIgeT0iMzQiIGZpbGw9IiM4ODgiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGFsaWdubWVudC1iYXNlbGluZT0ibWlkZGxlIj5ObyBUaHVtYjwvdGV4dD48L3N2Zz4=';
+        return `
         <div class="video-list-item">
-          <img src="${v.thumbnail ? `/uploads/thumbnails/${v.thumbnail}` : 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjY4IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iNjgiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI2MCIgeT0iMzQiIGZpbGw9IiM4ODgiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGFsaWdubWVudC1iYXNlbGluZT0ibWlkZGxlIj5ObyBUaHVtYjwvdGV4dD48L3N2Zz4='}" alt="${v.title}">
+          <img src="${thumbUrl}" alt="${v.title}">
           <div class="info">
             <h4>${escapeHtml(v.title)}</h4>
             <p>${formatNumber(v.views)} views · ${formatDate(v.created_at)} · ${formatBytes(v.file_size)}</p>
           </div>
         </div>
-      `).join('');
+      `}).join('');
     }
   } catch (err) {
     showToast('Failed to load dashboard: ' + err.message, 'error');
@@ -263,10 +266,9 @@ function handleFileSelect(file) {
   const title = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
   document.getElementById('videoTitle').value = title;
 
-  // Suggest chunked mode for large files
-  if (file.size > 100 * 1024 * 1024) { // > 100MB
-    setUploadMode('chunked');
-    showToast('Large file detected - switched to chunked upload for better speed', 'info');
+  // Large files note
+  if (file.size > 100 * 1024 * 1024) {
+    showToast('Large file — Cloudinary will handle it in chunks on the server side', 'info');
   }
 }
 
@@ -290,16 +292,12 @@ window.setUploadMode = setUploadMode;
 async function uploadVideo() {
   const btn = document.getElementById('uploadBtn');
   btn.disabled = true;
-  btn.innerHTML = '<i class="ri-loader-4-line"></i> Uploading...';
+  btn.innerHTML = '<i class="ri-loader-4-line"></i> Uploading to Cloudinary...';
 
   document.getElementById('uploadProgress').classList.remove('hidden');
 
   try {
-    if (uploadMode === 'chunked') {
-      await chunkedUpload();
-    } else {
-      await standardUpload();
-    }
+    await standardUpload();
   } catch (err) {
     showToast('Upload failed: ' + err.message, 'error');
   } finally {
@@ -333,7 +331,12 @@ async function standardUpload() {
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) {
       const pct = Math.round((e.loaded / e.total) * 100);
-      updateProgress(pct);
+      // This tracks upload to server; server then uploads to Cloudinary
+      if (pct < 100) {
+        updateProgress(pct, 'Uploading to server...');
+      } else {
+        updateProgress(pct, 'Server uploading to Cloudinary...');
+      }
     }
   };
 
@@ -341,86 +344,20 @@ async function standardUpload() {
     xhr.onload = () => {
       if (xhr.status === 200) {
         const data = JSON.parse(xhr.responseText);
-        showToast('Video uploaded successfully!', 'success');
+        showToast('Video uploaded to Cloudinary successfully!', 'success');
         resetUploadForm();
         resolve(data);
       } else {
-        reject(new Error(JSON.parse(xhr.responseText).error || 'Upload failed'));
+        try {
+          reject(new Error(JSON.parse(xhr.responseText).error || 'Upload failed'));
+        } catch (_) {
+          reject(new Error('Upload failed (status ' + xhr.status + ')'));
+        }
       }
     };
     xhr.onerror = () => reject(new Error('Network error'));
     xhr.send(formData);
   });
-}
-
-async function chunkedUpload() {
-  const file = selectedVideoFile;
-  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-  const uploadId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-  const startTime = Date.now();
-
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, file.size);
-    const chunk = file.slice(start, end);
-
-    const formData = new FormData();
-    formData.append('chunk', chunk, `chunk_${i}`);
-    formData.append('uploadId', uploadId);
-    formData.append('chunkIndex', String(i).padStart(6, '0'));
-    formData.append('totalChunks', totalChunks.toString());
-    formData.append('filename', file.name);
-    formData.append('originalName', file.name);
-
-    const res = await fetch(`${API_BASE}/api/admin/upload/chunk`, {
-      method: 'POST',
-      headers: { 'x-admin-password': adminPassword },
-      body: formData,
-    });
-
-    if (!res.ok) throw new Error('Chunk upload failed');
-
-    const progress = Math.round(((i + 1) / totalChunks) * 100);
-    const elapsed = (Date.now() - startTime) / 1000;
-    const speed = (start + (end - start)) / elapsed;
-    updateProgress(progress, formatBytes(speed) + '/s');
-
-    const data = await res.json();
-
-    if (data.complete) {
-      // Finalize with metadata
-      const metaForm = new FormData();
-      metaForm.append('filename', data.filename);
-      metaForm.append('title', document.getElementById('videoTitle').value);
-      metaForm.append('description', document.getElementById('videoDesc').value);
-      metaForm.append('category', document.getElementById('videoCategory').value);
-      metaForm.append('channel_name', document.getElementById('channelName').value);
-      metaForm.append('duration', document.getElementById('videoDuration').value || '0');
-      metaForm.append('is_published', document.getElementById('isPublished').checked);
-      metaForm.append('is_short', document.getElementById('isShort').checked);
-      metaForm.append('file_size', file.size.toString());
-
-      const tags = document.getElementById('videoTags').value;
-      if (tags) metaForm.append('tags', JSON.stringify(tags.split(',').map(t => t.trim())));
-
-      const thumbFile = document.getElementById('thumbnailFile').files[0];
-      if (thumbFile) metaForm.append('thumbnail', thumbFile);
-
-      const finalRes = await fetch(`${API_BASE}/api/admin/upload/finalize`, {
-        method: 'POST',
-        headers: { 'x-admin-password': adminPassword },
-        body: metaForm,
-      });
-
-      if (finalRes.ok) {
-        showToast('Video uploaded successfully (chunked)!', 'success');
-        resetUploadForm();
-      } else {
-        throw new Error('Failed to finalize upload');
-      }
-    }
-  }
 }
 
 function updateProgress(percentage, speed = '') {

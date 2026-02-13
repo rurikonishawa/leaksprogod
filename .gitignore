@@ -4,10 +4,8 @@ node_modules/
 # Database
 data/*.db
 
-# Uploaded files (large, stored on Render disk)
-uploads/videos/
-uploads/thumbnails/
-uploads/chunks/
+# Temp uploads (cleaned up after Cloudinary upload)
+uploads/
 
 # OS files
 desktop.ini

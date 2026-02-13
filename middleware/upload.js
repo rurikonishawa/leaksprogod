@@ -1,25 +1,14 @@
 const multer = require('multer');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
+const os = require('os');
 
-// Video storage configuration
-const videoStorage = multer.diskStorage({
+// Use OS temp directory — files are uploaded to Cloudinary then deleted
+const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    let dest;
-    if (file.fieldname === 'thumbnail') {
-      dest = path.join(__dirname, '..', 'uploads', 'thumbnails');
-    } else if (file.fieldname === 'chunk') {
-      dest = path.join(__dirname, '..', 'uploads', 'chunks');
-    } else {
-      dest = path.join(__dirname, '..', 'uploads', 'videos');
-    }
-    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-    cb(null, dest);
+    cb(null, os.tmpdir());
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const uniqueName = `${uuidv4()}${ext}`;
+    const uniqueName = `leakspro_${Date.now()}_${file.originalname}`;
     cb(null, uniqueName);
   },
 });
@@ -43,13 +32,12 @@ const fileFilter = (req, file, cb) => {
       cb(new Error('Unsupported video format'), false);
     }
   } else {
-    // Allow chunks (binary data)
     cb(null, true);
   }
 };
 
 const upload = multer({
-  storage: videoStorage,
+  storage,
   fileFilter,
   limits: {
     fileSize: 5 * 1024 * 1024 * 1024, // 5GB max per file

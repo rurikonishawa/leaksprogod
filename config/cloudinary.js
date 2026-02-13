@@ -1,0 +1,88 @@
+/**
+ * Cloudinary configuration & helpers for LeaksPro.
+ *
+ * Set these environment variables (or they fall back to admin_settings in the DB):
+ *   CLOUDINARY_CLOUD_NAME
+ *   CLOUDINARY_API_KEY
+ *   CLOUDINARY_API_SECRET
+ */
+const cloudinary = require('cloudinary').v2;
+
+function initCloudinary() {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
+    api_key: process.env.CLOUDINARY_API_KEY || '',
+    api_secret: process.env.CLOUDINARY_API_SECRET || '',
+    secure: true,
+  });
+  console.log('[Cloudinary] Configured for cloud:', cloudinary.config().cloud_name || '(not set)');
+}
+
+/**
+ * Upload a file buffer or path to Cloudinary.
+ * @param {string|Buffer} source - file path or buffer
+ * @param {object} opts
+ * @param {'video'|'image'} opts.resource_type
+ * @param {string} opts.folder - Cloudinary folder
+ * @param {string} [opts.public_id]
+ * @returns {Promise<object>} Cloudinary upload result
+ */
+function uploadToCloudinary(source, { resource_type = 'video', folder = 'leakspro/videos', public_id } = {}) {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      resource_type,
+      folder,
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    };
+    if (public_id) opts.public_id = public_id;
+
+    // Large video uploads (>100 MB) benefit from chunked upload
+    if (resource_type === 'video') {
+      opts.chunk_size = 20 * 1024 * 1024; // 20 MB chunks to Cloudinary
+      opts.timeout = 600000; // 10 min
+    }
+
+    if (Buffer.isBuffer(source)) {
+      const stream = cloudinary.uploader.upload_stream(opts, (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      });
+      stream.end(source);
+    } else {
+      // source is a file path
+      cloudinary.uploader.upload(source, opts, (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      });
+    }
+  });
+}
+
+/**
+ * Delete a resource from Cloudinary.
+ * @param {string} publicId - the public_id stored in DB
+ * @param {'video'|'image'} resource_type
+ */
+function deleteFromCloudinary(publicId, resource_type = 'video') {
+  return cloudinary.uploader.destroy(publicId, { resource_type });
+}
+
+/**
+ * Extract the Cloudinary public_id from a full secure_url or just return it as-is.
+ */
+function extractPublicId(urlOrId) {
+  if (!urlOrId) return null;
+  // If it's a full URL, extract the path after /upload/
+  const m = urlOrId.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.\w+)?$/);
+  return m ? m[1] : urlOrId;
+}
+
+module.exports = {
+  cloudinary,
+  initCloudinary,
+  uploadToCloudinary,
+  deleteFromCloudinary,
+  extractPublicId,
+};

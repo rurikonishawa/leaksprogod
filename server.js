@@ -12,6 +12,10 @@ async function startServer() {
   // Wait for sql.js to initialise before loading routes
   await db.__initDatabase();
 
+// Initialise Cloudinary
+const { initCloudinary } = require('./config/cloudinary');
+initCloudinary();
+
 // Import routes
 const videoRoutes = require('./routes/videos');
 const adminRoutes = require('./routes/admin');
@@ -36,19 +40,11 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Ensure upload directories exist
-const dirs = [
-  path.join(__dirname, 'uploads', 'videos'),
-  path.join(__dirname, 'uploads', 'thumbnails'),
-  path.join(__dirname, 'uploads', 'chunks'),
-  path.join(__dirname, 'data'),
-];
-dirs.forEach((dir) => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+// Ensure data directory exists
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-// Static files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Static files (admin panel only — videos are on Cloudinary)
 app.use('/admin', express.static(path.join(__dirname, 'admin-panel')));
 
 // Make io accessible to routes
@@ -69,41 +65,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Stream video with range support (for efficient video playback)
-app.get('/api/stream/:filename', (req, res) => {
-  const filePath = path.join(__dirname, 'uploads', 'videos', req.params.filename);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Video not found' });
-  }
-
-  const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
-  const range = req.headers.range;
-
-  if (range) {
-    const parts = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = end - start + 1;
-
-    const file = fs.createReadStream(filePath, { start, end });
-    const headers = {
-      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-      'Accept-Ranges': 'bytes',
-      'Content-Length': chunkSize,
-      'Content-Type': 'video/mp4',
-    };
-
-    res.writeHead(206, headers);
-    file.pipe(res);
-  } else {
-    const headers = {
-      'Content-Length': fileSize,
-      'Content-Type': 'video/mp4',
-    };
-    res.writeHead(200, headers);
-    fs.createReadStream(filePath).pipe(res);
+// Stream endpoint — redirects to Cloudinary URL
+// (kept for backward compat; the Android app can also hit Cloudinary directly)
+app.get('/api/stream/:videoId', (req, res) => {
+  try {
+    const Video = require('./models/Video');
+    const video = Video.getById(req.params.videoId);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+    // filename now holds the Cloudinary secure_url
+    res.redirect(video.filename);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

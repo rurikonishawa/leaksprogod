@@ -64,73 +64,36 @@ function setupWebSocket(io) {
       }
     });
 
-    // Handle chunk upload via WebSocket (for ultra-fast uploads)
-    socket.on('upload_chunk_ws', (data) => {
-      const { uploadId, chunkIndex, totalChunks, chunkData, filename } = data;
-      const fs = require('fs');
-      const path = require('path');
+    // Handle chunk upload via WebSocket — now uploads to Cloudinary
+    // (Admin panel sends the full file; we upload it to Cloudinary and report progress)
+    socket.on('upload_video_ws', async (data) => {
+      const { uploadId, fileData, filename, title, description, category, tags, channel_name } = data;
+      const { uploadToCloudinary } = require('../config/cloudinary');
 
-      const chunkDir = path.join(__dirname, '..', 'uploads', 'chunks', uploadId);
-      if (!fs.existsSync(chunkDir)) {
-        fs.mkdirSync(chunkDir, { recursive: true });
-      }
+      try {
+        socket.emit('chunk_received', { uploadId, progress: 10, status: 'uploading_to_cloud' });
 
-      // Write chunk
-      const chunkPath = path.join(chunkDir, `chunk_${String(chunkIndex).padStart(6, '0')}`);
-      const buffer = Buffer.from(chunkData);
-      fs.writeFileSync(chunkPath, buffer);
+        const buffer = Buffer.from(fileData);
+        const result = await uploadToCloudinary(buffer, {
+          resource_type: 'video',
+          folder: 'leakspro/videos',
+        });
 
-      const progress = ((chunkIndex + 1) / totalChunks) * 100;
+        socket.emit('upload_merged', {
+          uploadId,
+          filename: result.secure_url,
+          size: result.bytes,
+          duration: result.duration,
+          resolution: result.width ? `${result.width}x${result.height}` : '',
+        });
 
-      // Emit progress back to uploader
-      socket.emit('chunk_received', {
-        uploadId,
-        chunkIndex,
-        progress: Math.round(progress),
-      });
-
-      // Broadcast upload progress to all admin clients
-      io.emit('upload_progress', {
-        uploadId,
-        chunkIndex,
-        totalChunks,
-        progress: Math.round(progress),
-        filename,
-      });
-
-      // If all chunks uploaded, merge
-      if (chunkIndex + 1 === totalChunks) {
-        const finalFilename = `${uploadId}_${filename}`;
-        const finalPath = path.join(__dirname, '..', 'uploads', 'videos', finalFilename);
-        const writeStream = fs.createWriteStream(finalPath);
-
-        let merged = 0;
-        const mergeNext = () => {
-          if (merged >= totalChunks) {
-            writeStream.end(() => {
-              fs.rmSync(chunkDir, { recursive: true, force: true });
-              const stat = fs.statSync(finalPath);
-              socket.emit('upload_merged', {
-                uploadId,
-                filename: finalFilename,
-                size: stat.size,
-              });
-              io.emit('upload_complete', {
-                uploadId,
-                filename: finalFilename,
-                size: stat.size,
-              });
-            });
-            return;
-          }
-          const cp = path.join(chunkDir, `chunk_${String(merged).padStart(6, '0')}`);
-          const chunkBuf = fs.readFileSync(cp);
-          writeStream.write(chunkBuf, () => {
-            merged++;
-            mergeNext();
-          });
-        };
-        mergeNext();
+        io.emit('upload_complete', {
+          uploadId,
+          filename: result.secure_url,
+          size: result.bytes,
+        });
+      } catch (err) {
+        socket.emit('upload_error', { uploadId, error: err.message });
       }
     });
 
