@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Database
+data/*.db
+
+# Uploaded files (large, stored on Render disk)
+uploads/videos/
+uploads/thumbnails/
+uploads/chunks/
+
+# OS files
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env

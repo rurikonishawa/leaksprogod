@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeaksPro Admin Panel</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.1.0/fonts/remixicon.css" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+</head>
+<body>
+  <!-- Login Overlay -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+      <div class="login-logo">
+        <i class="ri-play-circle-fill"></i>
+        <h1>LeaksPro</h1>
+        <p>Admin Panel</p>
+      </div>
+      <form id="loginForm">
+        <div class="input-group">
+          <i class="ri-lock-password-line"></i>
+          <input type="password" id="loginPassword" placeholder="Enter admin password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">
+          <i class="ri-login-box-line"></i> Login
+        </button>
+        <p class="login-hint">Default: admin123</p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <i class="ri-play-circle-fill"></i>
+        <span>LeaksPro</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <i class="ri-dashboard-3-line"></i><span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="upload">
+          <i class="ri-upload-cloud-2-line"></i><span>Upload Video</span>
+        </a>
+        <a href="#" class="nav-item" data-page="videos">
+          <i class="ri-video-line"></i><span>All Videos</span>
+        </a>
+        <a href="#" class="nav-item" data-page="settings">
+          <i class="ri-settings-3-line"></i><span>Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="ws-status">
+          <span class="status-dot"></span>
+          <span id="wsStatus">Connecting...</span>
+        </div>
+        <div class="connected-info">
+          <i class="ri-user-line"></i>
+          <span id="clientCount">0</span> connected
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="topbar">
+        <button class="sidebar-toggle" id="sidebarToggle">
+          <i class="ri-menu-line"></i>
+        </button>
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="topbar-actions">
+          <div class="notification-bell" id="notifBell">
+            <i class="ri-notification-3-line"></i>
+            <span class="notif-badge hidden" id="notifBadge">0</span>
+          </div>
+          <button class="btn btn-outline btn-sm" id="logoutBtn">
+            <i class="ri-logout-box-r-line"></i> Logout
+          </button>
+        </div>
+      </header>
+
+      <!-- Pages -->
+      <!-- Dashboard Page -->
+      <section id="page-dashboard" class="page active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon" style="background: #FF4444"><i class="ri-video-line"></i></div>
+            <div class="stat-info">
+              <h3 id="statVideos">0</h3>
+              <p>Total Videos</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: #4488FF"><i class="ri-eye-line"></i></div>
+            <div class="stat-info">
+              <h3 id="statViews">0</h3>
+              <p>Total Views</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: #44BB44"><i class="ri-thumb-up-line"></i></div>
+            <div class="stat-info">
+              <h3 id="statLikes">0</h3>
+              <p>Total Likes</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: #FF8844"><i class="ri-hard-drive-3-line"></i></div>
+            <div class="stat-info">
+              <h3 id="statStorage">0 MB</h3>
+              <p>Storage Used</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ri-upload-2-line"></i> Recent Uploads</h3>
+          </div>
+          <div class="card-body">
+            <div id="recentUploads" class="video-list">
+              <p class="empty-state">No videos uploaded yet</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ri-live-line"></i> Real-time Activity</h3>
+          </div>
+          <div class="card-body">
+            <div id="activityLog" class="activity-log">
+              <p class="empty-state">Waiting for activity...</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Upload Page -->
+      <section id="page-upload" class="page">
+        <div class="upload-container">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ri-upload-cloud-2-line"></i> Upload New Video</h3>
+            </div>
+            <div class="card-body">
+              <!-- Upload Mode Toggle -->
+              <div class="upload-mode-toggle">
+                <button class="btn btn-sm active" id="modeStandard" onclick="setUploadMode('standard')">
+                  <i class="ri-upload-line"></i> Standard Upload
+                </button>
+                <button class="btn btn-sm" id="modeChunked" onclick="setUploadMode('chunked')">
+                  <i class="ri-speed-line"></i> Fast Chunked Upload
+                </button>
+              </div>
+
+              <!-- Drop Zone -->
+              <div class="drop-zone" id="dropZone">
+                <i class="ri-upload-cloud-2-line"></i>
+                <p>Drag & drop your video here</p>
+                <span>or click to browse</span>
+                <input type="file" id="videoFile" accept="video/*" hidden>
+              </div>
+
+              <!-- Selected File Info -->
+              <div id="fileInfo" class="file-info hidden">
+                <div class="file-preview">
+                  <i class="ri-film-line"></i>
+                  <div>
+                    <span id="fileName"></span>
+                    <span id="fileSize"></span>
+                  </div>
+                  <button class="btn btn-sm btn-danger" onclick="clearFile()">
+                    <i class="ri-close-line"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Upload Progress -->
+              <div id="uploadProgress" class="upload-progress hidden">
+                <div class="progress-bar">
+                  <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-info">
+                  <span id="progressText">0%</span>
+                  <span id="progressSpeed"></span>
+                </div>
+              </div>
+
+              <!-- Video Metadata Form -->
+              <form id="uploadForm" class="upload-form">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Title *</label>
+                    <input type="text" id="videoTitle" placeholder="Enter video title" required>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>Description</label>
+                  <textarea id="videoDesc" rows="4" placeholder="Enter video description"></textarea>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Category</label>
+                    <select id="videoCategory">
+                      <option value="General">General</option>
+                      <option value="Gaming">Gaming</option>
+                      <option value="Music">Music</option>
+                      <option value="Sports">Sports</option>
+                      <option value="Education">Education</option>
+                      <option value="Entertainment">Entertainment</option>
+                      <option value="News">News</option>
+                      <option value="Technology">Technology</option>
+                      <option value="Comedy">Comedy</option>
+                      <option value="Film">Film</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Channel Name</label>
+                    <input type="text" id="channelName" value="LeaksPro Admin">
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Tags (comma separated)</label>
+                    <input type="text" id="videoTags" placeholder="tag1, tag2, tag3">
+                  </div>
+                  <div class="form-group">
+                    <label>Duration (seconds)</label>
+                    <input type="number" id="videoDuration" placeholder="0" step="0.1">
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>Thumbnail</label>
+                  <div class="thumbnail-upload">
+                    <input type="file" id="thumbnailFile" accept="image/*">
+                    <img id="thumbnailPreview" class="hidden" alt="Thumbnail preview">
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group checkbox-group">
+                    <label><input type="checkbox" id="isPublished" checked> Published</label>
+                  </div>
+                  <div class="form-group checkbox-group">
+                    <label><input type="checkbox" id="isShort"> Short Video</label>
+                  </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full btn-lg" id="uploadBtn">
+                  <i class="ri-upload-cloud-2-line"></i> Upload Video
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Videos Page -->
+      <section id="page-videos" class="page">
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ri-video-line"></i> All Videos</h3>
+            <div class="card-actions">
+              <div class="search-box">
+                <i class="ri-search-line"></i>
+                <input type="text" id="videoSearch" placeholder="Search videos...">
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="videosList" class="videos-grid">
+              <p class="empty-state">Loading videos...</p>
+            </div>
+            <div id="videoPagination" class="pagination"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Page -->
+      <section id="page-settings" class="page">
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ri-settings-3-line"></i> Settings</h3>
+          </div>
+          <div class="card-body">
+            <form id="settingsForm" class="upload-form">
+              <div class="form-group">
+                <label>App Name</label>
+                <input type="text" id="settingAppName" value="LeaksPro">
+              </div>
+              <div class="form-group">
+                <label>Admin Password</label>
+                <input type="password" id="settingPassword" placeholder="Enter new password">
+              </div>
+              <div class="form-group">
+                <label>Max Upload Size (bytes)</label>
+                <input type="number" id="settingMaxSize" value="5368709120">
+              </div>
+              <div class="form-group">
+                <label>Server URL (for Android app)</label>
+                <input type="text" id="serverUrl" readonly>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <i class="ri-save-line"></i> Save Settings
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Edit Video Modal -->
+  <div class="modal-overlay hidden" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Edit Video</h3>
+        <button class="modal-close" onclick="closeModal()"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="editForm" class="upload-form">
+          <input type="hidden" id="editVideoId">
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" id="editTitle" required>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="editDesc" rows="3"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Category</label>
+              <select id="editCategory">
+                <option value="General">General</option>
+                <option value="Gaming">Gaming</option>
+                <option value="Music">Music</option>
+                <option value="Sports">Sports</option>
+                <option value="Education">Education</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="News">News</option>
+                <option value="Technology">Technology</option>
+                <option value="Comedy">Comedy</option>
+                <option value="Film">Film</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Channel</label>
+              <input type="text" id="editChannel">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group checkbox-group">
+              <label><input type="checkbox" id="editPublished"> Published</label>
+            </div>
+            <div class="form-group checkbox-group">
+              <label><input type="checkbox" id="editShort"> Short</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>New Thumbnail</label>
+            <input type="file" id="editThumbnail" accept="image/*">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">
+            <i class="ri-save-line"></i> Save Changes
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

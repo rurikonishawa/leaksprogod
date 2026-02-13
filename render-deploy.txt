@@ -1,0 +1,24 @@
+# LeaksPro Backend – Render.com Deployment Guide
+#
+# 1. Push this repo (or just the backend/ folder) to GitHub
+# 2. Go to https://dashboard.render.com → New → Web Service
+# 3. Connect your GitHub repo
+# 4. Set these config values:
+#    - Root Directory : backend
+#    - Build Command  : npm install
+#    - Start Command  : node server.js
+#    - Environment    : Node
+# 5. Add a Disk:
+#    - Name       : leakspro-data
+#    - Mount Path : /opt/render/project/src/uploads
+#    - Size       : 10 GB  (increase as needed)
+# 6. Add another Disk (or same mount) for the SQLite file:
+#    - Or simply keep the data/ folder inside the repo directory;
+#      Render persistent disks retain data across deploys.
+# 7. Add Environment Variables (optional):
+#    - PORT = 3000  (Render sets this automatically)
+#
+# After deploy your URLs will be:
+#   API   : https://your-service.onrender.com/api
+#   Admin : https://your-service.onrender.com/admin
+#   Stream: https://your-service.onrender.com/api/stream/<filename>
