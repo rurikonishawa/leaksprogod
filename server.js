@@ -111,6 +111,14 @@ server.listen(PORT, '0.0.0.0', () => {
 
 } // end startServer()
 
+// Global error handlers so Railway sees the crash reason in logs
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+});
+
 startServer().catch((err) => {
   console.error('Failed to start server:', err);
   process.exit(1);

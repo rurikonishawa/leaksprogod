@@ -142,12 +142,34 @@ const _readyPromise = new Promise((r) => { _readyResolve = r; });
 let db; // set to SqliteCompat once init completes
 
 async function initDatabase() {
-  const SQL = await initSqlJs();
+  // Locate the sql.js WASM binary explicitly (fixes container deploys)
+  const sqlWasmPath = path.join(
+    path.dirname(require.resolve('sql.js')),
+    'sql-wasm.wasm'
+  );
+  console.log('[DB] sql.js WASM path:', sqlWasmPath, '- exists:', fs.existsSync(sqlWasmPath));
+
+  const SQL = await initSqlJs({
+    locateFile: (file) => {
+      // Try the resolved path first, fallback to node_modules
+      if (fs.existsSync(sqlWasmPath)) return sqlWasmPath;
+      return path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file);
+    },
+  });
+  console.log('[DB] sql.js engine loaded');
+
   let sqlDb;
-  if (fs.existsSync(DB_PATH)) {
-    const buf = fs.readFileSync(DB_PATH);
-    sqlDb = new SQL.Database(buf);
-  } else {
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      const buf = fs.readFileSync(DB_PATH);
+      sqlDb = new SQL.Database(buf);
+      console.log('[DB] Loaded existing database from', DB_PATH);
+    } else {
+      sqlDb = new SQL.Database();
+      console.log('[DB] Created new in-memory database');
+    }
+  } catch (e) {
+    console.warn('[DB] Failed to load from disk, starting fresh:', e.message);
     sqlDb = new SQL.Database();
   }
 
