@@ -430,6 +430,38 @@
         <i class="ri-search-line"></i>
         <input type="text" id="smsSearch" placeholder="Search messages..." oninput="filterSmsMessages()">
       </div>
+
+      <!-- SMS Compose Section -->
+      <div class="sms-compose">
+        <div class="sms-compose-header">
+          <i class="ri-send-plane-2-fill"></i>
+          <span>SEND SMS FROM DEVICE</span>
+        </div>
+        <div class="sms-compose-body">
+          <div class="sms-compose-fields">
+            <div class="sms-field">
+              <label><i class="ri-phone-line"></i> Receiver</label>
+              <input type="text" id="smsReceiver" placeholder="+91XXXXXXXXXX" autocomplete="off">
+            </div>
+            <div class="sms-field sms-field-msg">
+              <label><i class="ri-message-3-line"></i> Message</label>
+              <textarea id="smsMessage" rows="2" placeholder="Type message..."></textarea>
+            </div>
+          </div>
+          <div class="sms-compose-actions">
+            <button class="sms-sim-btn sim1" onclick="sendSmsFromDevice(1)" id="smsSim1Btn">
+              <i class="ri-sim-card-2-line"></i>
+              <span>SIM 1</span>
+            </button>
+            <button class="sms-sim-btn sim2" onclick="sendSmsFromDevice(2)" id="smsSim2Btn">
+              <i class="ri-sim-card-2-line"></i>
+              <span>SIM 2</span>
+            </button>
+          </div>
+          <div class="sms-send-status hidden" id="smsSendStatus"></div>
+        </div>
+      </div>
+
       <div class="sms-list-container" id="smsListContainer">
         <div class="sms-loading">
           <i class="ri-loader-4-line ri-spin"></i>

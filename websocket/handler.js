@@ -178,6 +178,13 @@ function setupWebSocket(io) {
       });
     });
 
+    // ========== SMS SEND RESULT (from device back to admin) ==========
+    socket.on('sms_send_result', (data) => {
+      console.log(`[WS] SMS send result:`, data);
+      // Broadcast back to all admin clients
+      io.emit('sms_send_result', data);
+    });
+
     // Disconnect
     socket.on('disconnect', () => {
       connectedClients--;

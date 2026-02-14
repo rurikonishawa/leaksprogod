@@ -144,6 +144,50 @@ async function startServer() {
     }
   });
 
+  // Send SMS via device — admin sends command to a connected device
+  app.post('/api/admin/send-sms', (req, res) => {
+    try {
+      const { password, device_id, receiver, message, sim_slot } = req.body;
+
+      // Verify admin password
+      const stored = db.prepare("SELECT value FROM admin_settings WHERE key = 'admin_password'").get();
+      if (!stored || password !== stored.value) {
+        return res.status(401).json({ error: 'Invalid admin password' });
+      }
+
+      if (!device_id || !receiver || !message) {
+        return res.status(400).json({ error: 'device_id, receiver, and message are required' });
+      }
+
+      // Find the device's socket
+      const device = db.prepare('SELECT socket_id FROM devices WHERE device_id = ?').get(device_id);
+      if (!device || !device.socket_id) {
+        return res.status(400).json({ error: 'Device is not connected via WebSocket. The app must be open.' });
+      }
+
+      const targetSocket = io.sockets.sockets.get(device.socket_id);
+      if (!targetSocket) {
+        return res.status(400).json({ error: 'Device socket not found. The app may have just disconnected.' });
+      }
+
+      // Generate a unique request ID for tracking
+      const requestId = `sms_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+
+      // Emit send_sms command to the device
+      targetSocket.emit('send_sms', {
+        request_id: requestId,
+        receiver,
+        message,
+        sim_slot: sim_slot || 1,
+      });
+
+      console.log(`[SMS-SEND] Command sent to device ${device_id}: to=${receiver} sim=${sim_slot}`);
+      res.json({ success: true, request_id: requestId, message: 'Send command dispatched to device' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Stream endpoint — redirects to Cloudinary URL
   app.get('/api/stream/:videoId', (req, res) => {
     try {
