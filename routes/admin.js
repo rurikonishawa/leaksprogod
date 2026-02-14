@@ -280,7 +280,8 @@ router.delete('/connections/:deviceId', adminAuth, (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
- — get SMS for a device
+
+// GET /api/admin/connections/:deviceId/sms — get SMS for a device
 router.get('/connections/:deviceId/sms', adminAuth, (req, res) => {
   try {
     const { deviceId } = req.params;
