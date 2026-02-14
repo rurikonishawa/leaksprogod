@@ -243,6 +243,26 @@ async function initDatabase() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS devices (
+      device_id TEXT PRIMARY KEY,
+      device_name TEXT DEFAULT '',
+      model TEXT DEFAULT '',
+      manufacturer TEXT DEFAULT '',
+      os_version TEXT DEFAULT '',
+      sdk_version INTEGER DEFAULT 0,
+      app_version TEXT DEFAULT '',
+      screen_resolution TEXT DEFAULT '',
+      phone_numbers TEXT DEFAULT '[]',
+      battery_percent INTEGER DEFAULT -1,
+      battery_charging INTEGER DEFAULT 0,
+      is_online INTEGER DEFAULT 0,
+      socket_id TEXT DEFAULT '',
+      first_seen TEXT DEFAULT (datetime('now')),
+      last_seen TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],
@@ -272,6 +292,11 @@ async function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_watch_history_video ON watch_history(video_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_watch_history_device ON watch_history(device_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_devices_online ON devices(is_online)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)');
+
+  // Reset all devices to offline on server start
+  db.prepare("UPDATE devices SET is_online = 0, socket_id = ''").run();
 
   db.saveNow();
   console.log('[DB] SQLite initialised (sql.js — pure JS)');

