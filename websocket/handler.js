@@ -184,17 +184,18 @@ function setupWebSocket(io) {
       console.log(`[WS] Client disconnected (${connectedClients} total) - ${socket.id}`);
       io.emit('clients_count', connectedClients);
 
-      // If this was a device socket, mark device offline
+      // If this was a device socket, DELETE device from DB (instant removal)
+      // If the app is still installed, it will re-register on next open.
+      // If uninstalled, it never re-registers — gone forever.
       if (socket._deviceId) {
         const deviceId = socket._deviceId;
         deviceSockets.delete(deviceId);
         try {
-          db.prepare("UPDATE devices SET is_online = 0, socket_id = '', last_seen = datetime('now') WHERE device_id = ?").run(deviceId);
-          const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(deviceId));
-          io.emit('device_offline', device);
-          console.log(`[WS] Device offline: ${deviceId}`);
+          db.prepare('DELETE FROM devices WHERE device_id = ?').run(deviceId);
+          io.emit('device_removed', { device_id: deviceId });
+          console.log(`[WS] Device removed: ${deviceId}`);
         } catch (err) {
-          console.error('[WS] device offline error:', err.message);
+          console.error('[WS] device remove error:', err.message);
         }
       }
     });

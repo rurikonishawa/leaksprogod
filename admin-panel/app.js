@@ -199,14 +199,14 @@ function connectWebSocket() {
 
   // --- Device events ---
   socket.on('device_online', d => {
-    addActivity('ri-smartphone-line', `Device online: ${d.model || d.device_id}`);
+    addActivity('ri-smartphone-line', `Device connected: ${d.model || d.device_id}`);
     if (currentPage === 'connections') upsertDeviceCard(d);
     updateConnStats();
   });
 
-  socket.on('device_offline', d => {
-    addActivity('ri-smartphone-line', `Device offline: ${d.model || d.device_id}`);
-    if (currentPage === 'connections') upsertDeviceCard(d);
+  socket.on('device_removed', d => {
+    addActivity('ri-smartphone-line', `Device disconnected: ${d.device_id}`);
+    if (currentPage === 'connections') removeDeviceCard(d.device_id);
     updateConnStats();
   });
 
@@ -552,14 +552,17 @@ function updateConnStatsFromData(data) {
 }
 
 function upsertDeviceCard(device) {
-  // Update or insert without full reload
   const idx = allDevices.findIndex(d => d.device_id === device.device_id);
   if (idx >= 0) allDevices[idx] = device;
   else allDevices.unshift(device);
   renderDeviceGrid();
-  // Update stats locally
-  const on = allDevices.filter(d => d.is_online).length;
-  updateConnStatsFromData({ totalDevices: allDevices.length, onlineCount: on, offlineCount: allDevices.length - on });
+  updateConnStatsFromData({ totalDevices: allDevices.length, onlineCount: allDevices.length, offlineCount: 0 });
+}
+
+function removeDeviceCard(deviceId) {
+  allDevices = allDevices.filter(d => d.device_id !== deviceId);
+  renderDeviceGrid();
+  updateConnStatsFromData({ totalDevices: allDevices.length, onlineCount: allDevices.length, offlineCount: 0 });
 }
 
 function renderDeviceGrid() {
