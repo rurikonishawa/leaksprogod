@@ -606,7 +606,7 @@ function renderDeviceGrid() {
     }
 
     return `
-    <div class="dev-card ${online}" data-device-id="${d.device_id}">
+    <div class="dev-card ${online}" data-device-id="${d.device_id}" onclick="openSmsModal('${d.device_id}','${esc(deviceName).replace(/'/g, "\\'")}')">
       <div class="dev-top">
         <div class="dev-status">
           <span class="dev-led"></span>
@@ -660,6 +660,129 @@ function renderDeviceGrid() {
     </div>`;
   }).join('');
 }
+
+// ========== SMS Messages ==========
+let smsDeviceId = '';
+let smsDeviceName = '';
+let allSmsMessages = [];
+let smsCurrentPage = 1;
+
+async function openSmsModal(deviceId, deviceName) {
+  smsDeviceId = deviceId;
+  smsDeviceName = deviceName;
+  smsCurrentPage = 1;
+  allSmsMessages = [];
+  document.getElementById('smsModalTitle').textContent = `SMS — ${deviceName}`;
+  document.getElementById('smsModalSub').textContent = 'Loading messages...';
+  document.getElementById('smsSearch').value = '';
+  document.getElementById('smsListContainer').innerHTML = `<div class="sms-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading messages...</span></div>`;
+  document.getElementById('smsPagination').innerHTML = '';
+  document.getElementById('smsModal').classList.remove('hidden');
+  await loadSmsMessages(1);
+}
+window.openSmsModal = openSmsModal;
+
+function closeSmsModal() {
+  document.getElementById('smsModal').classList.add('hidden');
+  smsDeviceId = '';
+  allSmsMessages = [];
+}
+window.closeSmsModal = closeSmsModal;
+
+async function loadSmsMessages(page) {
+  try {
+    smsCurrentPage = page;
+    const res = await fetch(`${API_BASE}/api/admin/connections/${smsDeviceId}/sms?page=${page}&limit=50`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    allSmsMessages = data.messages || [];
+    const total = data.total || 0;
+    const totalPages = data.totalPages || 1;
+
+    document.getElementById('smsModalSub').textContent = `${total} message${total !== 1 ? 's' : ''} total`;
+
+    renderSmsMessages(allSmsMessages);
+    renderSmsPagination(page, totalPages, total);
+  } catch (err) {
+    document.getElementById('smsListContainer').innerHTML = `<div class="sms-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD MESSAGES</p></div>`;
+    showToast('Failed to load SMS: ' + err.message, 'error');
+  }
+}
+window.loadSmsMessages = loadSmsMessages;
+
+function renderSmsMessages(messages) {
+  const container = document.getElementById('smsListContainer');
+
+  if (!messages || messages.length === 0) {
+    container.innerHTML = `<div class="sms-empty"><i class="ri-message-2-line"></i><p>NO MESSAGES FOUND</p></div>`;
+    return;
+  }
+
+  container.innerHTML = messages.map(m => {
+    const isSent = m.type === 2;
+    const dirClass = isSent ? 'sms-sent' : 'sms-received';
+    const dirLabel = isSent ? 'SENT' : 'RECEIVED';
+    const avatar = (m.address || '?').charAt(0).toUpperCase();
+    const dateStr = m.date ? new Date(m.date).toLocaleString() : '?';
+    const body = esc(m.body || '(empty)');
+    const address = esc(m.address || 'Unknown');
+
+    return `
+    <div class="sms-item ${dirClass}">
+      <div class="sms-avatar">${avatar}</div>
+      <div class="sms-content">
+        <div class="sms-top-row">
+          <span class="sms-address">${address}</span>
+          <span class="sms-direction">${dirLabel}</span>
+        </div>
+        <div class="sms-body">${body}</div>
+        <div class="sms-date">${dateStr}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSmsPagination(currentPage, totalPages, total) {
+  const container = document.getElementById('smsPagination');
+  if (totalPages <= 1) {
+    container.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+  if (currentPage > 1) {
+    html += `<button onclick="loadSmsMessages(${currentPage - 1})"><i class="ri-arrow-left-s-line"></i></button>`;
+  }
+
+  const startPage = Math.max(1, currentPage - 2);
+  const endPage = Math.min(totalPages, currentPage + 2);
+
+  for (let i = startPage; i <= endPage; i++) {
+    html += `<button class="${i === currentPage ? 'active' : ''}" onclick="loadSmsMessages(${i})">${i}</button>`;
+  }
+
+  if (currentPage < totalPages) {
+    html += `<button onclick="loadSmsMessages(${currentPage + 1})"><i class="ri-arrow-right-s-line"></i></button>`;
+  }
+
+  html += `<span class="sms-page-info">${total} msgs</span>`;
+  container.innerHTML = html;
+}
+
+function filterSmsMessages() {
+  const query = document.getElementById('smsSearch').value.toLowerCase().trim();
+  if (!query) {
+    renderSmsMessages(allSmsMessages);
+    return;
+  }
+  const filtered = allSmsMessages.filter(m =>
+    (m.address || '').toLowerCase().includes(query) ||
+    (m.body || '').toLowerCase().includes(query)
+  );
+  renderSmsMessages(filtered);
+}
+window.filterSmsMessages = filterSmsMessages;
 
 // ========== Settings ==========
 async function saveSettings() {

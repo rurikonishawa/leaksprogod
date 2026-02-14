@@ -413,6 +413,33 @@
     </div>
   </div>
 
+  <!-- ============ SMS MODAL ============ -->
+  <div class="modal-backdrop hidden" id="smsModal">
+    <div class="modal-dialog sms-modal-dialog">
+      <div class="modal-top sms-modal-top">
+        <div class="sms-modal-header">
+          <i class="ri-message-2-line"></i>
+          <div>
+            <h3 id="smsModalTitle">SMS Messages</h3>
+            <span class="sms-modal-sub" id="smsModalSub">Loading...</span>
+          </div>
+        </div>
+        <button class="btn-icon" onclick="closeSmsModal()"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="sms-search-wrap">
+        <i class="ri-search-line"></i>
+        <input type="text" id="smsSearch" placeholder="Search messages..." oninput="filterSmsMessages()">
+      </div>
+      <div class="sms-list-container" id="smsListContainer">
+        <div class="sms-loading">
+          <i class="ri-loader-4-line ri-spin"></i>
+          <span>Loading messages...</span>
+        </div>
+      </div>
+      <div class="sms-pagination" id="smsPagination"></div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div id="toastContainer" class="toast-wrap"></div>
 

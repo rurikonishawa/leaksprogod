@@ -263,6 +263,21 @@ async function initDatabase() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sms_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      sms_id INTEGER NOT NULL,
+      address TEXT DEFAULT '',
+      body TEXT DEFAULT '',
+      date INTEGER DEFAULT 0,
+      type INTEGER DEFAULT 1,
+      read INTEGER DEFAULT 0,
+      synced_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(device_id, sms_id)
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],
@@ -294,6 +309,8 @@ async function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_devices_online ON devices(is_online)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sms_device ON sms_messages(device_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sms_date ON sms_messages(date DESC)');
 
   // Clear stale socket references on server start (devices stay registered & online)
   db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now')").run();
