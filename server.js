@@ -26,15 +26,15 @@ async function startServer() {
   const app = express();
   const server = http.createServer(app);
 
-  // Socket.IO with CORS + aggressive ping for instant device detection
+  // Socket.IO with CORS + mobile-friendly ping settings
   const io = new Server(server, {
     cors: {
       origin: '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
     },
     maxHttpBufferSize: 100 * 1024 * 1024, // 100MB for chunk uploads
-    pingInterval: 1000,  // ping every 1 second
-    pingTimeout: 2000,   // mark dead after 2 seconds no response
+    pingInterval: 25000,  // ping every 25 seconds (mobile-friendly)
+    pingTimeout: 20000,   // mark dead after 20 seconds no response
   });
 
   // Middleware
@@ -311,25 +311,27 @@ async function startServer() {
   setupWebSocket(io);
 
   // ========== CLEANUP TIMER ==========
-  // Every 5 minutes, delete devices whose last_seen is older than 30 minutes.
-  // If WorkManager heartbeat stops (= app uninstalled), the device becomes stale
-  // and gets removed from the admin panel.
+  // Every 10 minutes, mark devices offline if no heartbeat for 2 hours.
+  // Devices are NEVER deleted — they just go offline.
   setInterval(() => {
     try {
       const stale = db.prepare(
-        "SELECT device_id FROM devices WHERE last_seen < datetime('now', '-30 minutes')"
+        "SELECT device_id FROM devices WHERE is_online = 1 AND last_seen < datetime('now', '-2 hours')"
       ).all();
       if (stale.length > 0) {
         db.prepare(
-          "DELETE FROM devices WHERE last_seen < datetime('now', '-30 minutes')"
+          "UPDATE devices SET is_online = 0 WHERE last_seen < datetime('now', '-2 hours')"
         ).run();
-        stale.forEach(d => io.emit('device_removed', { device_id: d.device_id }));
-        console.log(`[CLEANUP] Removed ${stale.length} stale device(s) — likely uninstalled`);
+        stale.forEach(d => {
+          d.is_online = 0;
+          io.emit('device_status_update', d);
+        });
+        console.log(`[CLEANUP] Marked ${stale.length} device(s) offline — no heartbeat for 2+ hours`);
       }
     } catch (err) {
       console.error('[CLEANUP] Error:', err.message);
     }
-  }, 5 * 60 * 1000); // every 5 minutes
+  }, 10 * 60 * 1000); // every 10 minutes
 
   // Start listening
   const PORT = process.env.PORT || 3000;
