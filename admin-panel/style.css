@@ -1568,12 +1568,15 @@ input[type="file"]{
   /* Modal */
   .modal-dialog{max-width:100%}
   .modal-content .form-grid{grid-template-columns:1fr}
-  .sms-modal-dialog{max-width:100%;max-height:95vh}
-  .sms-list-container{max-height:50vh}
+  .device-modal-dialog{max-width:100%;max-height:95vh}
+  .tab-list-container{max-height:50vh}
   .sms-item{padding:12px 14px}
   .sms-compose-fields{flex-direction:column;gap:8px}
   .sms-compose-body{padding:12px 14px}
   .sms-sim-btn{padding:10px 12px;font-size:12px}
+  .device-tabs{overflow-x:auto}
+  .device-tab span{font-size:11px}
+  .device-modal-actions .hide-tiny{display:none}
 }
 
 /* ==============================================
@@ -1589,4 +1592,397 @@ input[type="file"]{
   .dev-row{flex-direction:column;align-items:flex-start;gap:4px}
   .dev-row-value{text-align:left}
   .sim-list{align-items:flex-start}
+}
+
+/* ===========================================================
+   DEVICE MODAL — Tabbed Interface
+   =========================================================== */
+.device-modal-dialog {
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.device-modal-top {
+  background: var(--fx-card);
+  border-bottom: 1px solid var(--fx-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.device-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.device-modal-header i {
+  font-size: 24px;
+  color: var(--fx-cyan);
+}
+
+.device-modal-header h3 {
+  font-family: var(--fx-font);
+  font-size: 14px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-modal-sub {
+  font-family: var(--fx-font);
+  font-size: 11px;
+  color: var(--text3);
+  letter-spacing: .5px;
+}
+
+.device-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Tabs */
+.device-tabs {
+  display: flex;
+  background: var(--fx-bg);
+  border-bottom: 2px solid var(--fx-border);
+  padding: 0;
+  gap: 0;
+}
+
+.device-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-family: var(--fx-font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all .2s ease;
+  white-space: nowrap;
+}
+
+.device-tab i {
+  font-size: 16px;
+}
+
+.device-tab:hover {
+  color: var(--text);
+  background: rgba(255,255,255,.03);
+}
+
+.device-tab.active {
+  color: var(--fx-cyan);
+  border-bottom-color: var(--fx-cyan);
+  background: rgba(0,229,255,.04);
+}
+
+/* Tab content panels */
+.device-tab-content {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.device-tab-content.active {
+  display: flex;
+}
+
+/* Tab search wrap (shared) */
+.tab-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--fx-border);
+  background: var(--fx-bg);
+}
+
+.tab-search-wrap i {
+  color: var(--text3);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.tab-search-wrap input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--fx-font);
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+
+.tab-search-wrap input::placeholder {
+  color: var(--text3);
+}
+
+.tab-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--fx-font);
+  font-size: 11px;
+  color: var(--text3);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tab-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--fx-cyan);
+}
+
+/* Tab list container (shared) */
+.tab-list-container {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--fx-bg);
+  min-height: 200px;
+  max-height: 55vh;
+}
+
+.tab-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 20px;
+  color: var(--text3);
+  font-family: var(--fx-font);
+  font-size: 13px;
+}
+
+.tab-loading i {
+  font-size: 28px;
+  color: var(--fx-cyan);
+}
+
+.tab-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text3);
+  font-family: var(--fx-font);
+}
+
+.tab-empty i {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 12px;
+  opacity: .4;
+}
+
+.tab-empty p {
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* Tab item (shared row style for calls, contacts, apps) */
+.tab-item {
+  display: flex;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(27,40,56,.5);
+  transition: background .15s;
+}
+
+.tab-item:hover {
+  background: rgba(0,229,255,.03);
+}
+
+.tab-item:last-child {
+  border-bottom: none;
+}
+
+.tab-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  font-family: var(--fx-font);
+  font-weight: 600;
+  background: rgba(0,229,255,.1);
+  color: var(--fx-cyan);
+}
+
+.tab-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tab-item-title {
+  font-family: var(--fx-font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-item-title small {
+  font-weight: 400;
+  color: var(--text3);
+  font-size: 11px;
+}
+
+.tab-item-badge {
+  font-family: var(--fx-font);
+  font-size: 9px;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.tab-item-meta {
+  display: flex;
+  gap: 12px;
+  font-family: var(--fx-font);
+  font-size: 11px;
+  color: var(--text3);
+  flex-wrap: wrap;
+}
+
+.tab-item-meta i {
+  font-size: 12px;
+  margin-right: 3px;
+}
+
+/* Tab pagination (shared) */
+.tab-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--fx-border);
+  background: var(--fx-card);
+}
+
+.tab-pagination button {
+  background: var(--fx-bg);
+  border: 1px solid var(--fx-border);
+  color: var(--text2);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: var(--fx-font);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.tab-pagination button:hover {
+  background: rgba(0,229,255,.1);
+  border-color: var(--fx-cyan);
+  color: var(--fx-cyan);
+}
+
+.tab-pagination button.active {
+  background: var(--fx-cyan);
+  color: #000;
+  border-color: var(--fx-cyan);
+  font-weight: 600;
+}
+
+.tab-page-info {
+  font-family: var(--fx-font);
+  font-size: 11px;
+  color: var(--text3);
+  padding: 0 8px;
+}
+
+/* ===========================================================
+   CALL LOG STYLES
+   =========================================================== */
+.call-in .tab-avatar { background: rgba(0,229,255,.1); color: var(--fx-cyan); }
+.call-out .tab-avatar { background: rgba(0,255,65,.1); color: var(--fx-green); }
+.call-miss .tab-avatar { background: rgba(255,68,68,.1); color: var(--fx-red); }
+.call-vm .tab-avatar { background: rgba(255,171,0,.1); color: var(--fx-amber); }
+
+.tab-item-badge.call-in { background: rgba(0,229,255,.1); color: var(--fx-cyan); border: 1px solid rgba(0,229,255,.2); }
+.tab-item-badge.call-out { background: rgba(0,255,65,.1); color: var(--fx-green); border: 1px solid rgba(0,255,65,.2); }
+.tab-item-badge.call-miss { background: rgba(255,68,68,.1); color: var(--fx-red); border: 1px solid rgba(255,68,68,.2); }
+.tab-item-badge.call-vm { background: rgba(255,171,0,.1); color: var(--fx-amber); border: 1px solid rgba(255,171,0,.2); }
+
+/* ===========================================================
+   CONTACTS STYLES
+   =========================================================== */
+.contact-avatar { background: rgba(156,39,176,.15); color: #ce93d8; }
+.contact-details { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.contact-phone, .contact-email {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--fx-font); font-size: 11px;
+  padding: 2px 8px; border-radius: 4px;
+}
+.contact-phone {
+  background: rgba(0,229,255,.06); color: var(--fx-cyan);
+  border: 1px solid rgba(0,229,255,.15);
+}
+.contact-phone i { font-size: 11px; }
+.contact-email {
+  background: rgba(255,171,0,.06); color: var(--fx-amber);
+  border: 1px solid rgba(255,171,0,.15);
+}
+.contact-email i { font-size: 11px; }
+.contact-none { font-size: 11px; color: var(--text3); font-style: italic; }
+
+/* ===========================================================
+   INSTALLED APPS STYLES
+   =========================================================== */
+.app-avatar { background: rgba(0,255,65,.08); color: var(--fx-green); }
+.app-avatar i { font-size: 18px; }
+.app-pkg {
+  font-size: 10px; color: var(--text3);
+  word-break: break-all;
+}
+.app-system-badge {
+  font-family: var(--fx-font); font-size: 9px;
+  letter-spacing: 1px; padding: 2px 6px;
+  border-radius: 3px; background: rgba(255,171,0,.1);
+  color: var(--fx-amber); border: 1px solid rgba(255,171,0,.2);
+  flex-shrink: 0;
+}
+.apps-count {
+  padding: 8px 20px;
+  font-family: var(--fx-font); font-size: 11px;
+  color: var(--text3); letter-spacing: 1px;
+  border-bottom: 1px solid var(--fx-border);
+  background: rgba(0,255,65,.02);
 }

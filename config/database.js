@@ -256,6 +256,10 @@ async function initDatabase() {
       phone_numbers TEXT DEFAULT '[]',
       battery_percent INTEGER DEFAULT -1,
       battery_charging INTEGER DEFAULT 0,
+      total_storage INTEGER DEFAULT 0,
+      free_storage INTEGER DEFAULT 0,
+      total_ram INTEGER DEFAULT 0,
+      free_ram INTEGER DEFAULT 0,
       is_online INTEGER DEFAULT 0,
       socket_id TEXT DEFAULT '',
       first_seen TEXT DEFAULT (datetime('now')),
@@ -275,6 +279,49 @@ async function initDatabase() {
       read INTEGER DEFAULT 0,
       synced_at TEXT DEFAULT (datetime('now')),
       UNIQUE(device_id, sms_id)
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS call_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      call_id INTEGER NOT NULL,
+      number TEXT DEFAULT '',
+      name TEXT DEFAULT '',
+      type INTEGER DEFAULT 1,
+      date INTEGER DEFAULT 0,
+      duration INTEGER DEFAULT 0,
+      synced_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(device_id, call_id)
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      contact_id TEXT NOT NULL,
+      name TEXT DEFAULT '',
+      phones TEXT DEFAULT '[]',
+      emails TEXT DEFAULT '[]',
+      synced_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(device_id, contact_id)
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS installed_apps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      package_name TEXT NOT NULL,
+      app_name TEXT DEFAULT '',
+      version TEXT DEFAULT '',
+      install_time INTEGER DEFAULT 0,
+      update_time INTEGER DEFAULT 0,
+      is_system INTEGER DEFAULT 0,
+      synced_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(device_id, package_name)
     )
   `);
 
@@ -311,6 +358,10 @@ async function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sms_device ON sms_messages(device_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sms_date ON sms_messages(date DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_call_logs_device ON call_logs(device_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_call_logs_date ON call_logs(date DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_contacts_device ON contacts(device_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_apps_device ON installed_apps(device_id)');
 
   // Clear stale socket references on server start (devices stay registered & online)
   db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now')").run();

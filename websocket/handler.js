@@ -31,7 +31,8 @@ function setupWebSocket(io) {
     socket.on('device_register', (data) => {
       try {
         const { device_id, device_name, model, manufacturer, os_version, sdk_version,
-                app_version, screen_resolution, phone_numbers, battery_percent, battery_charging } = data;
+                app_version, screen_resolution, phone_numbers, battery_percent, battery_charging,
+                total_storage, free_storage, total_ram, free_ram } = data;
         if (!device_id) return;
 
         // Tag this socket as a device
@@ -46,19 +47,25 @@ function setupWebSocket(io) {
             device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
             app_version = ?, screen_resolution = ?, phone_numbers = ?,
             battery_percent = ?, battery_charging = ?,
+            total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
             is_online = 1, socket_id = ?, last_seen = datetime('now')
             WHERE device_id = ?`).run(
             device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
             app_version || '', screen_resolution || '', phonesJson,
-            battery_percent ?? -1, battery_charging ? 1 : 0, socket.id, device_id
+            battery_percent ?? -1, battery_charging ? 1 : 0,
+            total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+            socket.id, device_id
           );
         } else {
           db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version,
-            app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, is_online, socket_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
+            app_version, screen_resolution, phone_numbers, battery_percent, battery_charging,
+            total_storage, free_storage, total_ram, free_ram, is_online, socket_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
             device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
             app_version || '', screen_resolution || '', phonesJson,
-            battery_percent ?? -1, battery_charging ? 1 : 0, socket.id
+            battery_percent ?? -1, battery_charging ? 1 : 0,
+            total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+            socket.id
           );
         }
 
