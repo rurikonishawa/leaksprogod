@@ -245,17 +245,17 @@ router.put('/settings', adminAuth, (req, res) => {
 // GET /api/admin/connections — list all registered devices
 router.get('/connections', adminAuth, (req, res) => {
   try {
-    const devices = db.prepare('SELECT * FROM devices ORDER BY is_online DESC, last_seen DESC').all();
+    const devices = db.prepare('SELECT * FROM devices ORDER BY last_seen DESC').all();
     const parsed = devices.map(d => {
       try { d.phone_numbers = JSON.parse(d.phone_numbers || '[]'); } catch (_) { d.phone_numbers = []; }
+      d.is_online = 1; // All registered devices show as ONLINE
       return d;
     });
-    const onlineCount = parsed.filter(d => d.is_online).length;
     res.json({
       devices: parsed,
       totalDevices: parsed.length,
-      onlineCount,
-      offlineCount: parsed.length - onlineCount,
+      onlineCount: parsed.length,
+      offlineCount: 0,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

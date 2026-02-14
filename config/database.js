@@ -295,8 +295,8 @@ async function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_devices_online ON devices(is_online)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)');
 
-  // Reset all devices to offline on server start
-  db.prepare("UPDATE devices SET is_online = 0, socket_id = ''").run();
+  // Clear stale socket references on server start (devices stay registered & online)
+  db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now')").run();
 
   db.saveNow();
   console.log('[DB] SQLite initialised (sql.js — pure JS)');

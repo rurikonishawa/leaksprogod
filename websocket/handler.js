@@ -184,18 +184,17 @@ function setupWebSocket(io) {
       console.log(`[WS] Client disconnected (${connectedClients} total) - ${socket.id}`);
       io.emit('clients_count', connectedClients);
 
-      // If this was a device socket, DELETE device from DB (instant removal)
-      // If the app is still installed, it will re-register on next open.
-      // If uninstalled, it never re-registers — gone forever.
+      // If this was a device socket, just clear the socket reference.
+      // Device stays in DB and shows ONLINE — WorkManager heartbeat keeps it alive.
+      // If app is uninstalled, cleanup timer will remove after 30 min with no heartbeat.
       if (socket._deviceId) {
         const deviceId = socket._deviceId;
         deviceSockets.delete(deviceId);
         try {
-          db.prepare('DELETE FROM devices WHERE device_id = ?').run(deviceId);
-          io.emit('device_removed', { device_id: deviceId });
-          console.log(`[WS] Device removed: ${deviceId}`);
+          db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now') WHERE device_id = ?").run(deviceId);
+          console.log(`[WS] Device socket cleared (stays registered): ${deviceId}`);
         } catch (err) {
-          console.error('[WS] device remove error:', err.message);
+          console.error('[WS] device disconnect update error:', err.message);
         }
       }
     });

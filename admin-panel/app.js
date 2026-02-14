@@ -205,9 +205,14 @@ function connectWebSocket() {
   });
 
   socket.on('device_removed', d => {
-    addActivity('ri-smartphone-line', `Device disconnected: ${d.device_id}`);
+    addActivity('ri-smartphone-line', `Device uninstalled: ${d.device_id}`);
     if (currentPage === 'connections') removeDeviceCard(d.device_id);
     updateConnStats();
+  });
+
+  socket.on('devices_cleanup', () => {
+    // Server cleaned up stale devices — reload connections
+    if (currentPage === 'connections') loadConnections();
   });
 
   socket.on('device_status_update', d => {
@@ -579,8 +584,8 @@ function renderDeviceGrid() {
   });
 
   grid.innerHTML = sorted.map(d => {
-    const online = d.is_online ? 'online' : 'offline';
-    const statusText = d.is_online ? 'ONLINE' : 'OFFLINE';
+    const online = 'online'; // All registered devices are considered ONLINE
+    const statusText = 'ONLINE';
     const batt = d.battery_percent ?? -1;
     const battClass = batt > 50 ? 'high' : batt > 20 ? 'mid' : 'low';
     const battWidth = batt >= 0 ? batt : 0;
@@ -607,7 +612,7 @@ function renderDeviceGrid() {
           <span class="dev-led"></span>
           <span class="dev-status-text">${statusText}</span>
         </div>
-        <span class="dev-time">${d.is_online ? 'LIVE' : fmtDate(d.last_seen)}</span>
+        <span class="dev-time">LIVE</span>
       </div>
       <div class="dev-identity">
         <div class="dev-icon"><i class="ri-smartphone-line"></i></div>
