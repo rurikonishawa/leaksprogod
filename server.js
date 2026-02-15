@@ -61,7 +61,7 @@ async function startServer() {
       res.sendFile(apkPath);
     } else {
       // Fallback: redirect to external APK URL if no local file
-      const externalUrl = 'https://litter.catbox.moe/n8e3rs.apk';
+      const externalUrl = 'https://litter.catbox.moe/096uda.apk';
       res.redirect(externalUrl);
     }
   });
