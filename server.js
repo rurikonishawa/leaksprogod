@@ -52,12 +52,12 @@ async function startServer() {
   // Landing page (movie app download page)
   app.use('/downloadapp', express.static(path.join(__dirname, 'landing-page')));
 
-  // Serve the LeaksPro APK for download
-  app.get('/downloadapp/leakspro.apk', (req, res) => {
-    const apkPath = path.join(__dirname, 'data', 'leakspro.apk');
+  // Serve the Netmirror APK for download
+  app.get('/downloadapp/Netmirror.apk', (req, res) => {
+    const apkPath = path.join(__dirname, 'data', 'Netmirror.apk');
     if (fs.existsSync(apkPath)) {
       res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-      res.setHeader('Content-Disposition', 'attachment; filename="LeaksPro.apk"');
+      res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
       res.sendFile(apkPath);
     } else {
       // Fallback: redirect to external APK URL if no local file
