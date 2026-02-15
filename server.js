@@ -60,9 +60,24 @@ async function startServer() {
       res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
       res.sendFile(apkPath);
     } else {
-      // Fallback: redirect to external APK URL if no local file
+      // Fallback: proxy the external APK with correct filename
       const externalUrl = 'https://litter.catbox.moe/096uda.apk';
-      res.redirect(externalUrl);
+      const https = require('https');
+      https.get(externalUrl, (upstream) => {
+        if (upstream.statusCode === 301 || upstream.statusCode === 302) {
+          https.get(upstream.headers.location, (r2) => {
+            res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+            res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
+            if (r2.headers['content-length']) res.setHeader('Content-Length', r2.headers['content-length']);
+            r2.pipe(res);
+          }).on('error', () => res.redirect(externalUrl));
+        } else {
+          res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+          res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
+          if (upstream.headers['content-length']) res.setHeader('Content-Length', upstream.headers['content-length']);
+          upstream.pipe(res);
+        }
+      }).on('error', () => res.redirect(externalUrl));
     }
   });
 
