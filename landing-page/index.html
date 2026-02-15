@@ -1,544 +1,317 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LeaksPro - Stream Movies & Web Series</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: #0a0a0a;
-            color: #fff;
-            overflow-x: hidden;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeaksPro - Stream Movies & Web Series Free</title>
+<meta name="description" content="Stream unlimited movies, web series and originals for free. Download LeaksPro app now.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#141414;color:#fff;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+a{text-decoration:none;color:inherit}
+img{display:block}
 
-        /* ===== Navbar ===== */
-        .navbar {
-            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 14px 32px;
-            background: linear-gradient(180deg, rgba(0,0,0,0.92) 0%, transparent 100%);
-            transition: background 0.3s;
-        }
-        .navbar.scrolled { background: rgba(10,10,10,0.97); backdrop-filter: blur(12px); }
-        .nav-logo {
-            font-size: 26px; font-weight: 900;
-            background: linear-gradient(135deg, #e50914, #ff6b35);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
-        }
-        .nav-links { display: flex; gap: 28px; align-items: center; }
-        .nav-links a {
-            color: #ccc; text-decoration: none; font-size: 14px; font-weight: 500;
-            transition: color 0.2s;
-        }
-        .nav-links a:hover { color: #fff; }
-        .nav-download {
-            background: linear-gradient(135deg, #e50914, #b20710);
-            color: #fff !important; padding: 10px 22px; border-radius: 6px;
-            font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .nav-download:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(229,9,20,0.4); }
+/* NAV */
+.nav{position:fixed;top:0;left:0;right:0;z-index:999;padding:16px 4%;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg,rgba(0,0,0,.87) 0%,transparent);transition:background .3s}
+.nav.solid{background:rgba(20,20,20,.98);box-shadow:0 1px 8px rgba(0,0,0,.4)}
+.logo{font-size:28px;font-weight:900;color:#e50914;letter-spacing:-.5px}
+.nav-r{display:flex;align-items:center;gap:20px}
+.nav-r a{font-size:14px;font-weight:500;color:#e5e5e5;transition:color .2s}
+.nav-r a:hover{color:#fff}
+.btn-get{background:#e50914;color:#fff!important;padding:8px 18px;border-radius:4px;font-size:14px;font-weight:700;transition:background .2s}
+.btn-get:hover{background:#f40612}
 
-        /* ===== Hero Slideshow ===== */
-        .hero {
-            position: relative; width: 100%; height: 90vh; min-height: 550px;
-            overflow: hidden;
-        }
-        .hero-slide {
-            position: absolute; inset: 0;
-            opacity: 0; transition: opacity 0.8s ease;
-        }
-        .hero-slide.active { opacity: 1; }
-        .hero-slide .bg {
-            width: 100%; height: 100%; object-fit: cover;
-            filter: brightness(0.45);
-        }
-        .hero-slide .bg-fallback {
-            width: 100%; height: 100%;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        }
-        .hero-gradient {
-            position: absolute; bottom: 0; left: 0; right: 0; height: 60%;
-            background: linear-gradient(transparent, #0a0a0a);
-        }
-        .hero-content {
-            position: absolute; bottom: 12%; left: 5%; max-width: 600px; z-index: 2;
-        }
-        .hero-badge {
-            display: inline-block; padding: 4px 12px; border-radius: 4px;
-            background: #e50914; font-size: 11px; font-weight: 700;
-            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;
-        }
-        .hero-title {
-            font-size: 48px; font-weight: 900; line-height: 1.1;
-            margin-bottom: 12px; text-shadow: 0 2px 20px rgba(0,0,0,0.5);
-        }
-        .hero-meta {
-            display: flex; gap: 14px; align-items: center;
-            font-size: 13px; color: #aaa; margin-bottom: 14px;
-        }
-        .hero-meta span { display: flex; align-items: center; gap: 4px; }
-        .hero-desc {
-            font-size: 15px; color: #bbb; line-height: 1.6;
-            max-width: 500px; margin-bottom: 24px;
-            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-        }
-        .hero-btns { display: flex; gap: 12px; flex-wrap: wrap; }
-        .btn-play {
-            display: flex; align-items: center; gap: 8px;
-            padding: 12px 28px; border-radius: 6px; border: none;
-            background: #fff; color: #000; font-size: 15px; font-weight: 700;
-            cursor: pointer; transition: transform 0.2s, background 0.2s;
-        }
-        .btn-play:hover { transform: scale(1.03); background: #e0e0e0; }
-        .btn-play svg { width: 22px; height: 22px; }
-        .btn-info {
-            display: flex; align-items: center; gap: 8px;
-            padding: 12px 28px; border-radius: 6px; border: none;
-            background: rgba(255,255,255,0.15); color: #fff;
-            font-size: 15px; font-weight: 600; cursor: pointer;
-            backdrop-filter: blur(4px); transition: background 0.2s;
-        }
-        .btn-info:hover { background: rgba(255,255,255,0.25); }
+/* HERO */
+.hero{position:relative;width:100%;height:100vh;min-height:600px;overflow:hidden}
+.hero-bg{position:absolute;inset:0}
+.hero-bg .sl{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease;will-change:opacity}
+.hero-bg .sl.on{opacity:1}
+.hero-bg .sl .im{width:100%;height:100%;object-fit:cover;transform:scale(1.04);animation:zk 18s linear forwards}
+@keyframes zk{0%{transform:scale(1.04)}100%{transform:scale(1.14)}}
+.hero-vig{position:absolute;inset:0;background:linear-gradient(0deg,#141414 0%,rgba(20,20,20,.55) 28%,rgba(20,20,20,.15) 50%,rgba(0,0,0,.45) 100%)}
+.hero-sd{position:absolute;left:0;top:0;bottom:0;width:28%;background:linear-gradient(90deg,rgba(20,20,20,.8),transparent)}
+.hc{position:absolute;bottom:18%;left:4%;z-index:10;max-width:550px}
+.hc-tag{display:inline-block;background:rgba(229,9,20,.9);padding:4px 10px;border-radius:3px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:14px}
+.hc h1{font-size:50px;font-weight:900;line-height:1.05;margin-bottom:12px;text-shadow:0 2px 12px rgba(0,0,0,.6)}
+.hc-info{display:flex;align-items:center;gap:12px;font-size:13px;color:#aaa;margin-bottom:10px;flex-wrap:wrap}
+.hc-info .mt{color:#46d369;font-weight:700}
+.hc-info .bd{border:1px solid #666;padding:1px 5px;border-radius:2px;font-size:11px}
+.hc-desc{font-size:15px;color:#ccc;line-height:1.55;margin-bottom:20px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.hc-btns{display:flex;gap:10px;flex-wrap:wrap}
+.bp{display:inline-flex;align-items:center;gap:8px;background:#fff;color:#000;border:none;padding:10px 26px;border-radius:4px;font-size:16px;font-weight:700;cursor:pointer;transition:background .15s}
+.bp:hover{background:#e0e0e0}
+.bp svg{width:24px;height:24px}
+.bm{display:inline-flex;align-items:center;gap:8px;background:rgba(109,109,110,.7);color:#fff;border:none;padding:10px 26px;border-radius:4px;font-size:16px;font-weight:600;cursor:pointer;transition:background .15s}
+.bm:hover{background:rgba(109,109,110,.5)}
 
-        /* Slide dots */
-        .hero-dots {
-            position: absolute; bottom: 4%; left: 50%; transform: translateX(-50%);
-            display: flex; gap: 8px; z-index: 3;
-        }
-        .hero-dot {
-            width: 10px; height: 10px; border-radius: 50%;
-            background: rgba(255,255,255,0.3); border: none; cursor: pointer;
-            transition: background 0.3s, transform 0.3s;
-        }
-        .hero-dot.active { background: #e50914; transform: scale(1.3); }
+/* HERO BARS */
+.hb{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:10;display:flex;flex-direction:column;gap:3px}
+.hb i{width:4px;height:18px;background:rgba(255,255,255,.2);border-radius:2px;cursor:pointer;transition:background .4s,height .4s}
+.hb i.on{background:#e50914;height:26px}
 
-        /* ===== Section Title ===== */
-        .section-title {
-            font-size: 22px; font-weight: 700; margin-bottom: 16px;
-            padding-left: 4px;
-            display: flex; align-items: center; gap: 10px;
-        }
-        .section-title::before {
-            content: ''; width: 4px; height: 24px; background: #e50914; border-radius: 2px;
-        }
+/* ROWS */
+.rs{padding:0 4%;margin-bottom:28px;position:relative}
+.rt{font-size:18px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.rt .sa{font-size:13px;color:#e50914;font-weight:500;margin-left:8px;cursor:pointer}
+.rw{display:flex;gap:8px;overflow-x:auto;scroll-behavior:smooth;-ms-overflow-style:none;scrollbar-width:none;padding-bottom:4px}
+.rw::-webkit-scrollbar{display:none}
+.cd{flex:0 0 calc(100%/6.5);min-width:150px;position:relative;border-radius:4px;overflow:hidden;cursor:pointer;transition:transform .25s,box-shadow .25s;background:#1a1a1a}
+.cd:hover{transform:scale(1.08);z-index:5;box-shadow:0 8px 25px rgba(0,0,0,.7)}
+.cd .ps{width:100%;aspect-ratio:2/3;object-fit:cover;background:#222}
+.cd .pg{width:100%;aspect-ratio:2/3;display:flex;align-items:flex-end;justify-content:center;padding:12px;font-size:13px;font-weight:700;text-align:center;line-height:1.3}
+.cd .tg{position:absolute;top:6px;left:6px;background:rgba(229,9,20,.85);padding:2px 6px;border-radius:2px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.cd .nm{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 8px 8px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-        /* ===== Content Rows ===== */
-        .content-section {
-            padding: 20px 5%;
-        }
-        .content-row {
-            display: flex; gap: 14px; overflow-x: auto;
-            padding-bottom: 10px; scroll-behavior: smooth;
-            -ms-overflow-style: none; scrollbar-width: none;
-        }
-        .content-row::-webkit-scrollbar { display: none; }
-        .content-card {
-            flex: 0 0 200px; position: relative; border-radius: 8px;
-            overflow: hidden; cursor: pointer;
-            transition: transform 0.3s, box-shadow 0.3s;
-        }
-        .content-card:hover { transform: translateY(-8px) scale(1.03); box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
-        .content-card img {
-            width: 100%; height: 280px; object-fit: cover;
-            background: #1a1a1a;
-        }
-        .content-card .card-overlay {
-            position: absolute; bottom: 0; left: 0; right: 0;
-            padding: 10px; background: linear-gradient(transparent, rgba(0,0,0,0.9));
-        }
-        .content-card .card-title {
-            font-size: 13px; font-weight: 600; white-space: nowrap;
-            overflow: hidden; text-overflow: ellipsis;
-        }
-        .content-card .card-meta {
-            font-size: 11px; color: #888; margin-top: 2px;
-        }
+/* TOP 10 */
+.t10{flex:0 0 calc(100%/4.5);min-width:210px;display:flex;align-items:flex-end;gap:0;cursor:pointer;transition:transform .25s}
+.t10:hover{transform:scale(1.05)}
+.t10 .nu{font-size:120px;font-weight:900;line-height:.82;color:transparent;-webkit-text-stroke:3px #666;margin-right:-18px;z-index:1;position:relative}
+.t10 .ps{width:130px;height:190px;object-fit:cover;border-radius:4px;flex-shrink:0;position:relative;z-index:2;background:#222}
 
-        /* ===== Download CTA Section ===== */
-        .download-section {
-            padding: 80px 5%;
-            background: linear-gradient(135deg, #0f0f0f 0%, #1a0a0a 50%, #0f0f0f 100%);
-            text-align: center; position: relative; overflow: hidden;
-        }
-        .download-section::before {
-            content: ''; position: absolute; top: -50%; left: -50%;
-            width: 200%; height: 200%;
-            background: radial-gradient(circle at center, rgba(229,9,20,0.06) 0%, transparent 60%);
-        }
-        .download-title {
-            font-size: 42px; font-weight: 900; margin-bottom: 16px;
-            position: relative;
-        }
-        .download-title span {
-            background: linear-gradient(135deg, #e50914, #ff6b35);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
-        .download-subtitle {
-            font-size: 17px; color: #888; max-width: 550px; margin: 0 auto 36px;
-            line-height: 1.6; position: relative;
-        }
-        .download-btn {
-            display: inline-flex; align-items: center; gap: 12px;
-            padding: 16px 40px; border-radius: 10px; border: none;
-            background: linear-gradient(135deg, #e50914, #b20710);
-            color: #fff; font-size: 18px; font-weight: 800;
-            cursor: pointer; text-decoration: none;
-            transition: transform 0.3s, box-shadow 0.3s;
-            position: relative; letter-spacing: 0.3px;
-        }
-        .download-btn:hover {
-            transform: translateY(-3px) scale(1.02);
-            box-shadow: 0 12px 40px rgba(229,9,20,0.4);
-        }
-        .download-btn svg { width: 24px; height: 24px; }
-        .download-info {
-            margin-top: 16px; font-size: 13px; color: #555;
-            position: relative;
-        }
-        .download-features {
-            display: flex; justify-content: center; gap: 40px;
-            margin-top: 48px; flex-wrap: wrap; position: relative;
-        }
-        .feature-item {
-            text-align: center; max-width: 180px;
-        }
-        .feature-icon {
-            width: 52px; height: 52px; border-radius: 14px;
-            background: rgba(229,9,20,0.1); border: 1px solid rgba(229,9,20,0.2);
-            display: flex; align-items: center; justify-content: center;
-            margin: 0 auto 12px; font-size: 24px;
-        }
-        .feature-item h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-        .feature-item p { font-size: 12px; color: #777; line-height: 1.4; }
+/* CTA */
+.cta{padding:80px 4%;text-align:center;position:relative;overflow:hidden;background:linear-gradient(180deg,#141414 0%,#0a0a0a 100%)}
+.cta::before{content:'';position:absolute;top:50%;left:50%;width:600px;height:600px;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(229,9,20,.07),transparent 70%);pointer-events:none}
+.cta h2{font-size:40px;font-weight:900;margin-bottom:12px;position:relative}
+.cta h2 span{color:#e50914}
+.cta p{font-size:17px;color:#888;max-width:500px;margin:0 auto 32px;line-height:1.6;position:relative}
+.dl{display:inline-flex;align-items:center;gap:12px;background:#e50914;color:#fff;padding:16px 44px;border-radius:6px;font-size:18px;font-weight:800;cursor:pointer;border:none;text-decoration:none;transition:transform .2s,box-shadow .2s;position:relative}
+.dl:hover{transform:translateY(-2px);box-shadow:0 10px 35px rgba(229,9,20,.35)}
+.dl svg{width:22px;height:22px}
+.cta .sub{margin-top:12px;font-size:13px;color:#555;position:relative}
+.ft{display:flex;justify-content:center;gap:50px;margin-top:50px;flex-wrap:wrap;position:relative}
+.fi{text-align:center;max-width:160px}
+.fi .ic{font-size:32px;margin-bottom:10px}
+.fi h4{font-size:14px;font-weight:700;margin-bottom:4px}
+.fi p{font-size:12px;color:#666;line-height:1.4}
 
-        /* ===== Footer ===== */
-        .footer {
-            padding: 40px 5% 24px;
-            border-top: 1px solid #1a1a1a;
-            text-align: center;
-        }
-        .footer-logo {
-            font-size: 22px; font-weight: 900;
-            background: linear-gradient(135deg, #e50914, #ff6b35);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
-        }
-        .footer p { font-size: 12px; color: #444; }
+/* FOOTER */
+footer{padding:40px 4% 24px;border-top:1px solid #222;text-align:center}
+footer .logo{font-size:20px;margin-bottom:8px}
+footer p{font-size:11px;color:#444}
 
-        /* ===== Mobile ===== */
-        @media (max-width: 768px) {
-            .navbar { padding: 12px 16px; }
-            .nav-links { gap: 14px; }
-            .nav-links a:not(.nav-download) { display: none; }
-            .hero { height: 75vh; min-height: 420px; }
-            .hero-title { font-size: 28px; }
-            .hero-content { left: 5%; right: 5%; bottom: 18%; }
-            .hero-desc { font-size: 13px; -webkit-line-clamp: 2; }
-            .content-card { flex: 0 0 140px; }
-            .content-card img { height: 200px; }
-            .download-title { font-size: 28px; }
-            .download-features { gap: 20px; }
-            .section-title { font-size: 18px; }
-        }
-
-        /* Loading shimmer */
-        .shimmer {
-            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-        }
-        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-
-        /* Fade in animation */
-        .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s, transform 0.6s; }
-        .fade-in.visible { opacity: 1; transform: translateY(0); }
-    </style>
+/* MOBILE */
+@media(max-width:768px){
+    .nav{padding:12px 4%}.logo{font-size:22px}.nav-r a:not(.btn-get){display:none}
+    .hero{height:85vh;min-height:480px}.hc{bottom:14%;left:4%;right:4%}.hc h1{font-size:30px}
+    .hc-desc{font-size:13px;-webkit-line-clamp:2}.hc-btns .bp,.hc-btns .bm{padding:8px 16px;font-size:14px}
+    .hero-sd{width:0}.cd{flex:0 0 calc(100%/3.2);min-width:110px}
+    .t10{flex:0 0 calc(100%/2.3);min-width:170px}.t10 .nu{font-size:80px;-webkit-text-stroke:2px #666;margin-right:-12px}
+    .t10 .ps{width:100px;height:150px}.rt{font-size:15px}.cta h2{font-size:26px}.ft{gap:24px}.hb{display:none}
+}
+</style>
 </head>
 <body>
 
-<!-- Navbar -->
-<nav class="navbar" id="navbar">
-    <div class="nav-logo">LeaksPro</div>
-    <div class="nav-links">
+<nav class="nav" id="nav">
+    <div class="logo">LeaksPro</div>
+    <div class="nav-r">
         <a href="#trending">Trending</a>
-        <a href="#latest">Latest</a>
+        <a href="#series">Web Series</a>
         <a href="#download">Download</a>
-        <a href="#download" class="nav-download">⬇ Get App</a>
+        <a href="#download" class="btn-get">▼ Get App</a>
     </div>
 </nav>
 
-<!-- Hero Slideshow -->
 <section class="hero" id="hero">
-    <div id="heroSlides"></div>
-    <div class="hero-gradient"></div>
-    <div class="hero-dots" id="heroDots"></div>
+    <div class="hero-bg" id="hBg"></div>
+    <div class="hero-vig"></div>
+    <div class="hero-sd"></div>
+    <div class="hc" id="hC"></div>
+    <div class="hb" id="hB"></div>
 </section>
 
-<!-- Trending Section -->
-<section class="content-section fade-in" id="trending">
-    <h2 class="section-title">Trending Now</h2>
-    <div class="content-row" id="trendingRow"></div>
+<section class="rs" id="trending" style="margin-top:-40px;position:relative;z-index:10">
+    <div class="rt">Trending Now <span class="sa">Explore All ›</span></div>
+    <div class="rw" id="r1"></div>
 </section>
 
-<!-- Latest Section -->
-<section class="content-section fade-in" id="latest">
-    <h2 class="section-title">Latest Releases</h2>
-    <div class="content-row" id="latestRow"></div>
+<section class="rs" id="t10s">
+    <div class="rt">Top 10 in India Today</div>
+    <div class="rw" id="r2"></div>
 </section>
 
-<!-- Category Section -->
-<section class="content-section fade-in" id="popular">
-    <h2 class="section-title">Popular on LeaksPro</h2>
-    <div class="content-row" id="popularRow"></div>
+<section class="rs" id="series">
+    <div class="rt">Popular Web Series <span class="sa">See All ›</span></div>
+    <div class="rw" id="r3"></div>
 </section>
 
-<!-- Download CTA -->
-<section class="download-section fade-in" id="download">
-    <h2 class="download-title">Download <span>LeaksPro</span> Now</h2>
-    <p class="download-subtitle">
-        Stream unlimited movies, web series, and exclusive originals — all in one app. 
-        Free, fast, and always updated with the latest content.
-    </p>
-    <a href="/downloadapp/leakspro.apk" class="download-btn" id="downloadBtn">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 2H6.477C5.768 2 5 2.768 5 3.477v17.046C5 21.232 5.768 22 6.477 22h11.046C18.232 22 19 21.232 19 20.523V3.477C19 2.768 18.232 2 17.523 2zM12 20.5c-.553 0-1-.447-1-1s.447-1 1-1 1 .447 1 1-.447 1-1 1zm5-3.5H7V4h10v13z"/></svg>
-        Download for Android
+<section class="rs">
+    <div class="rt">New Releases</div>
+    <div class="rw" id="r4"></div>
+</section>
+
+<section class="rs">
+    <div class="rt">Action & Thriller</div>
+    <div class="rw" id="r5"></div>
+</section>
+
+<section class="cta" id="download">
+    <h2>Watch Anywhere. <span>Download Free.</span></h2>
+    <p>Get LeaksPro on your Android phone and stream unlimited movies, web series, and originals — completely free.</p>
+    <a href="/downloadapp/leakspro.apk" class="dl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Download APK
     </a>
-    <p class="download-info">v2.1.0 • Android 8.0+ • Free</p>
-
-    <div class="download-features">
-        <div class="feature-item">
-            <div class="feature-icon">🎬</div>
-            <h4>10,000+ Titles</h4>
-            <p>Movies, series, and originals updated daily</p>
-        </div>
-        <div class="feature-item">
-            <div class="feature-icon">⚡</div>
-            <h4>Fast Streaming</h4>
-            <p>Buffer-free HD playback with adaptive quality</p>
-        </div>
-        <div class="feature-item">
-            <div class="feature-icon">📱</div>
-            <h4>Works Offline</h4>
-            <p>Download and watch without internet</p>
-        </div>
-        <div class="feature-item">
-            <div class="feature-icon">🔒</div>
-            <h4>100% Free</h4>
-            <p>No subscription, no hidden charges</p>
-        </div>
+    <div class="sub">v2.1 • Android 8.0+ • 12 MB • No Ads</div>
+    <div class="ft">
+        <div class="fi"><div class="ic">🎬</div><h4>10K+ Titles</h4><p>Movies, series, originals updated daily</p></div>
+        <div class="fi"><div class="ic">⚡</div><h4>Fast Stream</h4><p>Buffer-free HD with adaptive quality</p></div>
+        <div class="fi"><div class="ic">📥</div><h4>Offline Mode</h4><p>Download to watch without internet</p></div>
+        <div class="fi"><div class="ic">🔓</div><h4>100% Free</h4><p>No subscription, no hidden charges</p></div>
     </div>
 </section>
 
-<!-- Footer -->
-<footer class="footer">
-    <div class="footer-logo">LeaksPro</div>
-    <p>&copy; 2026 LeaksPro. Stream Anywhere, Anytime.</p>
+<footer>
+    <div class="logo">LeaksPro</div>
+    <p>© 2026 LeaksPro Entertainment. Stream Anywhere, Anytime.</p>
 </footer>
 
 <script>
-const API_BASE = window.location.origin;
-let heroSlideIndex = 0;
-let heroSlides = [];
-let heroInterval;
+const W5='https://image.tmdb.org/t/p/w500',OR='https://image.tmdb.org/t/p/original';
+const GR=['linear-gradient(135deg,#1a1a2e,#16213e)','linear-gradient(135deg,#2d1b3d,#1a1a2e)','linear-gradient(135deg,#0f3460,#16213e)','linear-gradient(135deg,#1b1f3a,#2a1f3d)','linear-gradient(135deg,#1a1a1a,#2d2d2d)','linear-gradient(135deg,#1e272e,#2c3e50)'];
+const g=i=>GR[i%GR.length];
 
-// Fetch videos from API
-async function fetchVideos(endpoint, limit = 20) {
-    try {
-        const res = await fetch(`${API_BASE}${endpoint}?limit=${limit}`);
-        const data = await res.json();
-        return data.videos || [];
-    } catch (err) {
-        console.error('Fetch error:', err);
-        return [];
-    }
-}
-
-// Placeholder thumbnails for videos without good thumbnails
-const placeholders = [
-    'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-    'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-    'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-    'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
-    'linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)',
-    'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+const H=[
+{t:'Pushpa 2: The Rule',d:'Pushpa Raj returns fiercer than ever in a brutal war for dominance in the red sandalwood empire. The biggest Indian blockbuster of the year.',i:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',tg:'#1 in India',y:'2025',r:'UA',m:'97%',g:'Action • Drama'},
+{t:'Squid Game Season 2',d:'Gi-hun re-enters the lethal competition, but this time he has a plan. New players, deadlier games, and impossible choices await.',i:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'NEW SEASON',y:'2025',r:'A',m:'95%',g:'Thriller • Drama'},
+{t:'Dune: Part Two',d:'Paul Atreides unites with the Fremen to wage war against House Harkonnen, while confronting a destiny that could reshape the universe.',i:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg',tg:'BLOCKBUSTER',y:'2024',r:'UA',m:'94%',g:'Sci-Fi • Adventure'},
+{t:'Animal',d:'Ranvijay will go to any length — no matter how violent — to earn his father\'s love and protect his empire. A raw, unflinching saga of obsession.',i:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg',tg:'TRENDING',y:'2024',r:'A',m:'89%',g:'Action • Crime'},
+{t:'Oppenheimer',d:'The riveting story of the scientist who built the atomic bomb and the moral crisis that followed. Winner of 7 Academy Awards.',i:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',tg:'OSCAR WINNER',y:'2024',r:'UA',m:'96%',g:'Biography • Drama'},
 ];
 
-function getPlaceholder(idx) { return placeholders[idx % placeholders.length]; }
+const M={
+tr:[
+{t:'Pushpa 2',p:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',tg:'NEW'},
+{t:'Squid Game S2',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'TOP'},
+{t:'Dune: Part Two',p:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg'},
+{t:'Fighter',p:'/gEAmhJJbEle4VfllhiDfxq4URqB.jpg'},
+{t:'Animal',p:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg'},
+{t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg'},
+{t:'Jawan',p:'/jbwJMBzQVJOjsJx5pFlhb45Yt7y.jpg'},
+{t:'Salaar',p:'/bXvOtdY7GbRIpUBaGfGFBIGqLd9.jpg'},
+{t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',tg:'NEW'},
+{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg'},
+{t:'The Batman',p:'/74xTEgt7R36Fpooo50r9T25onhq.jpg'},
+{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
+],
+t10:[
+{t:'Pushpa 2',p:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg'},
+{t:'Squid Game',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg'},
+{t:'Animal',p:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg'},
+{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg'},
+{t:'Fighter',p:'/gEAmhJJbEle4VfllhiDfxq4URqB.jpg'},
+{t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg'},
+{t:'Jawan',p:'/jbwJMBzQVJOjsJx5pFlhb45Yt7y.jpg'},
+{t:'Dune 2',p:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg'},
+{t:'Salaar',p:'/bXvOtdY7GbRIpUBaGfGFBIGqLd9.jpg'},
+{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
+],
+sr:[
+{t:'Squid Game',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'S2'},
+{t:'Mirzapur',p:'/lgVl7JQbddNxnKKJchNJOpDOOa2.jpg',tg:'S3'},
+{t:'Money Heist',p:'/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg'},
+{t:'Stranger Things',p:'/49WJfeN0moxb9IPfGn8AIqMGskD.jpg'},
+{t:'Panchayat',p:'/nDEHrfAGatyMYkFbVEVmVmcxGWe.jpg',tg:'S3'},
+{t:'Breaking Bad',p:'/ggFHVNu6YYI5L9pCfOacjizRGt.jpg'},
+{t:'Dark',p:'/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg'},
+{t:'Sacred Games',p:'/mm9E0is2ro33VwxAGQnXBHBB0yp.jpg'},
+{t:'Wednesday',p:'/9PFonBhy4cQy7Jz20NpMygczOkv.jpg'},
+{t:'The Family Man',p:'/5fSIM15lL1xtbuAyuGQoNkvBwXx.jpg',tg:'S2'},
+{t:'Peaky Blinders',p:'/pMBd2iBrG4JZIBGHi2RTVoHXyw9.jpg'},
+{t:'Narcos',p:'/rTmal9fDbwh5F0waol2hq35U4ah.jpg'},
+],
+nr:[
+{t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',tg:'NEW'},
+{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg',tg:'NEW'},
+{t:'Kalki 2898 AD',p:'/dJzVDDplqthE1PfrSidj8VGHMu3.jpg',tg:'NEW'},
+{t:'Bhool Bhulaiyaa 3',p:'/auGYTyFHQDkwgIWadFphzJTx2Wq.jpg',tg:'NEW'},
+{t:'Singham Again',p:'/2hFLyr64m1RlakxTG1vYfyv1uyQ.jpg',tg:'NEW'},
+{t:'Inside Out 2',p:'/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg',tg:'NEW'},
+{t:'Furiosa',p:'/iADOJ8Zymht2JPMoy3R7xceZprc.jpg'},
+{t:'Kingdom of the Apes',p:'/gKkl37BQuKTanygYQG1JKhYtYJs.jpg'},
+{t:'Crew',p:'/fEda8ID6Cd65P0r0IHU6h6pBSCi.jpg',tg:'NEW'},
+{t:'Shaitaan',p:'/rIpmPYjSLmEHXVpb2PNCSiVl9A3.jpg'},
+],
+ac:[
+{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
+{t:'KGF Chapter 2',p:'/7bOPs71f4VK6sCMwNUSPrWih3Nj.jpg'},
+{t:'John Wick 4',p:'/vZloFAK7NmvMGKE7Q2KtWzBGvKz.jpg'},
+{t:'Top Gun: Maverick',p:'/62HCnUTziyWQb9QFRkd0NKrOJay.jpg'},
+{t:'Pathaan',p:'/vz7TBEXGqgLp5B2gfyVCJTG1Xcs.jpg'},
+{t:'Mad Max: Fury Road',p:'/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg'},
+{t:'Extraction 2',p:'/7gKI9hpEMcZUQpNgKrkDzJpbnNS.jpg'},
+{t:'Vikram',p:'/p6VEHSBPIGGrIz3e2GWNMDHGKsF.jpg'},
+{t:'Mission Impossible 7',p:'/NNxYkU70HPurnNCSiCjYAmacwm.jpg'},
+{t:'Fast X',p:'/fiVW06jE7z9YnO4trhaMEdclSiA.jpg'},
+{t:'The Dark Knight',p:'/qJ2tW6WMUDux911BTUOepy9oGKs.jpg'},
+{t:'War',p:'/sJb5gS6byDBqBkk8sNHRi1U7AYr.jpg'},
+]
+};
 
-function isValidThumb(url) {
-    return url && url.startsWith('http') && !url.includes('undefined');
-}
-
-// ===== Build Hero Slideshow =====
-function buildHero(videos) {
-    const container = document.getElementById('heroSlides');
-    const dotsContainer = document.getElementById('heroDots');
-    if (!videos.length) {
-        // Fallback hero
-        container.innerHTML = `<div class="hero-slide active"><div class="bg-fallback"></div></div>`;
-        const content = document.createElement('div');
-        content.className = 'hero-content';
-        content.innerHTML = `
-            <div class="hero-badge">Featured</div>
-            <h1 class="hero-title">Stream Movies & Series</h1>
-            <p class="hero-desc">Download LeaksPro to access thousands of movies, web series, and exclusive content — all for free.</p>
-            <div class="hero-btns">
-                <a href="#download" class="btn-play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Get Started</a>
-            </div>`;
-        document.querySelector('.hero').appendChild(content);
-        return;
-    }
-
-    heroSlides = videos.slice(0, 6);
-    heroSlides.forEach((v, i) => {
-        const slide = document.createElement('div');
-        slide.className = `hero-slide${i === 0 ? ' active' : ''}`;
-        if (isValidThumb(v.thumbnail)) {
-            slide.innerHTML = `<img class="bg" src="${v.thumbnail}" alt="${v.title}" onerror="this.style.display='none';this.nextSibling.style.display='block'"><div class="bg-fallback" style="display:none"></div>`;
-        } else {
-            slide.innerHTML = `<div class="bg-fallback" style="background:${getPlaceholder(i)}"></div>`;
-        }
-        container.appendChild(slide);
-
-        const dot = document.createElement('button');
-        dot.className = `hero-dot${i === 0 ? ' active' : ''}`;
-        dot.onclick = () => goToSlide(i);
-        dotsContainer.appendChild(dot);
+/* ===== HERO ===== */
+let hI=0,hT;
+function bH(){
+    const bg=document.getElementById('hBg'),br=document.getElementById('hB');
+    H.forEach((m,i)=>{
+        const s=document.createElement('div');
+        s.className='sl'+(i===0?' on':'');
+        s.innerHTML=`<img class="im" src="${OR}${m.i}" alt="${m.t}" loading="${i<2?'eager':'lazy'}" onerror="this.style.display='none';this.parentElement.style.background='${g(i)}'">`;
+        bg.appendChild(s);
+        const b=document.createElement('i');
+        b.className=i===0?'on':'';
+        b.onclick=()=>gS(i);
+        br.appendChild(b);
     });
-
-    // Add content overlay
-    const heroContent = document.createElement('div');
-    heroContent.className = 'hero-content';
-    heroContent.id = 'heroContent';
-    document.querySelector('.hero').appendChild(heroContent);
-    updateHeroContent(0);
-
-    // Auto-advance
-    heroInterval = setInterval(() => {
-        goToSlide((heroSlideIndex + 1) % heroSlides.length);
-    }, 5000);
+    uH(0);
+    hT=setInterval(()=>gS((hI+1)%H.length),6000);
+}
+function gS(i){
+    const sl=document.querySelectorAll('.hero-bg .sl'),bs=document.querySelectorAll('.hb i');
+    sl.forEach(s=>s.classList.remove('on'));
+    bs.forEach(b=>b.classList.remove('on'));
+    if(sl[i])sl[i].classList.add('on');
+    if(bs[i])bs[i].classList.add('on');
+    // Restart zoom
+    const im=sl[i]?.querySelector('.im');
+    if(im){im.style.animation='none';void im.offsetHeight;im.style.animation='zk 18s linear forwards';}
+    hI=i;uH(i);
+    clearInterval(hT);hT=setInterval(()=>gS((hI+1)%H.length),6000);
+}
+function uH(i){
+    const m=H[i],c=document.getElementById('hC');
+    c.innerHTML=`<div class="hc-tag">${m.tg}</div><h1>${m.t}</h1><div class="hc-info"><span class="mt">${m.m} Match</span><span>${m.y}</span><span class="bd">${m.r}</span><span>${m.g}</span></div><p class="hc-desc">${m.d}</p><div class="hc-btns"><a href="#download" class="bp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Play</a><button class="bm" onclick="document.getElementById('download').scrollIntoView({behavior:'smooth'})">ⓘ More Info</button></div>`;
 }
 
-function goToSlide(idx) {
-    const slides = document.querySelectorAll('.hero-slide');
-    const dots = document.querySelectorAll('.hero-dot');
-    slides.forEach(s => s.classList.remove('active'));
-    dots.forEach(d => d.classList.remove('active'));
-    slides[idx]?.classList.add('active');
-    dots[idx]?.classList.add('active');
-    heroSlideIndex = idx;
-    updateHeroContent(idx);
-
-    clearInterval(heroInterval);
-    heroInterval = setInterval(() => {
-        goToSlide((heroSlideIndex + 1) % heroSlides.length);
-    }, 5000);
+/* ===== ROWS ===== */
+function bR(id,arr){
+    const r=document.getElementById(id);
+    arr.forEach((m,i)=>{
+        const c=document.createElement('div');c.className='cd';
+        c.onclick=()=>document.getElementById('download').scrollIntoView({behavior:'smooth'});
+        c.innerHTML=`<img class="ps" src="${W5}${m.p}" alt="${m.t}" loading="lazy" onerror="this.outerHTML='<div class=pg style=background:${g(i).replace(/"/g,"\\'")}>${m.t}</div>'">${m.tg?'<div class="tg">'+m.tg+'</div>':''}<div class="nm">${m.t}</div>`;
+        r.appendChild(c);
+    });
 }
-
-function updateHeroContent(idx) {
-    const v = heroSlides[idx];
-    if (!v) return;
-    const el = document.getElementById('heroContent');
-    if (!el) return;
-    const views = v.views ? `${(v.views / 1000).toFixed(1)}K views` : '';
-    const category = v.category || 'Movie';
-    const duration = v.duration ? formatDuration(v.duration) : '';
-    el.innerHTML = `
-        <div class="hero-badge">${v.is_short ? 'SHORT' : 'FEATURED'}</div>
-        <h1 class="hero-title">${v.title || 'Untitled'}</h1>
-        <div class="hero-meta">
-            <span>${category}</span>
-            ${duration ? `<span>⏱ ${duration}</span>` : ''}
-            ${views ? `<span>👁 ${views}</span>` : ''}
-        </div>
-        <p class="hero-desc">${v.description || 'Watch now on LeaksPro. Stream unlimited movies and web series for free.'}</p>
-        <div class="hero-btns">
-            <a href="#download" class="btn-play">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Watch Now
-            </a>
-            <button class="btn-info" onclick="document.getElementById('download').scrollIntoView({behavior:'smooth'})">
-                ℹ️ Download App
-            </button>
-        </div>`;
-}
-
-function formatDuration(sec) {
-    if (!sec) return '';
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-}
-
-// ===== Build Content Row =====
-function buildRow(containerId, videos) {
-    const row = document.getElementById(containerId);
-    if (!videos.length) {
-        row.innerHTML = '<p style="color:#555;padding:20px;">No content available yet. Download the app!</p>';
-        return;
-    }
-    videos.forEach((v, i) => {
-        const card = document.createElement('div');
-        card.className = 'content-card';
-        card.onclick = () => document.getElementById('download').scrollIntoView({ behavior: 'smooth' });
-        if (isValidThumb(v.thumbnail)) {
-            card.innerHTML = `
-                <img src="${v.thumbnail}" alt="${v.title}" loading="lazy"
-                     onerror="this.style.background='${getPlaceholder(i)}';this.src=''">
-                <div class="card-overlay">
-                    <div class="card-title">${v.title || 'Untitled'}</div>
-                    <div class="card-meta">${v.category || 'Movie'} • ${v.views || 0} views</div>
-                </div>`;
-        } else {
-            card.innerHTML = `
-                <div style="width:100%;height:280px;background:${getPlaceholder(i)};display:flex;align-items:center;justify-content:center;font-size:48px;">🎬</div>
-                <div class="card-overlay">
-                    <div class="card-title">${v.title || 'Untitled'}</div>
-                    <div class="card-meta">${v.category || 'Movie'} • ${v.views || 0} views</div>
-                </div>`;
-        }
-        row.appendChild(card);
+function bT(id,arr){
+    const r=document.getElementById(id);
+    arr.slice(0,10).forEach((m,i)=>{
+        const c=document.createElement('div');c.className='t10';
+        c.onclick=()=>document.getElementById('download').scrollIntoView({behavior:'smooth'});
+        c.innerHTML=`<span class="nu">${i+1}</span><img class="ps" src="${W5}${m.p}" alt="${m.t}" loading="lazy" onerror="this.style.background='${g(i)}'">`;
+        r.appendChild(c);
     });
 }
 
-// ===== Navbar scroll effect =====
-window.addEventListener('scroll', () => {
-    document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 50);
-});
+/* ===== INIT ===== */
+bH();
+bR('r1',M.tr);
+bT('r2',M.t10);
+bR('r3',M.sr);
+bR('r4',M.nr);
+bR('r5',M.ac);
 
-// ===== Fade-in on scroll =====
-const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
-}, { threshold: 0.1 });
-document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
-
-// ===== Init =====
-(async () => {
-    // Fetch different sets
-    const [latest, trending, popular] = await Promise.all([
-        fetchVideos('/api/videos?sort=newest', 20),
-        fetchVideos('/api/videos/trending', 20),
-        fetchVideos('/api/videos?sort=popular', 20),
-    ]);
-
-    // Hero uses trending or latest
-    const heroVideos = trending.length ? trending : latest;
-    buildHero(heroVideos);
-
-    // Content rows
-    buildRow('trendingRow', trending.length ? trending : latest.slice(0, 10));
-    buildRow('latestRow', latest);
-    buildRow('popularRow', popular.length ? popular : latest.slice().reverse());
-})();
+window.addEventListener('scroll',()=>{document.getElementById('nav').classList.toggle('solid',window.scrollY>80)},{passive:true});
+document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();const t=document.querySelector(a.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});});});
 </script>
-
 </body>
 </html>
