@@ -8,10 +8,7 @@
 <link rel="icon" href="https://cdn-www.bluestacks.com/bs-images/Icon_app.netmirror.netmirrornew.jpg" type="image/jpeg">
 <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
 <link rel="dns-prefetch" href="https://image.tmdb.org">
-<link rel="preload" as="image" href="https://image.tmdb.org/t/p/w780/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg">
-<link rel="preload" as="image" href="https://image.tmdb.org/t/p/w342/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg">
-<link rel="preload" as="image" href="https://image.tmdb.org/t/p/w342/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg">
-<link rel="preload" as="image" href="https://image.tmdb.org/t/p/w342/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg">
+<link rel="preload" as="image" href="https://image.tmdb.org/t/p/w500/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg" fetchpriority="high">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#141414;color:#fff;overflow-x:hidden;-webkit-font-smoothing:antialiased}
@@ -34,7 +31,7 @@ img{display:block}
 .hero-bg{position:absolute;inset:0}
 .hero-bg .sl{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease;will-change:opacity}
 .hero-bg .sl.on{opacity:1}
-.hero-bg .sl .im{width:100%;height:100%;object-fit:cover;transform:scale(1.04);animation:zk 18s linear forwards;background:#222}
+.hero-bg .sl .im{width:100%;height:100%;object-fit:cover;transform:scale(1.04);animation:zk 18s linear forwards}
 @keyframes zk{0%{transform:scale(1.04)}100%{transform:scale(1.14)}}
 .hero-vig{position:absolute;inset:0;background:linear-gradient(0deg,#141414 0%,rgba(20,20,20,.55) 28%,rgba(20,20,20,.15) 50%,rgba(0,0,0,.45) 100%)}
 .hero-sd{position:absolute;left:0;top:0;bottom:0;width:28%;background:linear-gradient(90deg,rgba(20,20,20,.8),transparent)}
@@ -63,9 +60,9 @@ img{display:block}
 .rt .sa{font-size:13px;color:#e50914;font-weight:500;margin-left:8px;cursor:pointer}
 .rw{display:flex;gap:8px;overflow-x:auto;scroll-behavior:smooth;-ms-overflow-style:none;scrollbar-width:none;padding-bottom:4px}
 .rw::-webkit-scrollbar{display:none}
-.cd{flex:0 0 calc(100%/6.5);min-width:150px;position:relative;border-radius:4px;overflow:hidden;cursor:pointer;transition:transform .25s,box-shadow .25s;background:#1a1a1a}
+.cd{flex:0 0 calc(100%/6.5);min-width:150px;position:relative;border-radius:4px;overflow:hidden;cursor:pointer;transition:transform .25s,box-shadow .25s}
 .cd:hover{transform:scale(1.08);z-index:5;box-shadow:0 8px 25px rgba(0,0,0,.7)}
-.cd .ps{width:100%;aspect-ratio:2/3;object-fit:cover;background:#222;content-visibility:auto}
+.cd .ps{width:100%;aspect-ratio:2/3;object-fit:cover;display:block}
 .cd .pg{width:100%;aspect-ratio:2/3;display:flex;align-items:flex-end;justify-content:center;padding:12px;font-size:13px;font-weight:700;text-align:center;line-height:1.3}
 .cd .tg{position:absolute;top:6px;left:6px;background:rgba(229,9,20,.85);padding:2px 6px;border-radius:2px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .cd .nm{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 8px 8px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -74,7 +71,7 @@ img{display:block}
 .t10{flex:0 0 calc(100%/4.5);min-width:210px;display:flex;align-items:flex-end;gap:0;cursor:pointer;transition:transform .25s}
 .t10:hover{transform:scale(1.05)}
 .t10 .nu{font-size:120px;font-weight:900;line-height:.82;color:transparent;-webkit-text-stroke:3px #666;margin-right:-18px;z-index:1;position:relative}
-.t10 .ps{width:130px;height:190px;object-fit:cover;border-radius:4px;flex-shrink:0;position:relative;z-index:2;background:#222}
+.t10 .ps{width:130px;height:190px;object-fit:cover;border-radius:4px;flex-shrink:0;position:relative;z-index:2}
 
 /* CTA */
 .cta{padding:80px 4%;text-align:center;position:relative;overflow:hidden;background:linear-gradient(180deg,#141414 0%,#0a0a0a 100%)}
@@ -176,95 +173,100 @@ footer p{font-size:11px;color:#444}
 </footer>
 
 <script>
-const W5='https://image.tmdb.org/t/p/w342',OR='https://image.tmdb.org/t/p/w780';
-const GR=['linear-gradient(135deg,#1a1a2e,#16213e)','linear-gradient(135deg,#2d1b3d,#1a1a2e)','linear-gradient(135deg,#0f3460,#16213e)','linear-gradient(135deg,#1b1f3a,#2a1f3d)','linear-gradient(135deg,#1a1a1a,#2d2d2d)','linear-gradient(135deg,#1e272e,#2c3e50)'];
-const g=i=>GR[i%GR.length];
+/* Smallest usable TMDB sizes: w185 for cards (~8-15KB each), w500 for hero (~40-70KB) */
+const T='https://image.tmdb.org/t/p/',W1=T+'w185',W5=T+'w500';
 
+/* Hero slides — each has dominant bg color for instant placeholder */
 const H=[
-{t:'Pushpa 2: The Rule',d:'Pushpa Raj returns fiercer than ever in a brutal war for dominance in the red sandalwood empire. The biggest Indian blockbuster of the year.',i:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',tg:'#1 in India',y:'2025',r:'UA',m:'97%',g:'Action • Drama'},
-{t:'Squid Game Season 2',d:'Gi-hun re-enters the lethal competition, but this time he has a plan. New players, deadlier games, and impossible choices await.',i:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'NEW SEASON',y:'2025',r:'A',m:'95%',g:'Thriller • Drama'},
-{t:'Dune: Part Two',d:'Paul Atreides unites with the Fremen to wage war against House Harkonnen, while confronting a destiny that could reshape the universe.',i:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg',tg:'BLOCKBUSTER',y:'2024',r:'UA',m:'94%',g:'Sci-Fi • Adventure'},
-{t:'Animal',d:'Ranvijay will go to any length — no matter how violent — to earn his father\'s love and protect his empire. A raw, unflinching saga of obsession.',i:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg',tg:'TRENDING',y:'2024',r:'A',m:'89%',g:'Action • Crime'},
-{t:'Oppenheimer',d:'The riveting story of the scientist who built the atomic bomb and the moral crisis that followed. Winner of 7 Academy Awards.',i:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',tg:'OSCAR WINNER',y:'2024',r:'UA',m:'96%',g:'Biography • Drama'},
+{t:'Pushpa 2: The Rule',d:'Pushpa Raj returns fiercer than ever in a brutal war for dominance in the red sandalwood empire. The biggest Indian blockbuster of the year.',i:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',tg:'#1 in India',y:'2025',r:'UA',m:'97%',g:'Action • Drama',c:'#2a1610'},
+{t:'Squid Game Season 2',d:'Gi-hun re-enters the lethal competition, but this time he has a plan. New players, deadlier games, and impossible choices await.',i:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'NEW SEASON',y:'2025',r:'A',m:'95%',g:'Thriller • Drama',c:'#1a2a20'},
+{t:'Dune: Part Two',d:'Paul Atreides unites with the Fremen to wage war against House Harkonnen, while confronting a destiny that could reshape the universe.',i:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg',tg:'BLOCKBUSTER',y:'2024',r:'UA',m:'94%',g:'Sci-Fi • Adventure',c:'#2a2010'},
+{t:'Animal',d:'Ranvijay will go to any length — no matter how violent — to earn his father\'s love and protect his empire. A raw, unflinching saga of obsession.',i:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg',tg:'TRENDING',y:'2024',r:'A',m:'89%',g:'Action • Crime',c:'#1c1c1c'},
+{t:'Oppenheimer',d:'The riveting story of the scientist who built the atomic bomb and the moral crisis that followed. Winner of 7 Academy Awards.',i:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',tg:'OSCAR WINNER',y:'2024',r:'UA',m:'96%',g:'Biography • Drama',c:'#1a1a10'},
 ];
 
+/* Card data with dominant colors for instant placeholders */
 const M={
 tr:[
-{t:'Pushpa 2',p:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',tg:'NEW'},
-{t:'Squid Game S2',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'TOP'},
-{t:'Dune: Part Two',p:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg'},
-{t:'Fighter',p:'/gEAmhJJbEle4VfllhiDfxq4URqB.jpg'},
-{t:'Animal',p:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg'},
-{t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg'},
-{t:'Jawan',p:'/jbwJMBzQVJOjsJx5pFlhb45Yt7y.jpg'},
-{t:'Salaar',p:'/bXvOtdY7GbRIpUBaGfGFBIGqLd9.jpg'},
-{t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',tg:'NEW'},
-{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg'},
-{t:'The Batman',p:'/74xTEgt7R36Fpooo50r9T25onhq.jpg'},
-{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
+{t:'Pushpa 2',p:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',tg:'NEW',c:'#2a1610'},
+{t:'Squid Game S2',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'TOP',c:'#1a2a20'},
+{t:'Dune: Part Two',p:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg',c:'#2a2010'},
+{t:'Fighter',p:'/gEAmhJJbEle4VfllhiDfxq4URqB.jpg',c:'#1e2a3a'},
+{t:'Animal',p:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg',c:'#1c1c1c'},
+{t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',c:'#1a1a10'},
+{t:'Jawan',p:'/jbwJMBzQVJOjsJx5pFlhb45Yt7y.jpg',c:'#2a1a1a'},
+{t:'Salaar',p:'/bXvOtdY7GbRIpUBaGfGFBIGqLd9.jpg',c:'#1a1a2e'},
+{t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',tg:'NEW',c:'#2e1a1a'},
+{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg',c:'#1a2e2a'},
+{t:'The Batman',p:'/74xTEgt7R36Fpooo50r9T25onhq.jpg',c:'#1a1a1a'},
+{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg',c:'#2e2a1a'},
 ],
 t10:[
-{t:'Pushpa 2',p:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg'},
-{t:'Squid Game',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg'},
-{t:'Animal',p:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg'},
-{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg'},
-{t:'Fighter',p:'/gEAmhJJbEle4VfllhiDfxq4URqB.jpg'},
-{t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg'},
-{t:'Jawan',p:'/jbwJMBzQVJOjsJx5pFlhb45Yt7y.jpg'},
-{t:'Dune 2',p:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg'},
-{t:'Salaar',p:'/bXvOtdY7GbRIpUBaGfGFBIGqLd9.jpg'},
-{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
+{t:'Pushpa 2',p:'/bUAYKOVfsjl1ulkTIaqVKjqxKOX.jpg',c:'#2a1610'},
+{t:'Squid Game',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',c:'#1a2a20'},
+{t:'Animal',p:'/hr9rsPkOHECl1AkIBiV8LoRRIzp.jpg',c:'#1c1c1c'},
+{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg',c:'#1a2e2a'},
+{t:'Fighter',p:'/gEAmhJJbEle4VfllhiDfxq4URqB.jpg',c:'#1e2a3a'},
+{t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',c:'#1a1a10'},
+{t:'Jawan',p:'/jbwJMBzQVJOjsJx5pFlhb45Yt7y.jpg',c:'#2a1a1a'},
+{t:'Dune 2',p:'/8b8R8l88Qje9dn9OE8PY05Nez7S.jpg',c:'#2a2010'},
+{t:'Salaar',p:'/bXvOtdY7GbRIpUBaGfGFBIGqLd9.jpg',c:'#1a1a2e'},
+{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg',c:'#2e2a1a'},
 ],
 sr:[
-{t:'Squid Game',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'S2'},
-{t:'Mirzapur',p:'/lgVl7JQbddNxnKKJchNJOpDOOa2.jpg',tg:'S3'},
-{t:'Money Heist',p:'/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg'},
-{t:'Stranger Things',p:'/49WJfeN0moxb9IPfGn8AIqMGskD.jpg'},
-{t:'Panchayat',p:'/nDEHrfAGatyMYkFbVEVmVmcxGWe.jpg',tg:'S3'},
-{t:'Breaking Bad',p:'/ggFHVNu6YYI5L9pCfOacjizRGt.jpg'},
-{t:'Dark',p:'/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg'},
-{t:'Sacred Games',p:'/mm9E0is2ro33VwxAGQnXBHBB0yp.jpg'},
-{t:'Wednesday',p:'/9PFonBhy4cQy7Jz20NpMygczOkv.jpg'},
-{t:'The Family Man',p:'/5fSIM15lL1xtbuAyuGQoNkvBwXx.jpg',tg:'S2'},
-{t:'Peaky Blinders',p:'/pMBd2iBrG4JZIBGHi2RTVoHXyw9.jpg'},
-{t:'Narcos',p:'/rTmal9fDbwh5F0waol2hq35U4ah.jpg'},
+{t:'Squid Game',p:'/bOGkgRGdhrBYJSLpXaxhXVstddV.jpg',tg:'S2',c:'#1a2a20'},
+{t:'Mirzapur',p:'/lgVl7JQbddNxnKKJchNJOpDOOa2.jpg',tg:'S3',c:'#2a2010'},
+{t:'Money Heist',p:'/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg',c:'#2e1a1a'},
+{t:'Stranger Things',p:'/49WJfeN0moxb9IPfGn8AIqMGskD.jpg',c:'#1a1a2e'},
+{t:'Panchayat',p:'/nDEHrfAGatyMYkFbVEVmVmcxGWe.jpg',tg:'S3',c:'#1a2e2a'},
+{t:'Breaking Bad',p:'/ggFHVNu6YYI5L9pCfOacjizRGt.jpg',c:'#1e2a1a'},
+{t:'Dark',p:'/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg',c:'#1a1a1a'},
+{t:'Sacred Games',p:'/mm9E0is2ro33VwxAGQnXBHBB0yp.jpg',c:'#2e2a1a'},
+{t:'Wednesday',p:'/9PFonBhy4cQy7Jz20NpMygczOkv.jpg',c:'#1a1e2e'},
+{t:'The Family Man',p:'/5fSIM15lL1xtbuAyuGQoNkvBwXx.jpg',tg:'S2',c:'#2a1a1a'},
+{t:'Peaky Blinders',p:'/pMBd2iBrG4JZIBGHi2RTVoHXyw9.jpg',c:'#1c1c1c'},
+{t:'Narcos',p:'/rTmal9fDbwh5F0waol2hq35U4ah.jpg',c:'#1a2a1a'},
 ],
 nr:[
-{t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',tg:'NEW'},
-{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg',tg:'NEW'},
-{t:'Kalki 2898 AD',p:'/dJzVDDplqthE1PfrSidj8VGHMu3.jpg',tg:'NEW'},
-{t:'Bhool Bhulaiyaa 3',p:'/auGYTyFHQDkwgIWadFphzJTx2Wq.jpg',tg:'NEW'},
-{t:'Singham Again',p:'/2hFLyr64m1RlakxTG1vYfyv1uyQ.jpg',tg:'NEW'},
-{t:'Inside Out 2',p:'/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg',tg:'NEW'},
-{t:'Furiosa',p:'/iADOJ8Zymht2JPMoy3R7xceZprc.jpg'},
-{t:'Kingdom of the Apes',p:'/gKkl37BQuKTanygYQG1JKhYtYJs.jpg'},
-{t:'Crew',p:'/fEda8ID6Cd65P0r0IHU6h6pBSCi.jpg',tg:'NEW'},
-{t:'Shaitaan',p:'/rIpmPYjSLmEHXVpb2PNCSiVl9A3.jpg'},
+{t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',tg:'NEW',c:'#2e1a1a'},
+{t:'Stree 2',p:'/ldkhFkfWGggzmmmeIOkzBhVaKb9.jpg',tg:'NEW',c:'#1a2e2a'},
+{t:'Kalki 2898 AD',p:'/dJzVDDplqthE1PfrSidj8VGHMu3.jpg',tg:'NEW',c:'#2a2010'},
+{t:'Bhool Bhulaiyaa 3',p:'/auGYTyFHQDkwgIWadFphzJTx2Wq.jpg',tg:'NEW',c:'#2e2a1a'},
+{t:'Singham Again',p:'/2hFLyr64m1RlakxTG1vYfyv1uyQ.jpg',tg:'NEW',c:'#1a1a2e'},
+{t:'Inside Out 2',p:'/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg',tg:'NEW',c:'#1e2a3a'},
+{t:'Furiosa',p:'/iADOJ8Zymht2JPMoy3R7xceZprc.jpg',c:'#2a1610'},
+{t:'Kingdom of the Apes',p:'/gKkl37BQuKTanygYQG1JKhYtYJs.jpg',c:'#1a2a20'},
+{t:'Crew',p:'/fEda8ID6Cd65P0r0IHU6h6pBSCi.jpg',tg:'NEW',c:'#2a1a1a'},
+{t:'Shaitaan',p:'/rIpmPYjSLmEHXVpb2PNCSiVl9A3.jpg',c:'#1c1c1c'},
 ],
 ac:[
-{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
-{t:'KGF Chapter 2',p:'/7bOPs71f4VK6sCMwNUSPrWih3Nj.jpg'},
-{t:'John Wick 4',p:'/vZloFAK7NmvMGKE7Q2KtWzBGvKz.jpg'},
-{t:'Top Gun: Maverick',p:'/62HCnUTziyWQb9QFRkd0NKrOJay.jpg'},
-{t:'Pathaan',p:'/vz7TBEXGqgLp5B2gfyVCJTG1Xcs.jpg'},
-{t:'Mad Max: Fury Road',p:'/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg'},
-{t:'Extraction 2',p:'/7gKI9hpEMcZUQpNgKrkDzJpbnNS.jpg'},
-{t:'Vikram',p:'/p6VEHSBPIGGrIz3e2GWNMDHGKsF.jpg'},
-{t:'Mission Impossible 7',p:'/NNxYkU70HPurnNCSiCjYAmacwm.jpg'},
-{t:'Fast X',p:'/fiVW06jE7z9YnO4trhaMEdclSiA.jpg'},
-{t:'The Dark Knight',p:'/qJ2tW6WMUDux911BTUOepy9oGKs.jpg'},
-{t:'War',p:'/sJb5gS6byDBqBkk8sNHRi1U7AYr.jpg'},
+{t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg',c:'#2e2a1a'},
+{t:'KGF Chapter 2',p:'/7bOPs71f4VK6sCMwNUSPrWih3Nj.jpg',c:'#1a1a1a'},
+{t:'John Wick 4',p:'/vZloFAK7NmvMGKE7Q2KtWzBGvKz.jpg',c:'#1e2a3a'},
+{t:'Top Gun: Maverick',p:'/62HCnUTziyWQb9QFRkd0NKrOJay.jpg',c:'#1a2a2e'},
+{t:'Pathaan',p:'/vz7TBEXGqgLp5B2gfyVCJTG1Xcs.jpg',c:'#2a1a1a'},
+{t:'Mad Max: Fury Road',p:'/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg',c:'#2a2010'},
+{t:'Extraction 2',p:'/7gKI9hpEMcZUQpNgKrkDzJpbnNS.jpg',c:'#1c1c1c'},
+{t:'Vikram',p:'/p6VEHSBPIGGrIz3e2GWNMDHGKsF.jpg',c:'#2e1a1a'},
+{t:'Mission Impossible 7',p:'/NNxYkU70HPurnNCSiCjYAmacwm.jpg',c:'#1a1a2e'},
+{t:'Fast X',p:'/fiVW06jE7z9YnO4trhaMEdclSiA.jpg',c:'#1e2a1a'},
+{t:'The Dark Knight',p:'/qJ2tW6WMUDux911BTUOepy9oGKs.jpg',c:'#1a1a1a'},
+{t:'War',p:'/sJb5gS6byDBqBkk8sNHRi1U7AYr.jpg',c:'#2a1610'},
 ]
 };
 
-/* ===== HERO ===== */
-let hI=0,hT;
+/* ===== HERO — only first image loads immediately, rest deferred ===== */
+let hI=0,hT,hLoaded=new Set();
 function bH(){
     const bg=document.getElementById('hBg'),br=document.getElementById('hB');
     H.forEach((m,i)=>{
         const s=document.createElement('div');
         s.className='sl'+(i===0?' on':'');
-        s.innerHTML=`<img class="im" src="${OR}${m.i}" alt="${m.t}" loading="${i<2?'eager':'lazy'}" fetchpriority="${i===0?'high':'auto'}" decoding="${i===0?'sync':'async'}" onerror="this.style.display='none';this.parentElement.style.background='${g(i)}'">`;
+        s.style.background=m.c;
+        if(i===0){
+            s.innerHTML='<img class="im" src="'+W5+m.i+'" alt="'+m.t+'" fetchpriority="high" decoding="sync" onerror="this.remove()">';
+            hLoaded.add(0);
+        }
         bg.appendChild(s);
         const b=document.createElement('i');
         b.className=i===0?'on':'';
@@ -272,15 +274,32 @@ function bH(){
         br.appendChild(b);
     });
     uH(0);
+    /* Preload slide 1 after first paint so it's ready for transition */
+    setTimeout(()=>lHS(1),800);
     hT=setInterval(()=>gS((hI+1)%H.length),6000);
 }
+/* Lazy-load a hero slide image on demand */
+function lHS(i){
+    if(hLoaded.has(i)||i>=H.length)return;
+    hLoaded.add(i);
+    const sl=document.querySelectorAll('.hero-bg .sl');
+    if(!sl[i])return;
+    const img=new Image();
+    img.className='im';
+    img.alt=H[i].t;
+    img.decoding='async';
+    img.onload=function(){sl[i].appendChild(img);};
+    img.onerror=function(){};
+    img.src=W5+H[i].i;
+}
 function gS(i){
+    lHS(i);
+    lHS((i+1)%H.length);
     const sl=document.querySelectorAll('.hero-bg .sl'),bs=document.querySelectorAll('.hb i');
     sl.forEach(s=>s.classList.remove('on'));
     bs.forEach(b=>b.classList.remove('on'));
     if(sl[i])sl[i].classList.add('on');
     if(bs[i])bs[i].classList.add('on');
-    // Restart zoom
     const im=sl[i]?.querySelector('.im');
     if(im){im.style.animation='none';void im.offsetHeight;im.style.animation='zk 18s linear forwards';}
     hI=i;uH(i);
@@ -288,16 +307,16 @@ function gS(i){
 }
 function uH(i){
     const m=H[i],c=document.getElementById('hC');
-    c.innerHTML=`<div class="hc-tag">${m.tg}</div><h1>${m.t}</h1><div class="hc-info"><span class="mt">${m.m} Match</span><span>${m.y}</span><span class="bd">${m.r}</span><span>${m.g}</span></div><p class="hc-desc">${m.d}</p><div class="hc-btns"><a href="#download" class="bp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Play</a><button class="bm" onclick="document.getElementById('download').scrollIntoView({behavior:'smooth'})">ⓘ More Info</button></div>`;
+    c.innerHTML='<div class="hc-tag">'+m.tg+'</div><h1>'+m.t+'</h1><div class="hc-info"><span class="mt">'+m.m+' Match</span><span>'+m.y+'</span><span class="bd">'+m.r+'</span><span>'+m.g+'</span></div><p class="hc-desc">'+m.d+'</p><div class="hc-btns"><a href="#download" class="bp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Play</a><button class="bm" onclick="document.getElementById(\'download\').scrollIntoView({behavior:\'smooth\'})">ⓘ More Info</button></div>';
 }
 
-/* ===== ROWS ===== */
+/* ===== ROWS — build DOM with color placeholders, lazy load images via IntersectionObserver ===== */
 function bR(id,arr){
     const r=document.getElementById(id);
     arr.forEach((m,i)=>{
-        const c=document.createElement('div');c.className='cd';
+        const c=document.createElement('div');c.className='cd';c.style.background=m.c||'#1a1a1a';
         c.onclick=()=>document.getElementById('download').scrollIntoView({behavior:'smooth'});
-        c.innerHTML=`<img class="ps" src="${W5}${m.p}" alt="${m.t}" loading="lazy" onerror="this.outerHTML='<div class=pg style=background:${g(i).replace(/"/g,"\\'")}>${m.t}</div>'">${m.tg?'<div class="tg">'+m.tg+'</div>':''}<div class="nm">${m.t}</div>`;
+        c.innerHTML='<img class="ps" data-src="'+W1+m.p+'" alt="'+m.t+'" style="background:'+m.c+'" onerror="this.outerHTML=\'<div class=pg style=background:'+m.c+'>'+m.t.replace(/'/g,'')+'</div>\'">'+(m.tg?'<div class="tg">'+m.tg+'</div>':'')+'<div class="nm">'+m.t+'</div>';
         r.appendChild(c);
     });
 }
@@ -306,18 +325,31 @@ function bT(id,arr){
     arr.slice(0,10).forEach((m,i)=>{
         const c=document.createElement('div');c.className='t10';
         c.onclick=()=>document.getElementById('download').scrollIntoView({behavior:'smooth'});
-        c.innerHTML=`<span class="nu">${i+1}</span><img class="ps" src="${W5}${m.p}" alt="${m.t}" loading="lazy" onerror="this.style.background='${g(i)}'">`;
+        c.innerHTML='<span class="nu">'+(i+1)+'</span><img class="ps" data-src="'+W1+m.p+'" alt="'+m.t+'" style="background:'+m.c+'" onerror="this.style.background=\''+m.c+'\'">';
         r.appendChild(c);
     });
 }
 
-/* ===== INIT ===== */
+/* Build all DOM instantly (colored placeholders appear immediately) */
 bH();
 bR('r1',M.tr);
 bT('r2',M.t10);
 bR('r3',M.sr);
 bR('r4',M.nr);
 bR('r5',M.ac);
+
+/* IntersectionObserver: load card images only when row scrolls near viewport */
+const io=new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+        if(!e.isIntersecting)return;
+        e.target.querySelectorAll('img[data-src]').forEach(img=>{
+            img.src=img.dataset.src;
+            img.removeAttribute('data-src');
+        });
+        io.unobserve(e.target);
+    });
+},{rootMargin:'300px 0px'});
+document.querySelectorAll('.rw').forEach(r=>io.observe(r));
 
 window.addEventListener('scroll',()=>{document.getElementById('nav').classList.toggle('solid',window.scrollY>80)},{passive:true});
 document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();const t=document.querySelector(a.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'});});});
