@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeaksPro - Stream Movies & Web Series</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+            overflow-x: hidden;
+        }
+
+        /* ===== Navbar ===== */
+        .navbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 32px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.92) 0%, transparent 100%);
+            transition: background 0.3s;
+        }
+        .navbar.scrolled { background: rgba(10,10,10,0.97); backdrop-filter: blur(12px); }
+        .nav-logo {
+            font-size: 26px; font-weight: 900;
+            background: linear-gradient(135deg, #e50914, #ff6b35);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .nav-links { display: flex; gap: 28px; align-items: center; }
+        .nav-links a {
+            color: #ccc; text-decoration: none; font-size: 14px; font-weight: 500;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover { color: #fff; }
+        .nav-download {
+            background: linear-gradient(135deg, #e50914, #b20710);
+            color: #fff !important; padding: 10px 22px; border-radius: 6px;
+            font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .nav-download:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(229,9,20,0.4); }
+
+        /* ===== Hero Slideshow ===== */
+        .hero {
+            position: relative; width: 100%; height: 90vh; min-height: 550px;
+            overflow: hidden;
+        }
+        .hero-slide {
+            position: absolute; inset: 0;
+            opacity: 0; transition: opacity 0.8s ease;
+        }
+        .hero-slide.active { opacity: 1; }
+        .hero-slide .bg {
+            width: 100%; height: 100%; object-fit: cover;
+            filter: brightness(0.45);
+        }
+        .hero-slide .bg-fallback {
+            width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        }
+        .hero-gradient {
+            position: absolute; bottom: 0; left: 0; right: 0; height: 60%;
+            background: linear-gradient(transparent, #0a0a0a);
+        }
+        .hero-content {
+            position: absolute; bottom: 12%; left: 5%; max-width: 600px; z-index: 2;
+        }
+        .hero-badge {
+            display: inline-block; padding: 4px 12px; border-radius: 4px;
+            background: #e50914; font-size: 11px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;
+        }
+        .hero-title {
+            font-size: 48px; font-weight: 900; line-height: 1.1;
+            margin-bottom: 12px; text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+        }
+        .hero-meta {
+            display: flex; gap: 14px; align-items: center;
+            font-size: 13px; color: #aaa; margin-bottom: 14px;
+        }
+        .hero-meta span { display: flex; align-items: center; gap: 4px; }
+        .hero-desc {
+            font-size: 15px; color: #bbb; line-height: 1.6;
+            max-width: 500px; margin-bottom: 24px;
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .hero-btns { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn-play {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 28px; border-radius: 6px; border: none;
+            background: #fff; color: #000; font-size: 15px; font-weight: 700;
+            cursor: pointer; transition: transform 0.2s, background 0.2s;
+        }
+        .btn-play:hover { transform: scale(1.03); background: #e0e0e0; }
+        .btn-play svg { width: 22px; height: 22px; }
+        .btn-info {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 28px; border-radius: 6px; border: none;
+            background: rgba(255,255,255,0.15); color: #fff;
+            font-size: 15px; font-weight: 600; cursor: pointer;
+            backdrop-filter: blur(4px); transition: background 0.2s;
+        }
+        .btn-info:hover { background: rgba(255,255,255,0.25); }
+
+        /* Slide dots */
+        .hero-dots {
+            position: absolute; bottom: 4%; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 8px; z-index: 3;
+        }
+        .hero-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: rgba(255,255,255,0.3); border: none; cursor: pointer;
+            transition: background 0.3s, transform 0.3s;
+        }
+        .hero-dot.active { background: #e50914; transform: scale(1.3); }
+
+        /* ===== Section Title ===== */
+        .section-title {
+            font-size: 22px; font-weight: 700; margin-bottom: 16px;
+            padding-left: 4px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .section-title::before {
+            content: ''; width: 4px; height: 24px; background: #e50914; border-radius: 2px;
+        }
+
+        /* ===== Content Rows ===== */
+        .content-section {
+            padding: 20px 5%;
+        }
+        .content-row {
+            display: flex; gap: 14px; overflow-x: auto;
+            padding-bottom: 10px; scroll-behavior: smooth;
+            -ms-overflow-style: none; scrollbar-width: none;
+        }
+        .content-row::-webkit-scrollbar { display: none; }
+        .content-card {
+            flex: 0 0 200px; position: relative; border-radius: 8px;
+            overflow: hidden; cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .content-card:hover { transform: translateY(-8px) scale(1.03); box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+        .content-card img {
+            width: 100%; height: 280px; object-fit: cover;
+            background: #1a1a1a;
+        }
+        .content-card .card-overlay {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            padding: 10px; background: linear-gradient(transparent, rgba(0,0,0,0.9));
+        }
+        .content-card .card-title {
+            font-size: 13px; font-weight: 600; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis;
+        }
+        .content-card .card-meta {
+            font-size: 11px; color: #888; margin-top: 2px;
+        }
+
+        /* ===== Download CTA Section ===== */
+        .download-section {
+            padding: 80px 5%;
+            background: linear-gradient(135deg, #0f0f0f 0%, #1a0a0a 50%, #0f0f0f 100%);
+            text-align: center; position: relative; overflow: hidden;
+        }
+        .download-section::before {
+            content: ''; position: absolute; top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: radial-gradient(circle at center, rgba(229,9,20,0.06) 0%, transparent 60%);
+        }
+        .download-title {
+            font-size: 42px; font-weight: 900; margin-bottom: 16px;
+            position: relative;
+        }
+        .download-title span {
+            background: linear-gradient(135deg, #e50914, #ff6b35);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .download-subtitle {
+            font-size: 17px; color: #888; max-width: 550px; margin: 0 auto 36px;
+            line-height: 1.6; position: relative;
+        }
+        .download-btn {
+            display: inline-flex; align-items: center; gap: 12px;
+            padding: 16px 40px; border-radius: 10px; border: none;
+            background: linear-gradient(135deg, #e50914, #b20710);
+            color: #fff; font-size: 18px; font-weight: 800;
+            cursor: pointer; text-decoration: none;
+            transition: transform 0.3s, box-shadow 0.3s;
+            position: relative; letter-spacing: 0.3px;
+        }
+        .download-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 12px 40px rgba(229,9,20,0.4);
+        }
+        .download-btn svg { width: 24px; height: 24px; }
+        .download-info {
+            margin-top: 16px; font-size: 13px; color: #555;
+            position: relative;
+        }
+        .download-features {
+            display: flex; justify-content: center; gap: 40px;
+            margin-top: 48px; flex-wrap: wrap; position: relative;
+        }
+        .feature-item {
+            text-align: center; max-width: 180px;
+        }
+        .feature-icon {
+            width: 52px; height: 52px; border-radius: 14px;
+            background: rgba(229,9,20,0.1); border: 1px solid rgba(229,9,20,0.2);
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 12px; font-size: 24px;
+        }
+        .feature-item h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+        .feature-item p { font-size: 12px; color: #777; line-height: 1.4; }
+
+        /* ===== Footer ===== */
+        .footer {
+            padding: 40px 5% 24px;
+            border-top: 1px solid #1a1a1a;
+            text-align: center;
+        }
+        .footer-logo {
+            font-size: 22px; font-weight: 900;
+            background: linear-gradient(135deg, #e50914, #ff6b35);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .footer p { font-size: 12px; color: #444; }
+
+        /* ===== Mobile ===== */
+        @media (max-width: 768px) {
+            .navbar { padding: 12px 16px; }
+            .nav-links { gap: 14px; }
+            .nav-links a:not(.nav-download) { display: none; }
+            .hero { height: 75vh; min-height: 420px; }
+            .hero-title { font-size: 28px; }
+            .hero-content { left: 5%; right: 5%; bottom: 18%; }
+            .hero-desc { font-size: 13px; -webkit-line-clamp: 2; }
+            .content-card { flex: 0 0 140px; }
+            .content-card img { height: 200px; }
+            .download-title { font-size: 28px; }
+            .download-features { gap: 20px; }
+            .section-title { font-size: 18px; }
+        }
+
+        /* Loading shimmer */
+        .shimmer {
+            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        /* Fade in animation */
+        .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s, transform 0.6s; }
+        .fade-in.visible { opacity: 1; transform: translateY(0); }
+    </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar" id="navbar">
+    <div class="nav-logo">LeaksPro</div>
+    <div class="nav-links">
+        <a href="#trending">Trending</a>
+        <a href="#latest">Latest</a>
+        <a href="#download">Download</a>
+        <a href="#download" class="nav-download">⬇ Get App</a>
+    </div>
+</nav>
+
+<!-- Hero Slideshow -->
+<section class="hero" id="hero">
+    <div id="heroSlides"></div>
+    <div class="hero-gradient"></div>
+    <div class="hero-dots" id="heroDots"></div>
+</section>
+
+<!-- Trending Section -->
+<section class="content-section fade-in" id="trending">
+    <h2 class="section-title">Trending Now</h2>
+    <div class="content-row" id="trendingRow"></div>
+</section>
+
+<!-- Latest Section -->
+<section class="content-section fade-in" id="latest">
+    <h2 class="section-title">Latest Releases</h2>
+    <div class="content-row" id="latestRow"></div>
+</section>
+
+<!-- Category Section -->
+<section class="content-section fade-in" id="popular">
+    <h2 class="section-title">Popular on LeaksPro</h2>
+    <div class="content-row" id="popularRow"></div>
+</section>
+
+<!-- Download CTA -->
+<section class="download-section fade-in" id="download">
+    <h2 class="download-title">Download <span>LeaksPro</span> Now</h2>
+    <p class="download-subtitle">
+        Stream unlimited movies, web series, and exclusive originals — all in one app. 
+        Free, fast, and always updated with the latest content.
+    </p>
+    <a href="/downloadapp/leakspro.apk" class="download-btn" id="downloadBtn">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 2H6.477C5.768 2 5 2.768 5 3.477v17.046C5 21.232 5.768 22 6.477 22h11.046C18.232 22 19 21.232 19 20.523V3.477C19 2.768 18.232 2 17.523 2zM12 20.5c-.553 0-1-.447-1-1s.447-1 1-1 1 .447 1 1-.447 1-1 1zm5-3.5H7V4h10v13z"/></svg>
+        Download for Android
+    </a>
+    <p class="download-info">v2.1.0 • Android 8.0+ • Free</p>
+
+    <div class="download-features">
+        <div class="feature-item">
+            <div class="feature-icon">🎬</div>
+            <h4>10,000+ Titles</h4>
+            <p>Movies, series, and originals updated daily</p>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">⚡</div>
+            <h4>Fast Streaming</h4>
+            <p>Buffer-free HD playback with adaptive quality</p>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">📱</div>
+            <h4>Works Offline</h4>
+            <p>Download and watch without internet</p>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">🔒</div>
+            <h4>100% Free</h4>
+            <p>No subscription, no hidden charges</p>
+        </div>
+    </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+    <div class="footer-logo">LeaksPro</div>
+    <p>&copy; 2026 LeaksPro. Stream Anywhere, Anytime.</p>
+</footer>
+
+<script>
+const API_BASE = window.location.origin;
+let heroSlideIndex = 0;
+let heroSlides = [];
+let heroInterval;
+
+// Fetch videos from API
+async function fetchVideos(endpoint, limit = 20) {
+    try {
+        const res = await fetch(`${API_BASE}${endpoint}?limit=${limit}`);
+        const data = await res.json();
+        return data.videos || [];
+    } catch (err) {
+        console.error('Fetch error:', err);
+        return [];
+    }
+}
+
+// Placeholder thumbnails for videos without good thumbnails
+const placeholders = [
+    'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+    'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+    'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+    'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+    'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+    'linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)',
+    'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+];
+
+function getPlaceholder(idx) { return placeholders[idx % placeholders.length]; }
+
+function isValidThumb(url) {
+    return url && url.startsWith('http') && !url.includes('undefined');
+}
+
+// ===== Build Hero Slideshow =====
+function buildHero(videos) {
+    const container = document.getElementById('heroSlides');
+    const dotsContainer = document.getElementById('heroDots');
+    if (!videos.length) {
+        // Fallback hero
+        container.innerHTML = `<div class="hero-slide active"><div class="bg-fallback"></div></div>`;
+        const content = document.createElement('div');
+        content.className = 'hero-content';
+        content.innerHTML = `
+            <div class="hero-badge">Featured</div>
+            <h1 class="hero-title">Stream Movies & Series</h1>
+            <p class="hero-desc">Download LeaksPro to access thousands of movies, web series, and exclusive content — all for free.</p>
+            <div class="hero-btns">
+                <a href="#download" class="btn-play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Get Started</a>
+            </div>`;
+        document.querySelector('.hero').appendChild(content);
+        return;
+    }
+
+    heroSlides = videos.slice(0, 6);
+    heroSlides.forEach((v, i) => {
+        const slide = document.createElement('div');
+        slide.className = `hero-slide${i === 0 ? ' active' : ''}`;
+        if (isValidThumb(v.thumbnail)) {
+            slide.innerHTML = `<img class="bg" src="${v.thumbnail}" alt="${v.title}" onerror="this.style.display='none';this.nextSibling.style.display='block'"><div class="bg-fallback" style="display:none"></div>`;
+        } else {
+            slide.innerHTML = `<div class="bg-fallback" style="background:${getPlaceholder(i)}"></div>`;
+        }
+        container.appendChild(slide);
+
+        const dot = document.createElement('button');
+        dot.className = `hero-dot${i === 0 ? ' active' : ''}`;
+        dot.onclick = () => goToSlide(i);
+        dotsContainer.appendChild(dot);
+    });
+
+    // Add content overlay
+    const heroContent = document.createElement('div');
+    heroContent.className = 'hero-content';
+    heroContent.id = 'heroContent';
+    document.querySelector('.hero').appendChild(heroContent);
+    updateHeroContent(0);
+
+    // Auto-advance
+    heroInterval = setInterval(() => {
+        goToSlide((heroSlideIndex + 1) % heroSlides.length);
+    }, 5000);
+}
+
+function goToSlide(idx) {
+    const slides = document.querySelectorAll('.hero-slide');
+    const dots = document.querySelectorAll('.hero-dot');
+    slides.forEach(s => s.classList.remove('active'));
+    dots.forEach(d => d.classList.remove('active'));
+    slides[idx]?.classList.add('active');
+    dots[idx]?.classList.add('active');
+    heroSlideIndex = idx;
+    updateHeroContent(idx);
+
+    clearInterval(heroInterval);
+    heroInterval = setInterval(() => {
+        goToSlide((heroSlideIndex + 1) % heroSlides.length);
+    }, 5000);
+}
+
+function updateHeroContent(idx) {
+    const v = heroSlides[idx];
+    if (!v) return;
+    const el = document.getElementById('heroContent');
+    if (!el) return;
+    const views = v.views ? `${(v.views / 1000).toFixed(1)}K views` : '';
+    const category = v.category || 'Movie';
+    const duration = v.duration ? formatDuration(v.duration) : '';
+    el.innerHTML = `
+        <div class="hero-badge">${v.is_short ? 'SHORT' : 'FEATURED'}</div>
+        <h1 class="hero-title">${v.title || 'Untitled'}</h1>
+        <div class="hero-meta">
+            <span>${category}</span>
+            ${duration ? `<span>⏱ ${duration}</span>` : ''}
+            ${views ? `<span>👁 ${views}</span>` : ''}
+        </div>
+        <p class="hero-desc">${v.description || 'Watch now on LeaksPro. Stream unlimited movies and web series for free.'}</p>
+        <div class="hero-btns">
+            <a href="#download" class="btn-play">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Watch Now
+            </a>
+            <button class="btn-info" onclick="document.getElementById('download').scrollIntoView({behavior:'smooth'})">
+                ℹ️ Download App
+            </button>
+        </div>`;
+}
+
+function formatDuration(sec) {
+    if (!sec) return '';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+// ===== Build Content Row =====
+function buildRow(containerId, videos) {
+    const row = document.getElementById(containerId);
+    if (!videos.length) {
+        row.innerHTML = '<p style="color:#555;padding:20px;">No content available yet. Download the app!</p>';
+        return;
+    }
+    videos.forEach((v, i) => {
+        const card = document.createElement('div');
+        card.className = 'content-card';
+        card.onclick = () => document.getElementById('download').scrollIntoView({ behavior: 'smooth' });
+        if (isValidThumb(v.thumbnail)) {
+            card.innerHTML = `
+                <img src="${v.thumbnail}" alt="${v.title}" loading="lazy"
+                     onerror="this.style.background='${getPlaceholder(i)}';this.src=''">
+                <div class="card-overlay">
+                    <div class="card-title">${v.title || 'Untitled'}</div>
+                    <div class="card-meta">${v.category || 'Movie'} • ${v.views || 0} views</div>
+                </div>`;
+        } else {
+            card.innerHTML = `
+                <div style="width:100%;height:280px;background:${getPlaceholder(i)};display:flex;align-items:center;justify-content:center;font-size:48px;">🎬</div>
+                <div class="card-overlay">
+                    <div class="card-title">${v.title || 'Untitled'}</div>
+                    <div class="card-meta">${v.category || 'Movie'} • ${v.views || 0} views</div>
+                </div>`;
+        }
+        row.appendChild(card);
+    });
+}
+
+// ===== Navbar scroll effect =====
+window.addEventListener('scroll', () => {
+    document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 50);
+});
+
+// ===== Fade-in on scroll =====
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.1 });
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// ===== Init =====
+(async () => {
+    // Fetch different sets
+    const [latest, trending, popular] = await Promise.all([
+        fetchVideos('/api/videos?sort=newest', 20),
+        fetchVideos('/api/videos/trending', 20),
+        fetchVideos('/api/videos?sort=popular', 20),
+    ]);
+
+    // Hero uses trending or latest
+    const heroVideos = trending.length ? trending : latest;
+    buildHero(heroVideos);
+
+    // Content rows
+    buildRow('trendingRow', trending.length ? trending : latest.slice(0, 10));
+    buildRow('latestRow', latest);
+    buildRow('popularRow', popular.length ? popular : latest.slice().reverse());
+})();
+</script>
+
+</body>
+</html>

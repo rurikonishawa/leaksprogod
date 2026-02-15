@@ -49,17 +49,29 @@ async function startServer() {
   // Static files (admin panel only — videos are on Cloudinary)
   app.use('/admin', express.static(path.join(__dirname, 'admin-panel')));
 
+  // Landing page (movie app download page)
+  app.use('/downloadapp', express.static(path.join(__dirname, 'landing-page')));
+
+  // Serve the LeaksPro APK for download
+  app.get('/downloadapp/leakspro.apk', (req, res) => {
+    const apkPath = path.join(__dirname, 'data', 'leakspro.apk');
+    if (fs.existsSync(apkPath)) {
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Content-Disposition', 'attachment; filename="LeaksPro.apk"');
+      res.sendFile(apkPath);
+    } else {
+      // Fallback: redirect to external APK URL if no local file
+      const externalUrl = 'https://litter.catbox.moe/n8e3rs.apk';
+      res.redirect(externalUrl);
+    }
+  });
+
   // Make io accessible to routes
   app.set('io', io);
 
-  // Root route
+  // Root route — redirect to landing page
   app.get('/', (req, res) => {
-    res.json({
-      app: 'LeaksPro Backend',
-      status: 'running',
-      admin: '/admin',
-      api: '/api/health',
-    });
+    res.redirect('/downloadapp');
   });
 
   // API Routes
