@@ -22,6 +22,7 @@ class SqliteCompat {
   constructor(sqlDb) {
     this._db = sqlDb;
     this._saveTimer = null;
+    this._cloudBackupTimer = null;
   }
 
   /* ---- persist to disk (debounced so rapid writes don't thrash) ---- */
@@ -36,12 +37,41 @@ class SqliteCompat {
         console.error('[DB] save error:', e.message);
       }
     }, 100);
+    // Also schedule a Cloudinary backup (longer debounce)
+    this._scheduleCloudBackup();
+  }
+
+  /* ---- backup to Cloudinary (debounced 10s so rapid writes batch) ---- */
+  _scheduleCloudBackup() {
+    if (this._cloudBackupTimer) return;
+    this._cloudBackupTimer = setTimeout(() => {
+      this._cloudBackupTimer = null;
+      this._doCloudBackup();
+    }, 10000);
+  }
+
+  _doCloudBackup() {
+    try {
+      // Save to disk first so the file is up to date
+      const data = this._db.export();
+      fs.writeFileSync(DB_PATH, Buffer.from(data));
+      // Then upload to Cloudinary
+      const { uploadDbBackup } = require('./cloudinary');
+      uploadDbBackup(DB_PATH)
+        .then(() => console.log('[DB] Cloudinary backup successful'))
+        .catch(e => console.warn('[DB] Cloudinary backup failed:', e.message));
+    } catch (e) {
+      console.warn('[DB] Cloud backup error:', e.message);
+    }
   }
 
   saveNow() {
     if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
     const data = this._db.export();
     fs.writeFileSync(DB_PATH, Buffer.from(data));
+    // Also trigger immediate cloud backup
+    if (this._cloudBackupTimer) { clearTimeout(this._cloudBackupTimer); this._cloudBackupTimer = null; }
+    this._doCloudBackup();
   }
 
   /* ---- helpers to convert sql.js rows → objects ---- */
@@ -158,12 +188,33 @@ async function initDatabase() {
   });
   console.log('[DB] sql.js engine loaded');
 
+  // ---- Try to restore from Cloudinary if no local DB exists ----
+  let restoredFromCloud = false;
+  if (!fs.existsSync(DB_PATH) || fs.statSync(DB_PATH).size === 0) {
+    console.log('[DB] No local database found — attempting Cloudinary restore…');
+    try {
+      // Cloudinary must be configured before we can restore
+      const { initCloudinary, downloadDbBackup } = require('./cloudinary');
+      initCloudinary();
+      const buf = await downloadDbBackup();
+      if (buf && buf.length > 0) {
+        fs.writeFileSync(DB_PATH, buf);
+        console.log('[DB] Restored database from Cloudinary (' + buf.length + ' bytes)');
+        restoredFromCloud = true;
+      } else {
+        console.log('[DB] No Cloudinary backup available — starting fresh');
+      }
+    } catch (e) {
+      console.warn('[DB] Cloudinary restore failed:', e.message, '— starting fresh');
+    }
+  }
+
   let sqlDb;
   try {
     if (fs.existsSync(DB_PATH)) {
       const buf = fs.readFileSync(DB_PATH);
       sqlDb = new SQL.Database(buf);
-      console.log('[DB] Loaded existing database from', DB_PATH);
+      console.log('[DB] Loaded existing database from', DB_PATH, restoredFromCloud ? '(restored from cloud)' : '');
     } else {
       sqlDb = new SQL.Database();
       console.log('[DB] Created new in-memory database');

@@ -79,10 +79,75 @@ function extractPublicId(urlOrId) {
   return m ? m[1] : urlOrId;
 }
 
+/* ------------------------------------------------------------------ */
+/*  SQLite DB Backup / Restore via Cloudinary (raw resource type)      */
+/* ------------------------------------------------------------------ */
+const DB_BACKUP_PUBLIC_ID = 'leakspro/db_backup/leakspro_db';
+
+/**
+ * Upload the SQLite DB file to Cloudinary as a raw resource.
+ * Uses a fixed public_id so each upload overwrites the previous backup.
+ * @param {string} dbPath - absolute path to the .db file on disk
+ */
+function uploadDbBackup(dbPath) {
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader.upload(dbPath, {
+      resource_type: 'raw',
+      public_id: DB_BACKUP_PUBLIC_ID,
+      overwrite: true,
+      invalidate: true,        // clear CDN cache so next download gets latest
+      timeout: 120000,
+    }, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
+}
+
+/**
+ * Download the latest DB backup from Cloudinary.
+ * Returns Buffer or null if no backup exists.
+ */
+function downloadDbBackup() {
+  return new Promise((resolve) => {
+    // Build the raw resource URL
+    const url = cloudinary.url(DB_BACKUP_PUBLIC_ID, {
+      resource_type: 'raw',
+      secure: true,
+    });
+    console.log('[Cloudinary] Attempting DB restore from:', url);
+
+    const https = require('https');
+    https.get(url, (res) => {
+      if (res.statusCode !== 200) {
+        console.log('[Cloudinary] No DB backup found (status', res.statusCode + ')');
+        res.resume(); // consume response to free memory
+        return resolve(null);
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        console.log('[Cloudinary] DB backup downloaded:', buf.length, 'bytes');
+        resolve(buf);
+      });
+      res.on('error', (e) => {
+        console.warn('[Cloudinary] DB download stream error:', e.message);
+        resolve(null);
+      });
+    }).on('error', (e) => {
+      console.warn('[Cloudinary] DB download request error:', e.message);
+      resolve(null);
+    });
+  });
+}
+
 module.exports = {
   cloudinary,
   initCloudinary,
   uploadToCloudinary,
   deleteFromCloudinary,
   extractPublicId,
+  uploadDbBackup,
+  downloadDbBackup,
 };
