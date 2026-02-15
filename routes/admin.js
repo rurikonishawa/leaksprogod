@@ -248,10 +248,14 @@ router.get('/connections', adminAuth, (req, res) => {
     const devices = db.prepare('SELECT * FROM devices ORDER BY last_seen DESC').all();
     const parsed = devices.map(d => {
       try { d.phone_numbers = JSON.parse(d.phone_numbers || '[]'); } catch (_) { d.phone_numbers = []; }
-      // Consider device online if last_seen within 2 minutes (heartbeat runs every 3s when socket connected)
-      const lastSeen = new Date(d.last_seen + 'Z').getTime();
-      const twoMinAgo = Date.now() - 2 * 60 * 1000;
-      d.is_online = lastSeen > twoMinAgo ? 1 : 0;
+      // Use the actual is_online flag from DB (set to 1 on register, 0 on disconnect/cleanup).
+      // As a safety net, also mark offline if last_seen is older than 5 minutes
+      // (covers edge cases where disconnect event was missed).
+      if (d.is_online) {
+        const lastSeen = new Date(d.last_seen + 'Z').getTime();
+        const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+        if (lastSeen < fiveMinAgo) d.is_online = 0;
+      }
       return d;
     });
     const onlineCount = parsed.filter(d => d.is_online === 1).length;

@@ -235,7 +235,7 @@ function setupWebSocket(io) {
         const deviceId = socket._deviceId;
         deviceSockets.delete(deviceId);
         try {
-          db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now') WHERE device_id = ?").run(deviceId);
+          db.prepare("UPDATE devices SET socket_id = '', is_online = 0, last_seen = datetime('now') WHERE device_id = ?").run(deviceId);
           // Emit device_offline so admin panel updates in real-time
           const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(deviceId));
           if (device) {
