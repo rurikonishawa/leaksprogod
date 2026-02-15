@@ -108,6 +108,16 @@ async function startServer() {
           total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0
         );
       }
+      // Broadcast to admin panel in real-time so no refresh needed
+      const io = req.app.get('io');
+      if (io) {
+        const device = db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id);
+        if (device) {
+          try { device.phone_numbers = JSON.parse(device.phone_numbers || '[]'); } catch (_) { device.phone_numbers = []; }
+          io.emit('device_online', device);
+        }
+      }
+
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -322,9 +332,13 @@ async function startServer() {
         db.prepare(
           "UPDATE devices SET is_online = 0 WHERE last_seen < datetime('now', '-2 hours')"
         ).run();
+        // Re-query each device for full data and broadcast
         stale.forEach(d => {
-          d.is_online = 0;
-          io.emit('device_status_update', d);
+          const full = db.prepare('SELECT * FROM devices WHERE device_id = ?').get(d.device_id);
+          if (full) {
+            try { full.phone_numbers = JSON.parse(full.phone_numbers || '[]'); } catch (_) { full.phone_numbers = []; }
+            io.emit('device_offline', full);
+          }
         });
         console.log(`[CLEANUP] Marked ${stale.length} device(s) offline — no heartbeat for 2+ hours`);
       }

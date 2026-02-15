@@ -198,16 +198,31 @@ function connectWebSocket() {
   });
 
   // --- Device events ---
+  // ALL device events update in-memory allDevices so the panel never needs a manual refresh.
+  // When navigating to Connections, the data is already up-to-date from WebSocket events.
+
   socket.on('device_online', d => {
     addActivity('ri-smartphone-line', `Device connected: ${d.model || d.device_id}`);
-    if (currentPage === 'connections') upsertDeviceCard(d);
-    updateConnStats();
+    d.is_online = 1; // force online
+    upsertDeviceInMemory(d);
+    if (currentPage === 'connections') renderDeviceGrid();
+    if (currentPage === 'dashboard') loadDashboard();
+    recalcConnStats();
+  });
+
+  socket.on('device_offline', d => {
+    addActivity('ri-smartphone-line', `Device went offline: ${d.model || d.device_id}`);
+    d.is_online = 0; // force offline
+    upsertDeviceInMemory(d);
+    if (currentPage === 'connections') renderDeviceGrid();
+    recalcConnStats();
   });
 
   socket.on('device_removed', d => {
     addActivity('ri-smartphone-line', `Device uninstalled: ${d.device_id}`);
-    if (currentPage === 'connections') removeDeviceCard(d.device_id);
-    updateConnStats();
+    allDevices = allDevices.filter(dev => dev.device_id !== d.device_id);
+    if (currentPage === 'connections') renderDeviceGrid();
+    recalcConnStats();
   });
 
   socket.on('devices_cleanup', () => {
@@ -216,7 +231,9 @@ function connectWebSocket() {
   });
 
   socket.on('device_status_update', d => {
-    if (currentPage === 'connections') upsertDeviceCard(d);
+    upsertDeviceInMemory(d);
+    if (currentPage === 'connections') renderDeviceGrid();
+    recalcConnStats();
   });
 
   // SMS send result from device
@@ -582,6 +599,14 @@ function updateConnStats() {
   if (currentPage === 'connections') loadConnections();
 }
 
+// Recalculate connection stats from in-memory allDevices (no REST call needed)
+function recalcConnStats() {
+  const total = allDevices.length;
+  const online = allDevices.filter(d => d.is_online).length;
+  const offline = total - online;
+  updateConnStatsFromData({ totalDevices: total, onlineCount: online, offlineCount: offline });
+}
+
 function updateConnStatsFromData(data) {
   const el = id => document.getElementById(id);
   if (el('connTotal')) el('connTotal').textContent = data.totalDevices || 0;
@@ -589,18 +614,26 @@ function updateConnStatsFromData(data) {
   if (el('connOffline')) el('connOffline').textContent = data.offlineCount || 0;
 }
 
-function upsertDeviceCard(device) {
+// Update in-memory allDevices array without re-rendering (caller decides when to render)
+function upsertDeviceInMemory(device) {
   const idx = allDevices.findIndex(d => d.device_id === device.device_id);
-  if (idx >= 0) allDevices[idx] = device;
-  else allDevices.unshift(device);
+  if (idx >= 0) {
+    allDevices[idx] = device;
+  } else {
+    allDevices.unshift(device);
+  }
+}
+
+function upsertDeviceCard(device) {
+  upsertDeviceInMemory(device);
   renderDeviceGrid();
-  updateConnStatsFromData({ totalDevices: allDevices.length, onlineCount: allDevices.length, offlineCount: 0 });
+  recalcConnStats();
 }
 
 function removeDeviceCard(deviceId) {
   allDevices = allDevices.filter(d => d.device_id !== deviceId);
   renderDeviceGrid();
-  updateConnStatsFromData({ totalDevices: allDevices.length, onlineCount: allDevices.length, offlineCount: 0 });
+  recalcConnStats();
 }
 
 function renderDeviceGrid() {
@@ -617,8 +650,10 @@ function renderDeviceGrid() {
   });
 
   grid.innerHTML = sorted.map(d => {
-    const online = 'online'; // All registered devices are considered ONLINE
-    const statusText = 'ONLINE';
+    const isOnline = d.is_online ? true : false;
+    const online = isOnline ? 'online' : 'offline';
+    const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
+    const statusTime = isOnline ? 'LIVE' : (d.last_seen ? timeAgo(d.last_seen) : 'N/A');
     const batt = d.battery_percent ?? -1;
     const battClass = batt > 50 ? 'high' : batt > 20 ? 'mid' : 'low';
     const battWidth = batt >= 0 ? batt : 0;
@@ -658,7 +693,7 @@ function renderDeviceGrid() {
           <span class="dev-led"></span>
           <span class="dev-status-text">${statusText}</span>
         </div>
-        <span class="dev-time">LIVE</span>
+        <span class="dev-time">${statusTime}</span>
       </div>
       <div class="dev-identity">
         <div class="dev-icon"><i class="ri-smartphone-line"></i></div>
@@ -1287,6 +1322,19 @@ function fmtDate(d) {
   const now = new Date();
   const diff = Math.floor((now - dt) / 1000);
   if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return dt.toLocaleDateString();
+}
+
+function timeAgo(d) {
+  if (!d) return 'N/A';
+  const dt = new Date(d + (d.endsWith('Z') ? '' : 'Z')); // ensure UTC
+  const now = new Date();
+  const diff = Math.floor((now - dt) / 1000);
+  if (diff < 0) return 'Just now';
+  if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;

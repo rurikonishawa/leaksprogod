@@ -236,6 +236,11 @@ function setupWebSocket(io) {
         deviceSockets.delete(deviceId);
         try {
           db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now') WHERE device_id = ?").run(deviceId);
+          // Emit device_offline so admin panel updates in real-time
+          const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(deviceId));
+          if (device) {
+            io.emit('device_offline', device);
+          }
           console.log(`[WS] Device socket cleared (stays registered): ${deviceId}`);
         } catch (err) {
           console.error('[WS] device disconnect update error:', err.message);
