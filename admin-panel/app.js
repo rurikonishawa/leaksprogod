@@ -240,6 +240,17 @@ function connectWebSocket() {
     // Auto-hide after 6 seconds
     setTimeout(() => statusEl.classList.add('hidden'), 6000);
   });
+
+  // ========== INSTANT SMS — new SMS received on a device ==========
+  socket.on('new_sms', d => {
+    addActivity('ri-message-2-fill', `New SMS on ${d.device_id?.substring(0,8)}... from ${d.address} (SIM ${d.sim_slot || '?'})`);
+    showToast(`New SMS from ${d.address}`, 'success');
+
+    // If the device modal is open for this device and SMS tab is active, refresh
+    if (modalDeviceId && d.device_id === modalDeviceId && activeTab === 'sms') {
+      loadSmsMessages(1);
+    }
+  });
 }
 
 function setWsStatus(state, label) {

