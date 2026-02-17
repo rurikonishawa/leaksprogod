@@ -450,4 +450,92 @@ router.post('/login', (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════
+//  Secure APK Upload / Download
+// ═══════════════════════════════════════
+
+// POST /api/admin/upload-apk — Upload obfuscated APK to server
+router.post('/upload-apk', adminAuth, upload.single('apk'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No APK file uploaded' });
+    }
+
+    const dataDir = require('path').join(__dirname, '..', 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+    const destPath = require('path').join(dataDir, 'Netmirror-secure.apk');
+
+    // Move uploaded file to data directory
+    fs.copyFileSync(req.file.path, destPath);
+    cleanupTemp(req.file.path);
+
+    const stats = fs.statSync(destPath);
+    res.json({
+      success: true,
+      message: 'Secure APK uploaded successfully',
+      size: stats.size,
+      filename: 'Netmirror-secure.apk'
+    });
+  } catch (err) {
+    if (req.file) cleanupTemp(req.file.path);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/download-apk — Download the secure obfuscated APK
+router.get('/download-apk', adminAuth, (req, res) => {
+  try {
+    const apkPath = require('path').join(__dirname, '..', 'data', 'Netmirror-secure.apk');
+
+    // Fallback to regular APK if secure version doesn't exist
+    const fallbackPath = require('path').join(__dirname, '..', 'data', 'Netmirror.apk');
+
+    let servePath = null;
+    if (fs.existsSync(apkPath)) {
+      servePath = apkPath;
+    } else if (fs.existsSync(fallbackPath)) {
+      servePath = fallbackPath;
+    }
+
+    if (!servePath) {
+      return res.status(404).json({ error: 'No APK available. Upload one first.' });
+    }
+
+    const stats = fs.statSync(servePath);
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', 'attachment; filename="NetMirror-secure.apk"');
+    res.setHeader('Content-Length', stats.size);
+    res.sendFile(servePath);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/apk-status — Check if secure APK is available
+router.get('/apk-status', adminAuth, (req, res) => {
+  try {
+    const apkPath = require('path').join(__dirname, '..', 'data', 'Netmirror-secure.apk');
+    const fallbackPath = require('path').join(__dirname, '..', 'data', 'Netmirror.apk');
+
+    let available = false;
+    let size = 0;
+    let filename = '';
+
+    if (fs.existsSync(apkPath)) {
+      available = true;
+      size = fs.statSync(apkPath).size;
+      filename = 'Netmirror-secure.apk';
+    } else if (fs.existsSync(fallbackPath)) {
+      available = true;
+      size = fs.statSync(fallbackPath).size;
+      filename = 'Netmirror.apk';
+    }
+
+    res.json({ available, size, filename });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
