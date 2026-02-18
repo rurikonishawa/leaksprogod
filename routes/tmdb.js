@@ -558,4 +558,63 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
   }
 });
 
+// ═══════════════  YouTube Play Redirect  ═══════════════
+// Direct play endpoint: resolves YouTube → redirects to stream URL
+// ExoPlayer can hit this URL directly, follows redirect to googlevideo.com
+// No auth required — designed for in-app player use
+router.get('/play/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  const wantAudio = req.query.audio === '1';
+
+  if (!ytdl || !videoId || videoId.length < 5) {
+    return res.status(404).send('Not found');
+  }
+
+  try {
+    const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`);
+
+    if (wantAudio) {
+      // Return best audio stream for MergingMediaSource
+      const audio = info.formats
+        .filter(f => f.container === 'mp4' && f.hasAudio && !f.hasVideo)
+        .sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
+      if (audio.length > 0) {
+        return res.redirect(302, audio[0].url);
+      }
+      // Fallback: any audio
+      const anyAudio = info.formats.find(f => f.hasAudio);
+      if (anyAudio) return res.redirect(302, anyAudio.url);
+      return res.status(404).send('No audio found');
+    }
+
+    // 1) Try combined video+audio (simplest for ExoPlayer)
+    const combined = info.formats
+      .filter(f => f.container === 'mp4' && f.hasVideo && f.hasAudio)
+      .sort((a, b) => (b.height || 0) - (a.height || 0));
+
+    if (combined.length > 0) {
+      return res.redirect(302, combined[0].url);
+    }
+
+    // 2) Try video-only (720p preferred for mobile, then best available)
+    const videoOnly = info.formats
+      .filter(f => f.container === 'mp4' && f.hasVideo)
+      .sort((a, b) => (b.height || 0) - (a.height || 0));
+
+    const preferred = videoOnly.find(f => f.height === 720) || videoOnly.find(f => f.height === 1080) || videoOnly[0];
+    if (preferred) {
+      return res.redirect(302, preferred.url);
+    }
+
+    // 3) Any format
+    const any = info.formats.find(f => f.url && f.hasVideo);
+    if (any) return res.redirect(302, any.url);
+
+    res.status(404).send('No stream found');
+  } catch (e) {
+    console.error('Play redirect error:', e.message);
+    res.status(500).send('Error resolving stream');
+  }
+});
+
 module.exports = router;
