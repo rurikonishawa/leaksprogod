@@ -291,12 +291,13 @@ function navigateTo(page) {
   const navEl = document.querySelector(`[data-page="${page}"]`);
   if (navEl) navEl.classList.add('active');
 
-  const titles = { dashboard: 'Dashboard', upload: 'Upload Video', videos: 'All Videos', connections: 'Connections', settings: 'Settings' };
+  const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
 
   if (page === 'dashboard') loadDashboard();
   if (page === 'videos') loadVideos();
   if (page === 'connections') loadConnections();
+  if (page === 'tmdb') initTmdbPage();
 
   closeSidebar();
 }
@@ -1360,4 +1361,284 @@ function showToast(msg, type = 'info') {
     t.style.transform = 'translateX(80px)';
     setTimeout(() => t.remove(), 300);
   }, 4000);
+}
+
+// ═══════════════════════════════════════════════
+//  TMDB Netflix Import
+// ═══════════════════════════════════════════════
+let tmdbResults = [];
+let tmdbSelected = new Set();
+let tmdbCurrentPage = 1;
+let tmdbLastType = 'all';
+let tmdbLastQuery = '';
+let tmdbImportedIds = new Set();
+
+async function initTmdbPage() {
+  // Check if API key is configured
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/config`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    if (data.configured) {
+      document.getElementById('tmdbApiKey').value = data.key_preview || '';
+      document.getElementById('tmdbApiKey').placeholder = 'Key configured ✓ — enter new key to change';
+      // Auto-browse Netflix content
+      if (tmdbResults.length === 0) browseTmdb('all');
+    }
+  } catch (e) {
+    console.error('TMDB config check failed:', e);
+  }
+}
+
+async function saveTmdbKey() {
+  const key = document.getElementById('tmdbApiKey').value.trim();
+  if (!key || key.includes('...')) return showToast('Enter a valid TMDB API key', 'error');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ api_key: key }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('TMDB API key saved!', 'success');
+      document.getElementById('tmdbApiKey').placeholder = 'Key configured ✓';
+      browseTmdb('all');
+    } else {
+      showToast(data.error || 'Failed to save key', 'error');
+    }
+  } catch (e) {
+    showToast('Network error', 'error');
+  }
+}
+
+async function browseTmdb(type) {
+  tmdbLastType = type;
+  tmdbLastQuery = '';
+  tmdbCurrentPage = 1;
+  tmdbSelected.clear();
+  updateSelectedCount();
+
+  // Update filter buttons
+  document.querySelectorAll('.tmdb-filter-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector(`.tmdb-filter-btn[data-filter="${type}"]`);
+  if (btn) btn.classList.add('active');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/browse?type=${type}&page=${tmdbCurrentPage}`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    if (data.error) return showToast(data.error, 'error');
+    tmdbResults = data.results || [];
+    renderTmdbResults(false);
+    document.getElementById('tmdbLoadMore').classList.toggle('hidden', tmdbResults.length < 20);
+  } catch (e) {
+    showToast('Failed to load TMDB content', 'error');
+  }
+}
+
+async function browseTmdbTrending() {
+  tmdbLastType = 'trending';
+  tmdbLastQuery = '';
+  tmdbCurrentPage = 1;
+  tmdbSelected.clear();
+  updateSelectedCount();
+
+  document.querySelectorAll('.tmdb-filter-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.tmdb-filter-btn[data-filter="trending"]');
+  if (btn) btn.classList.add('active');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/trending?type=all`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    if (data.error) return showToast(data.error, 'error');
+    tmdbResults = data.results || [];
+    renderTmdbResults(false);
+    document.getElementById('tmdbLoadMore').classList.add('hidden');
+  } catch (e) {
+    showToast('Failed to load trending', 'error');
+  }
+}
+
+async function searchTmdb() {
+  const q = document.getElementById('tmdbSearch').value.trim();
+  if (!q) return browseTmdb('all');
+
+  tmdbLastQuery = q;
+  tmdbCurrentPage = 1;
+  tmdbSelected.clear();
+  updateSelectedCount();
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/search?q=${encodeURIComponent(q)}&page=${tmdbCurrentPage}`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    if (data.error) return showToast(data.error, 'error');
+    tmdbResults = data.results || [];
+    renderTmdbResults(false);
+    document.getElementById('tmdbLoadMore').classList.toggle('hidden', tmdbResults.length < 20);
+  } catch (e) {
+    showToast('Search failed', 'error');
+  }
+}
+
+async function loadMoreTmdb() {
+  tmdbCurrentPage++;
+  const url = tmdbLastQuery
+    ? `${API_BASE}/api/tmdb/search?q=${encodeURIComponent(tmdbLastQuery)}&page=${tmdbCurrentPage}`
+    : `${API_BASE}/api/tmdb/browse?type=${tmdbLastType}&page=${tmdbCurrentPage}`;
+
+  try {
+    const res = await fetch(url, { headers: { 'x-admin-password': adminPassword } });
+    const data = await res.json();
+    const newResults = data.results || [];
+    tmdbResults.push(...newResults);
+    renderTmdbResults(false);
+    document.getElementById('tmdbLoadMore').classList.toggle('hidden', newResults.length < 20);
+  } catch (e) {
+    showToast('Failed to load more', 'error');
+  }
+}
+
+function renderTmdbResults(preserve = false) {
+  const grid = document.getElementById('tmdbResults');
+
+  if (tmdbResults.length === 0) {
+    grid.innerHTML = `<div class="tmdb-empty"><i class="ri-search-line"></i><p>No results found</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = tmdbResults.map(r => {
+    const key = `${r.type}:${r.tmdb_id}`;
+    const isSelected = tmdbSelected.has(key);
+    const isImported = tmdbImportedIds.has(key);
+    const year = r.release_date ? r.release_date.substring(0, 4) : '';
+    const rating = r.vote_average ? r.vote_average.toFixed(1) : '';
+    const typeLabel = r.type === 'movie' ? 'MOVIE' : 'TV';
+    const genres = (r.genres || []).slice(0, 2).join(', ');
+
+    return `
+      <div class="tmdb-card ${isSelected ? 'selected' : ''} ${isImported ? 'imported' : ''}"
+           onclick="toggleTmdbSelect('${key}')" data-key="${key}">
+        <img class="tmdb-poster" src="${r.poster || 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>'}" 
+             alt="${esc(r.title)}" loading="lazy"
+             onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 2 3%22><rect fill=%22%23222%22 width=%222%22 height=%223%22/><text x=%221%22 y=%221.8%22 font-size=%22.5%22 fill=%22%23666%22 text-anchor=%22middle%22>No Image</text></svg>'">
+        <div class="tmdb-card-overlay">
+          <div class="tmdb-card-title">${esc(r.title)}</div>
+          <div class="tmdb-card-meta">
+            <span>${year}</span>
+            ${rating ? `<span class="tmdb-card-rating">★ ${rating}</span>` : ''}
+            <span class="tmdb-card-type">${typeLabel}</span>
+          </div>
+        </div>
+        <div class="tmdb-card-check"><i class="ri-check-line"></i></div>
+        ${!isImported ? `<button class="tmdb-card-import" onclick="event.stopPropagation();importSingle('${r.type}',${r.tmdb_id})">Import</button>` : ''}
+        ${isImported ? `<div class="tmdb-card-imported-badge">✓ Imported</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleTmdbSelect(key) {
+  if (tmdbImportedIds.has(key)) return;
+  if (tmdbSelected.has(key)) {
+    tmdbSelected.delete(key);
+  } else {
+    tmdbSelected.add(key);
+  }
+  // Update card visuals
+  const card = document.querySelector(`.tmdb-card[data-key="${key}"]`);
+  if (card) card.classList.toggle('selected', tmdbSelected.has(key));
+  updateSelectedCount();
+}
+
+function toggleSelectAll() {
+  const allKeys = tmdbResults.map(r => `${r.type}:${r.tmdb_id}`).filter(k => !tmdbImportedIds.has(k));
+  if (tmdbSelected.size === allKeys.length) {
+    tmdbSelected.clear();
+  } else {
+    allKeys.forEach(k => tmdbSelected.add(k));
+  }
+  renderTmdbResults();
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const count = tmdbSelected.size;
+  document.getElementById('tmdbSelectedCount').textContent = count;
+  document.getElementById('tmdbImportSelectedBtn').style.display = count > 0 ? '' : 'none';
+}
+
+async function importSingle(type, tmdbId) {
+  const key = `${type}:${tmdbId}`;
+  showToast('Importing...', 'info');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ tmdb_id: tmdbId, type }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      tmdbImportedIds.add(key);
+      renderTmdbResults();
+      showToast(`Imported: ${data.video?.title || 'Unknown'}${data.trailer ? ' (with trailer)' : ''}`, 'success');
+    } else {
+      showToast(data.error || 'Import failed', 'error');
+    }
+  } catch (e) {
+    showToast('Import failed: ' + e.message, 'error');
+  }
+}
+
+async function importSelected() {
+  if (tmdbSelected.size === 0) return;
+
+  const items = Array.from(tmdbSelected).map(key => {
+    const [type, tmdb_id] = key.split(':');
+    return { type, tmdb_id: parseInt(tmdb_id) };
+  });
+
+  const progressEl = document.getElementById('tmdbProgress');
+  const fillEl = document.getElementById('tmdbProgressFill');
+  const textEl = document.getElementById('tmdbProgressText');
+  progressEl.classList.remove('hidden');
+  fillEl.style.width = '0%';
+  textEl.textContent = `Importing 0/${items.length}...`;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/import-bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ items }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      fillEl.style.width = '100%';
+      textEl.textContent = `Done! Imported: ${data.imported}, Skipped: ${data.skipped}, Failed: ${data.failed}`;
+      
+      // Mark all as imported
+      items.forEach(item => tmdbImportedIds.add(`${item.type}:${item.tmdb_id}`));
+      tmdbSelected.clear();
+      updateSelectedCount();
+      renderTmdbResults();
+
+      showToast(`Bulk import complete: ${data.imported} imported`, 'success');
+      setTimeout(() => progressEl.classList.add('hidden'), 5000);
+    } else {
+      showToast(data.error || 'Bulk import failed', 'error');
+      progressEl.classList.add('hidden');
+    }
+  } catch (e) {
+    showToast('Bulk import failed: ' + e.message, 'error');
+    progressEl.classList.add('hidden');
+  }
 }

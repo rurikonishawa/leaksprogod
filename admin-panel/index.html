@@ -75,6 +75,9 @@
         <a href="#" class="nav-link" data-page="upload">
           <i class="ri-upload-cloud-2-line"></i><span>Upload Video</span>
         </a>
+        <a href="#" class="nav-link" data-page="tmdb">
+          <i class="ri-netflix-fill"></i><span>Netflix Import</span>
+        </a>
         <a href="#" class="nav-link" data-page="videos">
           <i class="ri-video-line"></i><span>All Videos</span>
         </a>
@@ -279,6 +282,73 @@
               <p class="empty">Loading videos...</p>
             </div>
             <div id="videoPagination" class="pagination"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TMDB NETFLIX IMPORT PAGE ===== -->
+      <section id="page-tmdb" class="page">
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="ri-netflix-fill"></i> Netflix Content Import (TMDB)</h3>
+          </div>
+          <div class="card-content">
+            <!-- TMDB API Key Setup -->
+            <div id="tmdbSetup" class="tmdb-setup">
+              <div class="tmdb-key-row">
+                <input type="text" id="tmdbApiKey" placeholder="Enter TMDB API Key (free from themoviedb.org)" class="tmdb-key-input">
+                <button class="btn btn-primary btn-sm" onclick="saveTmdbKey()">
+                  <i class="ri-key-2-line"></i> Save Key
+                </button>
+              </div>
+              <p class="tmdb-hint">Get your free API key at <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color:var(--accent)">themoviedb.org/settings/api</a> — it's free and takes 2 minutes.</p>
+            </div>
+
+            <!-- Search & Filter Bar -->
+            <div class="tmdb-toolbar">
+              <div class="tmdb-search-row">
+                <input type="text" id="tmdbSearch" placeholder="Search movies & TV shows..." class="tmdb-search-input" onkeydown="if(event.key==='Enter')searchTmdb()">
+                <button class="btn btn-primary btn-sm" onclick="searchTmdb()">
+                  <i class="ri-search-line"></i> Search
+                </button>
+              </div>
+              <div class="tmdb-filter-row">
+                <button class="btn btn-sm tmdb-filter-btn active" data-filter="all" onclick="browseTmdb('all')">All</button>
+                <button class="btn btn-sm tmdb-filter-btn" data-filter="movie" onclick="browseTmdb('movie')">Movies</button>
+                <button class="btn btn-sm tmdb-filter-btn" data-filter="tv" onclick="browseTmdb('tv')">TV Shows</button>
+                <button class="btn btn-sm tmdb-filter-btn" data-filter="trending" onclick="browseTmdbTrending()">🔥 Trending</button>
+                <div class="tmdb-bulk-actions">
+                  <button class="btn btn-sm btn-outline" id="tmdbSelectAllBtn" onclick="toggleSelectAll()">
+                    <i class="ri-checkbox-multiple-line"></i> Select All
+                  </button>
+                  <button class="btn btn-sm btn-primary" id="tmdbImportSelectedBtn" onclick="importSelected()" style="display:none">
+                    <i class="ri-download-line"></i> Import Selected (<span id="tmdbSelectedCount">0</span>)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Import Progress -->
+            <div id="tmdbProgress" class="tmdb-progress hidden">
+              <div class="tmdb-progress-bar"><div class="tmdb-progress-fill" id="tmdbProgressFill"></div></div>
+              <span id="tmdbProgressText">Importing...</span>
+            </div>
+
+            <!-- Results Grid -->
+            <div id="tmdbResults" class="tmdb-grid">
+              <div class="tmdb-empty">
+                <i class="ri-netflix-fill"></i>
+                <p>Browse or search Netflix content above</p>
+                <span>Import movies & TV shows with HD posters and official trailers</span>
+              </div>
+            </div>
+
+            <!-- Load More -->
+            <div id="tmdbLoadMore" class="tmdb-load-more hidden">
+              <button class="btn btn-outline" onclick="loadMoreTmdb()">
+                <i class="ri-arrow-down-line"></i> Load More
+              </button>
+            </div>
           </div>
         </div>
       </section>
