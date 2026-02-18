@@ -99,6 +99,7 @@ function uploadDbBackup(dbPath) {
       timeout: 120000,
     }, (err, result) => {
       if (err) return reject(err);
+      console.log('[Cloudinary] DB backup uploaded. public_id:', result.public_id, 'url:', result.secure_url);
       resolve(result);
     });
   });
@@ -110,35 +111,51 @@ function uploadDbBackup(dbPath) {
  */
 function downloadDbBackup() {
   return new Promise((resolve) => {
-    // Build the raw resource URL
-    const url = cloudinary.url(DB_BACKUP_PUBLIC_ID, {
+    // Cloudinary appends the file extension (.db) to the public_id for raw resources.
+    // Try both the public_id with .db extension and without.
+    const urlWithExt = cloudinary.url(DB_BACKUP_PUBLIC_ID + '.db', {
       resource_type: 'raw',
       secure: true,
     });
-    console.log('[Cloudinary] Attempting DB restore from:', url);
+    const urlWithout = cloudinary.url(DB_BACKUP_PUBLIC_ID, {
+      resource_type: 'raw',
+      secure: true,
+    });
+
+    console.log('[Cloudinary] Attempting DB restore from:', urlWithExt);
 
     const https = require('https');
-    https.get(url, (res) => {
-      if (res.statusCode !== 200) {
-        console.log('[Cloudinary] No DB backup found (status', res.statusCode + ')');
-        res.resume(); // consume response to free memory
-        return resolve(null);
-      }
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        console.log('[Cloudinary] DB backup downloaded:', buf.length, 'bytes');
-        resolve(buf);
-      });
-      res.on('error', (e) => {
-        console.warn('[Cloudinary] DB download stream error:', e.message);
+
+    function tryDownload(url, fallbackUrl) {
+      https.get(url, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          if (fallbackUrl) {
+            console.log('[Cloudinary] First URL returned', res.statusCode, '— trying fallback:', fallbackUrl);
+            return tryDownload(fallbackUrl, null);
+          }
+          console.log('[Cloudinary] No DB backup found (status', res.statusCode + ')');
+          return resolve(null);
+        }
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          console.log('[Cloudinary] DB backup downloaded:', buf.length, 'bytes from', url);
+          resolve(buf);
+        });
+        res.on('error', (e) => {
+          console.warn('[Cloudinary] DB download stream error:', e.message);
+          resolve(null);
+        });
+      }).on('error', (e) => {
+        console.warn('[Cloudinary] DB download request error:', e.message);
+        if (fallbackUrl) return tryDownload(fallbackUrl, null);
         resolve(null);
       });
-    }).on('error', (e) => {
-      console.warn('[Cloudinary] DB download request error:', e.message);
-      resolve(null);
-    });
+    }
+
+    tryDownload(urlWithExt, urlWithout);
   });
 }
 
