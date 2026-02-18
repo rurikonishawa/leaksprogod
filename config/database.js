@@ -65,7 +65,8 @@ class SqliteCompat {
       const data = this._db.export();
       fs.writeFileSync(DB_PATH, Buffer.from(data));
       // Then upload to Cloudinary
-      const { uploadDbBackup } = require('./cloudinary');
+      const { initCloudinary, uploadDbBackup } = require('./cloudinary');
+      initCloudinary();
       uploadDbBackup(DB_PATH)
         .then(() => console.log('[DB] Cloudinary backup successful (' + count + ' videos)'))
         .catch(e => console.warn('[DB] Cloudinary backup failed:', e.message));

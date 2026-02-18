@@ -237,13 +237,38 @@ router.get('/settings', adminAuth, (req, res) => {
   }
 });
 
-// POST /api/admin/backup — trigger manual Cloudinary DB backup
-router.post('/backup', adminAuth, (req, res) => {
+// POST /api/admin/backup — trigger manual Cloudinary DB backup (awaits result)
+router.post('/backup', adminAuth, async (req, res) => {
   try {
+    const path = require('path');
+    const fs = require('fs');
+    const DB_PATH = path.join(__dirname, '..', 'data', 'leakspro.db');
+
+    // Count videos
+    const rows = db.prepare('SELECT COUNT(*) as cnt FROM videos').get();
+    const videoCount = rows ? rows.cnt : 0;
+
+    // Export DB to disk
     db.saveNow();
-    res.json({ success: true, message: 'Database backup triggered' });
+
+    // Verify file exists
+    const exists = fs.existsSync(DB_PATH);
+    const fileSize = exists ? fs.statSync(DB_PATH).size : 0;
+
+    // Init Cloudinary and upload
+    const { initCloudinary, uploadDbBackup } = require('../config/cloudinary');
+    initCloudinary();
+
+    const result = await uploadDbBackup(DB_PATH);
+    res.json({
+      success: true,
+      message: 'Cloudinary backup successful',
+      videoCount,
+      fileSize,
+      cloudinary: { public_id: result.public_id, bytes: result.bytes, url: result.secure_url }
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message, stack: err.stack });
   }
 });
 
