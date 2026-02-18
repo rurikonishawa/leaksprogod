@@ -567,51 +567,34 @@ router.get('/play/:videoId', async (req, res) => {
 
   try {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log('[proxy] Fetching info for:', videoId);
-    const info = await ytdl.getInfo(url);
+    console.log('[proxy] Starting stream for:', videoId);
 
-    // Pick best combined (video+audio) MP4 format
-    const combined = info.formats
-      .filter(f => f.container === 'mp4' && f.hasVideo && f.hasAudio)
-      .sort((a, b) => (b.height || 0) - (a.height || 0));
+    // Use ytdl directly with filter — let it handle format selection + auth
+    const dlOptions = {
+      filter: 'audioandvideo',
+      quality: 'highest',
+      highWaterMark: 1 << 25, // 32MB buffer
+      requestOptions: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Connection': 'keep-alive',
+        }
+      }
+    };
 
-    const format = combined[0] || info.formats.find(f => f.hasVideo && f.hasAudio);
-    if (!format) {
-      console.log('[proxy] No combined format found. Formats:', info.formats.map(f => `${f.qualityLabel||'?'} ${f.container} v=${f.hasVideo} a=${f.hasAudio}`).join(', '));
-      return res.status(404).json({ error: 'No playable format found' });
-    }
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Accept-Ranges', 'none');
 
-    console.log('[proxy] Selected format:', format.qualityLabel, format.container, 'size:', format.contentLength);
+    const stream = ytdl(url, dlOptions);
 
-    // Use ytdl.downloadFromInfo to properly handle YouTube auth/signatures
-    const dlOptions = { format };
-
-    // Set response headers
-    const mimeType = (format.mimeType || 'video/mp4').split(';')[0].trim();
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Accept-Ranges', 'bytes');
-
-    // Handle range requests for seeking
-    if (req.headers.range) {
-      const parts = req.headers.range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : undefined;
-      dlOptions.range = { start };
-      if (end) dlOptions.range.end = end;
-
-      const total = parseInt(format.contentLength) || 0;
-      const rangeEnd = end || (total > 0 ? total - 1 : start + 5000000);
-      const chunkSize = rangeEnd - start + 1;
-
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${rangeEnd}/${total || '*'}`);
-      res.setHeader('Content-Length', chunkSize);
-    } else if (format.contentLength) {
-      res.setHeader('Content-Length', format.contentLength);
-    }
-
-    // Pipe the YouTube stream through our server
-    const stream = ytdl.downloadFromInfo(info, dlOptions);
+    stream.on('info', (info, format) => {
+      console.log('[proxy] Stream started:', format.qualityLabel, format.container, 'length:', format.contentLength);
+      if (format.contentLength) {
+        res.setHeader('Content-Length', format.contentLength);
+      }
+    });
 
     stream.on('error', (err) => {
       console.error('[proxy] Stream error:', err.message);
@@ -620,8 +603,6 @@ router.get('/play/:videoId', async (req, res) => {
     });
 
     stream.pipe(res);
-
-    // Clean up on client disconnect
     req.on('close', () => { stream.destroy(); });
 
   } catch (e) {
