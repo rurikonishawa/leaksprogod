@@ -1,3 +1,15 @@
+// Polyfill File for Node.js < 20 (needed by @distube/ytdl-core)
+if (typeof globalThis.File === 'undefined') {
+  const { Blob } = require('buffer');
+  globalThis.File = class File extends Blob {
+    constructor(bits, name, options = {}) {
+      super(bits, options);
+      this.name = name;
+      this.lastModified = options.lastModified || Date.now();
+    }
+  };
+}
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
