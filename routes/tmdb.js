@@ -479,10 +479,15 @@ function mapTmdbGenreToCategory(genres) {
 // ═══════════════  YouTube Stream Extraction  ═══════════════
 // Extracts direct video stream URL from YouTube via ytdl-core
 // No third-party API dependency — runs directly on our server
-const ytdl = require('@distube/ytdl-core');
+let ytdl = null;
+try { ytdl = require('@distube/ytdl-core'); } catch (e) { console.warn('ytdl-core not available:', e.message); }
 
 router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
   const { videoId } = req.params;
+
+  if (!ytdl) {
+    return res.status(500).json({ success: false, error: 'ytdl-core not available on this server' });
+  }
 
   if (!videoId || videoId.length < 5) {
     return res.status(400).json({ success: false, error: 'Invalid video ID' });
