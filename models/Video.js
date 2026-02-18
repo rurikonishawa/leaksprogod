@@ -8,15 +8,15 @@ class Video {
     const stmt = db.prepare(`
       INSERT INTO videos (id, title, description, filename, thumbnail, duration, 
         channel_name, category, tags, file_size, resolution, mime_type, is_published, is_short,
-        series_id, season_number, episode_number, content_type, tmdb_id, total_seasons, episode_title)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        series_id, season_number, episode_number, content_type, tmdb_id, total_seasons, episode_title, trailer_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       id,
       data.title || 'Untitled',
       data.description || '',
-      data.filename,
+      data.filename || '',
       data.thumbnail || '',
       data.duration || 0,
       data.channel_name || 'LeaksPro Admin',
@@ -33,7 +33,8 @@ class Video {
       data.content_type || 'movie',
       data.tmdb_id || 0,
       data.total_seasons || 0,
-      data.episode_title || ''
+      data.episode_title || '',
+      data.trailer_url || ''
     );
 
     return this.getById(id);
@@ -103,9 +104,9 @@ class Video {
     const fields = [];
     const values = [];
 
-    const allowedFields = ['title', 'description', 'thumbnail', 'duration', 'channel_name',
+    const allowedFields = ['title', 'description', 'filename', 'thumbnail', 'duration', 'channel_name',
       'category', 'tags', 'resolution', 'is_published', 'is_short',
-      'series_id', 'season_number', 'episode_number', 'content_type', 'tmdb_id', 'total_seasons', 'episode_title'];
+      'series_id', 'season_number', 'episode_number', 'content_type', 'tmdb_id', 'total_seasons', 'episode_title', 'trailer_url'];
 
     for (const field of allowedFields) {
       if (data[field] !== undefined) {

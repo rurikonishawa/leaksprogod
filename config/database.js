@@ -264,6 +264,7 @@ async function initDatabase() {
     ["tmdb_id", "INTEGER DEFAULT 0"],
     ["total_seasons", "INTEGER DEFAULT 0"],
     ["episode_title", "TEXT DEFAULT ''"],
+    ["trailer_url", "TEXT DEFAULT ''"],
   ];
   for (const [col, def] of migrateCols) {
     try { db.exec(`ALTER TABLE videos ADD COLUMN ${col} ${def}`); } catch (_) {}

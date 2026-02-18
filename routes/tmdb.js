@@ -302,7 +302,7 @@ router.post('/import', adminAuth, async (req, res) => {
     const videoData = {
       title,
       description,
-      filename: videoUrl,
+      filename: type === 'movie' ? videoUrl : '',
       thumbnail: posterUrl,
       channel_name: 'Netflix',
       category,
@@ -316,6 +316,7 @@ router.post('/import', adminAuth, async (req, res) => {
       content_type: type === 'movie' ? 'movie' : 'series',
       tmdb_id: tmdb_id,
       total_seasons: numSeasons,
+      trailer_url: videoUrl,
     };
 
     const mainVideo = Video.create(videoData);
@@ -338,7 +339,7 @@ router.post('/import', adminAuth, async (req, res) => {
             Video.create({
               title: epTitle,
               description: epDesc,
-              filename: videoUrl, // Show trailer as default video
+              filename: videoUrl,
               thumbnail: epStill,
               channel_name: 'Netflix',
               category,
@@ -355,6 +356,7 @@ router.post('/import', adminAuth, async (req, res) => {
               episode_number: ep.episode_number,
               episode_title: ep.name || '',
               tmdb_id: ep.id || 0,
+              trailer_url: videoUrl,
             });
             episodesImported++;
           }
@@ -438,7 +440,7 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
         const mainVideo = Video.create({
           title,
           description: `${detail.overview || ''}\n\n${typeLabel} • ${year}${seasons} • ${rating}\n[TMDB:${item.type}:${item.tmdb_id}]`,
-          filename: videoUrl,
+          filename: item.type === 'movie' ? videoUrl : '',
           thumbnail: posterUrl,
           channel_name: 'Netflix',
           category,
@@ -452,6 +454,7 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
           content_type: item.type === 'movie' ? 'movie' : 'series',
           tmdb_id: item.tmdb_id,
           total_seasons: numSeasons,
+          trailer_url: videoUrl,
         });
 
         // Import episodes for TV shows
@@ -481,6 +484,7 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
                   episode_number: ep.episode_number,
                   episode_title: ep.name || '',
                   tmdb_id: ep.id || 0,
+                  trailer_url: videoUrl,
                 });
                 epCount++;
               }
