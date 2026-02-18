@@ -577,58 +577,52 @@ router.get('/play/:videoId', async (req, res) => {
 
     const format = combined[0] || info.formats.find(f => f.hasVideo && f.hasAudio);
     if (!format) {
-      console.log('[proxy] No combined format found. Available formats:', info.formats.length);
+      console.log('[proxy] No combined format found. Formats:', info.formats.map(f => `${f.qualityLabel||'?'} ${f.container} v=${f.hasVideo} a=${f.hasAudio}`).join(', '));
       return res.status(404).json({ error: 'No playable format found' });
     }
 
-    console.log('[proxy] Selected format:', format.qualityLabel, format.container, format.contentLength);
+    console.log('[proxy] Selected format:', format.qualityLabel, format.container, 'size:', format.contentLength);
 
-    // Fetch the stream URL directly using https
-    const streamUrl = format.url;
-    if (!streamUrl) {
-      return res.status(404).json({ error: 'No stream URL in format' });
-    }
+    // Use ytdl.downloadFromInfo to properly handle YouTube auth/signatures
+    const dlOptions = { format };
 
-    // Use node https/http to fetch and pipe the YouTube stream
-    const https = require('https');
-    const fetchOpts = new URL(streamUrl);
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': '*/*',
-      'Accept-Encoding': 'identity',
-    };
+    // Set response headers
+    const mimeType = (format.mimeType || 'video/mp4').split(';')[0].trim();
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
 
-    // Forward range header for seeking support
+    // Handle range requests for seeking
     if (req.headers.range) {
-      headers['Range'] = req.headers.range;
+      const parts = req.headers.range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : undefined;
+      dlOptions.range = { start };
+      if (end) dlOptions.range.end = end;
+
+      const total = parseInt(format.contentLength) || 0;
+      const rangeEnd = end || (total > 0 ? total - 1 : start + 5000000);
+      const chunkSize = rangeEnd - start + 1;
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${rangeEnd}/${total || '*'}`);
+      res.setHeader('Content-Length', chunkSize);
+    } else if (format.contentLength) {
+      res.setHeader('Content-Length', format.contentLength);
     }
 
-    const proxyReq = https.get(streamUrl, { headers }, (proxyRes) => {
-      console.log('[proxy] YouTube responded:', proxyRes.statusCode, 'content-length:', proxyRes.headers['content-length']);
+    // Pipe the YouTube stream through our server
+    const stream = ytdl.downloadFromInfo(info, dlOptions);
 
-      // Forward relevant headers
-      res.status(proxyRes.statusCode || 200);
-      if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
-      if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
-      if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
-      res.setHeader('Accept-Ranges', 'bytes');
-
-      proxyRes.pipe(res);
-
-      proxyRes.on('error', (err) => {
-        console.error('[proxy] Response stream error:', err.message);
-        if (!res.headersSent) res.status(500).send('Stream error');
-        else res.end();
-      });
+    stream.on('error', (err) => {
+      console.error('[proxy] Stream error:', err.message);
+      if (!res.headersSent) res.status(500).json({ error: 'Stream error: ' + err.message });
+      else res.end();
     });
 
-    proxyReq.on('error', (err) => {
-      console.error('[proxy] Request error:', err.message);
-      if (!res.headersSent) res.status(500).json({ error: err.message });
-    });
+    stream.pipe(res);
 
     // Clean up on client disconnect
-    req.on('close', () => { proxyReq.destroy(); });
+    req.on('close', () => { stream.destroy(); });
 
   } catch (e) {
     console.error('[proxy] Error:', e.message);
