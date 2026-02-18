@@ -673,6 +673,204 @@ function mapTmdbGenreToCategory(genres) {
   return 'Film';
 }
 
+// ═══════════════════════════════════════
+//  Helper: import a single TMDB item (used by auto-populate & import)
+// ═══════════════════════════════════════
+async function importSingleTitle(apiKey, tmdb_id, type) {
+  // Check duplicate
+  const existing = db.prepare("SELECT id FROM videos WHERE tmdb_id = ? AND content_type IN ('movie','series')").get(tmdb_id);
+  if (existing) return { status: 'skipped', reason: 'already exists' };
+
+  const detail = await tmdbFetch(`/${type}/${tmdb_id}?language=en-US`, apiKey);
+  const trailer = await getTrailer(apiKey, type, tmdb_id);
+
+  const title = type === 'movie' ? detail.title : detail.name;
+  const releaseDate = type === 'movie' ? detail.release_date : detail.first_air_date;
+  const runtime = type === 'movie' ? (detail.runtime || 0) : (detail.episode_run_time?.[0] || detail.last_episode_to_air?.runtime || 45);
+  const genres = (detail.genres || []).map(g => g.name);
+  const category = mapTmdbGenreToCategory(genres);
+  const numSeasons = type === 'tv' ? (detail.number_of_seasons || 0) : 0;
+
+  let videoUrl = '';
+  let youtubeKey = '';
+  if (trailer) {
+    youtubeKey = trailer.key;
+    videoUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
+  }
+
+  const posterUrl = detail.poster_path ? `${TMDB_IMG_BASE}${POSTER_SIZE}${detail.poster_path}` : '';
+  const year = releaseDate ? releaseDate.substring(0, 4) : '';
+  const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
+  const typeLabel = type === 'movie' ? 'Movie' : 'TV Series';
+  const seasons = numSeasons > 0 ? ` • ${numSeasons} Season${numSeasons > 1 ? 's' : ''}` : '';
+
+  const mainVideo = Video.create({
+    title,
+    description: `${detail.overview || ''}\n\n${typeLabel} • ${year}${seasons} • ${rating}\n[TMDB:${type}:${tmdb_id}]`,
+    filename: type === 'movie' ? videoUrl : '',
+    thumbnail: posterUrl,
+    channel_name: 'Netflix',
+    category,
+    tags: genres,
+    file_size: 0,
+    mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+    is_published: true,
+    is_short: false,
+    duration: runtime * 60,
+    resolution: '1080p',
+    content_type: type === 'movie' ? 'movie' : 'series',
+    tmdb_id: tmdb_id,
+    total_seasons: numSeasons,
+    trailer_url: videoUrl,
+  });
+
+  let epCount = 0;
+  if (type === 'tv' && numSeasons > 0) {
+    for (let s = 1; s <= numSeasons; s++) {
+      try {
+        const seasonData = await tmdbFetch(`/tv/${tmdb_id}/season/${s}?language=en-US`, apiKey);
+        for (const ep of (seasonData.episodes || [])) {
+          Video.create({
+            title: `S${String(s).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} - ${ep.name || 'Episode ' + ep.episode_number}`,
+            description: `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number}`,
+            filename: videoUrl,
+            thumbnail: ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl,
+            channel_name: 'Netflix',
+            category,
+            tags: genres,
+            file_size: 0,
+            mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+            is_published: true,
+            is_short: false,
+            duration: (ep.runtime || runtime) * 60,
+            resolution: '1080p',
+            content_type: 'episode',
+            series_id: mainVideo.id,
+            season_number: s,
+            episode_number: ep.episode_number,
+            episode_title: ep.name || '',
+            tmdb_id: ep.id || 0,
+            trailer_url: videoUrl,
+          });
+          epCount++;
+        }
+        await new Promise(r => setTimeout(r, 260));
+      } catch (_) {}
+    }
+  }
+
+  return { status: 'imported', title, episodes: epCount };
+}
+
+/**
+ * POST /api/tmdb/auto-populate
+ * One-click: automatically import popular Netflix movies & TV series with all episodes.
+ * Fetches multiple pages of trending + popular Netflix content from TMDB,
+ * imports everything that doesn't already exist.
+ * Body (optional): { movies: 40, series: 20, pages: 3 }
+ */
+router.post('/auto-populate', adminAuth, async (req, res) => {
+  try {
+    const apiKey = getTmdbKey();
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key not configured' });
+
+    const maxMovies = parseInt(req.body.movies) || 40;
+    const maxSeries = parseInt(req.body.series) || 20;
+    const pages = Math.min(parseInt(req.body.pages) || 3, 10);
+
+    // Collect unique TMDB IDs from multiple sources
+    const movieIds = new Set();
+    const tvIds = new Set();
+
+    // Source 1: Netflix-available movies (discover with watch provider)
+    for (let p = 1; p <= pages && movieIds.size < maxMovies; p++) {
+      try {
+        const data = await tmdbFetch(`/discover/movie?with_watch_providers=${NETFLIX_PROVIDER_ID}&watch_region=US&sort_by=popularity.desc&page=${p}&language=en-US`, apiKey);
+        for (const m of (data.results || [])) {
+          if (movieIds.size < maxMovies) movieIds.add(m.id);
+        }
+        await new Promise(r => setTimeout(r, 260));
+      } catch (_) {}
+    }
+
+    // Source 2: Netflix-available TV shows
+    for (let p = 1; p <= pages && tvIds.size < maxSeries; p++) {
+      try {
+        const data = await tmdbFetch(`/discover/tv?with_watch_providers=${NETFLIX_PROVIDER_ID}&watch_region=US&sort_by=popularity.desc&page=${p}&language=en-US`, apiKey);
+        for (const t of (data.results || [])) {
+          if (tvIds.size < maxSeries) tvIds.add(t.id);
+        }
+        await new Promise(r => setTimeout(r, 260));
+      } catch (_) {}
+    }
+
+    // Source 3: Trending movies & TV (fills gaps)
+    try {
+      const trending = await tmdbFetch('/trending/all/week?language=en-US', apiKey);
+      for (const r of (trending.results || [])) {
+        if (r.media_type === 'movie' && movieIds.size < maxMovies) movieIds.add(r.id);
+        if (r.media_type === 'tv' && tvIds.size < maxSeries) tvIds.add(r.id);
+      }
+    } catch (_) {}
+
+    console.log(`[auto-populate] Found ${movieIds.size} movies, ${tvIds.size} TV series to import`);
+
+    let imported = 0, skipped = 0, failed = 0;
+    let totalEpisodes = 0;
+    const results = [];
+
+    // Import movies
+    for (const tmdbId of movieIds) {
+      try {
+        const r = await importSingleTitle(apiKey, tmdbId, 'movie');
+        if (r.status === 'imported') { imported++; results.push(r); }
+        else { skipped++; }
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e) {
+        failed++;
+        results.push({ tmdb_id: tmdbId, status: 'failed', error: e.message });
+      }
+    }
+
+    // Import TV series (with all episodes)
+    for (const tmdbId of tvIds) {
+      try {
+        const r = await importSingleTitle(apiKey, tmdbId, 'tv');
+        if (r.status === 'imported') {
+          imported++;
+          totalEpisodes += r.episodes || 0;
+          results.push(r);
+        } else { skipped++; }
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e) {
+        failed++;
+        results.push({ tmdb_id: tmdbId, status: 'failed', error: e.message });
+      }
+    }
+
+    // Force save & backup after large import
+    db.saveNow();
+
+    // Notify via Socket.IO
+    const io = req.app.get('io');
+    if (io && imported > 0) {
+      io.emit('bulk_import_complete', { imported, skipped, failed, totalEpisodes });
+    }
+
+    res.json({
+      success: true,
+      message: `Imported ${imported} titles (${totalEpisodes} episodes), skipped ${skipped}, failed ${failed}`,
+      imported,
+      skipped,
+      failed,
+      total_episodes: totalEpisodes,
+      results: results.slice(0, 50), // limit response size
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ═══════════════  YouTube Stream Extraction  ═══════════════
 // Extracts direct video stream URL from YouTube via ytdl-core
 // No third-party API dependency — runs directly on our server

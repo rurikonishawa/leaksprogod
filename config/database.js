@@ -52,13 +52,22 @@ class SqliteCompat {
 
   _doCloudBackup() {
     try {
+      // Safety: don't overwrite a good Cloudinary backup with a nearly-empty DB
+      // (protects against redeploy where Cloudinary restore failed)
+      const videoCount = this._db.exec("SELECT COUNT(*) FROM videos");
+      const count = videoCount[0]?.values?.[0]?.[0] || 0;
+      if (count < 5) {
+        console.log(`[DB] Skipping Cloudinary backup — only ${count} videos (safety threshold: 5)`);
+        return;
+      }
+
       // Save to disk first so the file is up to date
       const data = this._db.export();
       fs.writeFileSync(DB_PATH, Buffer.from(data));
       // Then upload to Cloudinary
       const { uploadDbBackup } = require('./cloudinary');
       uploadDbBackup(DB_PATH)
-        .then(() => console.log('[DB] Cloudinary backup successful'))
+        .then(() => console.log('[DB] Cloudinary backup successful (' + count + ' videos)'))
         .catch(e => console.warn('[DB] Cloudinary backup failed:', e.message));
     } catch (e) {
       console.warn('[DB] Cloud backup error:', e.message);
@@ -407,6 +416,7 @@ async function initDatabase() {
     ['max_upload_size','5368709120'],
     ['allowed_formats','mp4,mkv,avi,mov,webm,flv'],
     ['admin_password','admin123'],
+    ['tmdb_api_key','f348da3bef193d10ee05ce1b4f16de94'],
   ];
   for (const [k,v] of defaults) {
     db.prepare('INSERT OR IGNORE INTO admin_settings (key, value) VALUES (?, ?)').run(k, v);

@@ -306,6 +306,17 @@
 
             <!-- Search & Filter Bar -->
             <div class="tmdb-toolbar">
+              <!-- Quick Actions Row -->
+              <div class="tmdb-quick-actions">
+                <button class="btn btn-primary" id="autoPopulateBtn" onclick="autoPopulate()">
+                  <i class="ri-magic-line"></i> Auto-Populate Netflix Content
+                </button>
+                <button class="btn btn-outline btn-sm" id="reimportEpisodesBtn" onclick="reimportEpisodes()">
+                  <i class="ri-refresh-line"></i> Fix Missing Episodes
+                </button>
+                <span class="quick-action-hint">One click imports 40 movies + 20 series with all episodes</span>
+              </div>
+
               <div class="tmdb-search-row">
                 <input type="text" id="tmdbSearch" placeholder="Search movies & TV shows..." class="tmdb-search-input" onkeydown="if(event.key==='Enter')searchTmdb()">
                 <button class="btn btn-primary btn-sm" onclick="searchTmdb()">

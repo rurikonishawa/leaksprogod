@@ -1643,3 +1643,88 @@ async function importSelected() {
     progressEl.classList.add('hidden');
   }
 }
+
+// ═══════════════════════════════════════
+//  Auto-Populate & Fix Missing Episodes
+// ═══════════════════════════════════════
+
+async function autoPopulate() {
+  const btn = document.getElementById('autoPopulateBtn');
+  const progressEl = document.getElementById('tmdbProgress');
+  const fillEl = document.getElementById('tmdbProgressFill');
+  const textEl = document.getElementById('tmdbProgressText');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Importing...';
+  progressEl.classList.remove('hidden');
+  fillEl.style.width = '10%';
+  textEl.textContent = 'Fetching Netflix content from TMDB (this may take 2-5 minutes)...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/auto-populate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ movies: 40, series: 20, pages: 3 }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      fillEl.style.width = '100%';
+      textEl.textContent = data.message;
+      showToast(data.message, 'success');
+      setTimeout(() => progressEl.classList.add('hidden'), 8000);
+      // Refresh dashboard counts
+      if (typeof loadDashboard === 'function') loadDashboard();
+    } else {
+      textEl.textContent = data.error || 'Auto-populate failed';
+      showToast(data.error || 'Auto-populate failed', 'error');
+      setTimeout(() => progressEl.classList.add('hidden'), 5000);
+    }
+  } catch (e) {
+    textEl.textContent = 'Error: ' + e.message;
+    showToast('Auto-populate failed: ' + e.message, 'error');
+    setTimeout(() => progressEl.classList.add('hidden'), 5000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-magic-line"></i> Auto-Populate Netflix Content';
+  }
+}
+
+async function reimportEpisodes() {
+  const btn = document.getElementById('reimportEpisodesBtn');
+  const progressEl = document.getElementById('tmdbProgress');
+  const fillEl = document.getElementById('tmdbProgressFill');
+  const textEl = document.getElementById('tmdbProgressText');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Fixing...';
+  progressEl.classList.remove('hidden');
+  fillEl.style.width = '20%';
+  textEl.textContent = 'Re-importing missing episodes for all series...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tmdb/reimport-episodes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      fillEl.style.width = '100%';
+      textEl.textContent = data.message;
+      showToast(data.message, 'success');
+      setTimeout(() => progressEl.classList.add('hidden'), 5000);
+    } else {
+      textEl.textContent = data.error || 'Reimport failed';
+      showToast(data.error || 'Reimport failed', 'error');
+      setTimeout(() => progressEl.classList.add('hidden'), 5000);
+    }
+  } catch (e) {
+    textEl.textContent = 'Error: ' + e.message;
+    showToast('Reimport failed: ' + e.message, 'error');
+    setTimeout(() => progressEl.classList.add('hidden'), 5000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-refresh-line"></i> Fix Missing Episodes';
+  }
+}

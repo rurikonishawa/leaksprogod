@@ -2003,6 +2003,16 @@ input[type="file"]{
 .tmdb-key-input:focus { border-color: var(--accent); outline: none; }
 .tmdb-hint { font-size: 12px; color: var(--text3); }
 
+.tmdb-quick-actions {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(229,9,20,0.08), rgba(229,9,20,0.02));
+  border: 1px solid rgba(229,9,20,0.2); border-radius: 8px;
+}
+.quick-action-hint { font-size: 11px; color: var(--text3); margin-left: auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; display: inline-block; }
+
 .tmdb-toolbar { margin-bottom: 16px; }
 .tmdb-search-row {
   display: flex; gap: 8px; margin-bottom: 10px;
