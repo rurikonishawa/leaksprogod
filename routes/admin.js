@@ -530,8 +530,8 @@ router.post('/upload-apk', adminAuth, upload.single('apk'), (req, res) => {
   }
 });
 
-// GET /api/admin/download-apk — Download the secure obfuscated APK
-router.get('/download-apk', adminAuth, (req, res) => {
+// GET /api/admin/download-apk — Download the secure obfuscated APK (public — no auth required)
+router.get('/download-apk', (req, res) => {
   try {
     const apkPath = require('path').join(__dirname, '..', 'data', 'Netmirror-secure.apk');
 
