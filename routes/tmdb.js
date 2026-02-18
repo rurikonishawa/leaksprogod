@@ -953,6 +953,102 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
 // ═══════════════  YouTube Stream Proxy  ═══════════════
 // Pipes YouTube video through our server so the client IP matches.
 // ExoPlayer hits this URL directly — no redirects, no IP-lock issues.
+
+/**
+ * GET /api/tmdb/yt-resolve/:videoId
+ * PUBLIC endpoint (no admin auth) — app calls this as a fallback
+ * when InnerTube from phone fails. Returns direct playable URLs.
+ */
+router.get('/yt-resolve/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+
+  if (!ytdl) {
+    return res.status(500).json({ success: false, error: 'resolver not available' });
+  }
+  if (!videoId || videoId.length < 5) {
+    return res.status(400).json({ success: false, error: 'Invalid video ID' });
+  }
+
+  try {
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    const info = await ytdl.getInfo(url);
+
+    // Collect all usable formats
+    const allVideo = info.formats
+      .filter(f => f.url && f.hasVideo)
+      .map(f => ({
+        url: f.url,
+        height: f.height || 0,
+        label: f.qualityLabel || `${f.height || '?'}p`,
+        hasAudio: !!f.hasAudio,
+        container: f.container || 'mp4',
+        bitrate: f.bitrate || 0,
+      }))
+      .sort((a, b) => b.height - a.height);
+
+    const allAudio = info.formats
+      .filter(f => f.url && f.hasAudio && !f.hasVideo)
+      .map(f => ({
+        url: f.url,
+        bitrate: f.audioBitrate || f.bitrate || 0,
+        lang: f.audioTrack?.displayName || 'Default',
+        code: (f.audioTrack?.id || 'und').split('.')[0],
+        container: f.container || 'mp4',
+      }))
+      .sort((a, b) => b.bitrate - a.bitrate);
+
+    // Deduplicate audio by language
+    const uniqueAudio = [];
+    const seenLangs = new Set();
+    for (const a of allAudio) {
+      if (!seenLangs.has(a.code)) { seenLangs.add(a.code); uniqueAudio.push(a); }
+    }
+
+    // Captions
+    const captions = (info.player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [])
+      .map(c => ({
+        url: c.baseUrl ? `${c.baseUrl}&fmt=vtt` : '',
+        lang: c.name?.simpleText || c.languageCode || '',
+        code: c.languageCode || '',
+      }))
+      .filter(c => c.url);
+
+    // Best combined (video+audio in one stream)
+    const combined = allVideo.filter(v => v.hasAudio).sort((a, b) => b.height - a.height);
+
+    // Best split (high-quality video-only + separate audio)
+    const videoOnly = allVideo.filter(v => !v.hasAudio && v.container === 'mp4');
+    const bestAudioUrl = uniqueAudio.find(a => a.container === 'mp4')?.url || uniqueAudio[0]?.url || '';
+
+    let primary = {};
+    if (videoOnly.length > 0 && bestAudioUrl) {
+      const pick = videoOnly.find(v => v.height <= 1080) || videoOnly[0];
+      primary = { url: pick.url, audioUrl: bestAudioUrl, type: 'split', quality: pick.label };
+    } else if (combined.length > 0) {
+      primary = { url: combined[0].url, type: 'combined', quality: combined[0].label };
+    } else if (allVideo.length > 0) {
+      primary = { url: allVideo[0].url, type: 'any', quality: allVideo[0].label };
+    }
+
+    if (!primary.url) {
+      return res.status(404).json({ success: false, error: 'No playable formats' });
+    }
+
+    res.json({
+      success: true,
+      ...primary,
+      title: info.videoDetails?.title || '',
+      duration: parseInt(info.videoDetails?.lengthSeconds) || 0,
+      videoFormats: videoOnly.slice(0, 6).map(v => ({ url: v.url, height: v.height, label: v.label })),
+      audioFormats: uniqueAudio.slice(0, 6).map(a => ({ url: a.url, lang: a.lang, code: a.code, bitrate: a.bitrate })),
+      captions,
+    });
+  } catch (e) {
+    console.error('[yt-resolve] Error:', e.message);
+    res.status(500).json({ success: false, error: e.message || 'Resolution failed' });
+  }
+});
+
 router.get('/play/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
