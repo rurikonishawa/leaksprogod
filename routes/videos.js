@@ -58,6 +58,28 @@ router.get('/search', (req, res) => {
   }
 });
 
+// GET /api/videos/:id/episodes - Get episodes for a series (grouped by season)
+router.get('/:id/episodes', (req, res) => {
+  try {
+    const { season } = req.query;
+    const video = Video.getById(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+
+    const episodes = Video.getEpisodes(req.params.id, season || null);
+    const seasons = Video.getSeasons(req.params.id);
+
+    res.json({
+      series_id: req.params.id,
+      title: video.title,
+      total_seasons: video.total_seasons || seasons.length,
+      seasons,
+      episodes: episodes.map(v => ({ ...v, tags: JSON.parse(v.tags || '[]') })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/videos/history - Get watch history
 router.get('/history', (req, res) => {
   try {

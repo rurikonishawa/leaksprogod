@@ -1520,7 +1520,7 @@ function renderTmdbResults(preserve = false) {
     const isImported = tmdbImportedIds.has(key);
     const year = r.release_date ? r.release_date.substring(0, 4) : '';
     const rating = r.vote_average ? r.vote_average.toFixed(1) : '';
-    const typeLabel = r.type === 'movie' ? 'MOVIE' : 'TV';
+    const typeLabel = r.type === 'movie' ? 'MOVIE' : `TV`;
     const genres = (r.genres || []).slice(0, 2).join(', ');
 
     return `
@@ -1589,7 +1589,8 @@ async function importSingle(type, tmdbId) {
     if (data.success) {
       tmdbImportedIds.add(key);
       renderTmdbResults();
-      showToast(`Imported: ${data.video?.title || 'Unknown'}${data.trailer ? ' (with trailer)' : ''}`, 'success');
+      const epMsg = data.episodes_imported > 0 ? ` (${data.episodes_imported} episodes)` : '';
+      showToast(`Imported: ${data.video?.title || 'Unknown'}${epMsg}${data.trailer ? ' + trailer' : ''}`, 'success');
     } else {
       showToast(data.error || 'Import failed', 'error');
     }

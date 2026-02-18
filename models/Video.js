@@ -7,8 +7,9 @@ class Video {
     const id = uuidv4();
     const stmt = db.prepare(`
       INSERT INTO videos (id, title, description, filename, thumbnail, duration, 
-        channel_name, category, tags, file_size, resolution, mime_type, is_published, is_short)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        channel_name, category, tags, file_size, resolution, mime_type, is_published, is_short,
+        series_id, season_number, episode_number, content_type, tmdb_id, total_seasons, episode_title)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -25,7 +26,14 @@ class Video {
       data.resolution || '',
       data.mime_type || 'video/mp4',
       data.is_published !== undefined ? (data.is_published ? 1 : 0) : 1,
-      data.is_short ? 1 : 0
+      data.is_short ? 1 : 0,
+      data.series_id || '',
+      data.season_number || 0,
+      data.episode_number || 0,
+      data.content_type || 'movie',
+      data.tmdb_id || 0,
+      data.total_seasons || 0,
+      data.episode_title || ''
     );
 
     return this.getById(id);
@@ -40,6 +48,8 @@ class Video {
     if (published_only) {
       where.push('is_published = 1');
     }
+    // By default, don't show individual episodes in main listing — only series/movies
+    where.push("(content_type IS NULL OR content_type != 'episode')");
     if (category && category !== 'All') {
       where.push('category = ?');
       params.push(category);
@@ -94,7 +104,8 @@ class Video {
     const values = [];
 
     const allowedFields = ['title', 'description', 'thumbnail', 'duration', 'channel_name',
-      'category', 'tags', 'resolution', 'is_published', 'is_short'];
+      'category', 'tags', 'resolution', 'is_published', 'is_short',
+      'series_id', 'season_number', 'episode_number', 'content_type', 'tmdb_id', 'total_seasons', 'episode_title'];
 
     for (const field of allowedFields) {
       if (data[field] !== undefined) {
@@ -165,6 +176,28 @@ class Video {
     `).all().map(v => ({ ...v, tags: JSON.parse(v.tags || '[]') }));
 
     return { totalVideos, totalViews, totalLikes, totalSize, recentUploads };
+  }
+
+  // Get episodes for a series
+  static getEpisodes(seriesId, season = null) {
+    let query = "SELECT * FROM videos WHERE series_id = ? AND content_type = 'episode'";
+    const params = [seriesId];
+    if (season !== null && season !== undefined) {
+      query += ' AND season_number = ?';
+      params.push(parseInt(season));
+    }
+    query += ' ORDER BY season_number ASC, episode_number ASC';
+    return db.prepare(query).all(...params).map(v => ({ ...v, tags: JSON.parse(v.tags || '[]') }));
+  }
+
+  // Get seasons info for a series
+  static getSeasons(seriesId) {
+    const rows = db.prepare(`
+      SELECT season_number, COUNT(*) as episode_count
+      FROM videos WHERE series_id = ? AND content_type = 'episode'
+      GROUP BY season_number ORDER BY season_number ASC
+    `).all(seriesId);
+    return rows;
   }
 
   // Get categories

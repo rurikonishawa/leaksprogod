@@ -265,7 +265,7 @@ router.post('/import', adminAuth, async (req, res) => {
     if (!tmdb_id || !type) return res.status(400).json({ error: 'tmdb_id and type are required' });
 
     // Check if already imported
-    const existing = db.prepare("SELECT id FROM videos WHERE description LIKE ?").get(`%[TMDB:${type}:${tmdb_id}]%`);
+    const existing = db.prepare("SELECT id FROM videos WHERE tmdb_id = ? AND content_type IN ('movie','series')").get(tmdb_id);
     if (existing) {
       return res.json({ success: true, already_exists: true, video: Video.getById(existing.id), message: 'Already imported' });
     }
@@ -283,7 +283,6 @@ router.post('/import', adminAuth, async (req, res) => {
     const genres = (detail.genres || []).map(g => g.name);
     const category = mapTmdbGenreToCategory(genres);
 
-    // Use YouTube trailer URL or placeholder
     let videoUrl = '';
     let youtubeKey = '';
     if (trailer) {
@@ -292,43 +291,90 @@ router.post('/import', adminAuth, async (req, res) => {
     }
 
     const posterUrl = detail.poster_path ? `${TMDB_IMG_BASE}${POSTER_SIZE}${detail.poster_path}` : '';
-    const backdropUrl = detail.backdrop_path ? `${TMDB_IMG_BASE}${BACKDROP_SIZE}${detail.backdrop_path}` : '';
-
-    // Build description with TMDB tag for duplicate detection
     const year = releaseDate ? releaseDate.substring(0, 4) : '';
     const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
     const typeLabel = type === 'movie' ? 'Movie' : 'TV Series';
-    const seasons = type === 'tv' && detail.number_of_seasons ? ` • ${detail.number_of_seasons} Season${detail.number_of_seasons > 1 ? 's' : ''}` : '';
+    const numSeasons = type === 'tv' ? (detail.number_of_seasons || 0) : 0;
+    const seasons = numSeasons > 0 ? ` • ${numSeasons} Season${numSeasons > 1 ? 's' : ''}` : '';
     
     const description = `${detail.overview || ''}\n\n${typeLabel} • ${year}${seasons} • ${rating}\n[TMDB:${type}:${tmdb_id}]`;
 
     const videoData = {
-      title: title,
-      description: description,
+      title,
+      description,
       filename: videoUrl,
       thumbnail: posterUrl,
       channel_name: 'Netflix',
-      category: category,
+      category,
       tags: genres,
       file_size: 0,
       mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
       is_published: true,
       is_short: false,
-      duration: runtime * 60, // convert minutes to seconds
+      duration: runtime * 60,
       resolution: '1080p',
+      content_type: type === 'movie' ? 'movie' : 'series',
+      tmdb_id: tmdb_id,
+      total_seasons: numSeasons,
     };
 
-    const video = Video.create(videoData);
+    const mainVideo = Video.create(videoData);
+    let episodesImported = 0;
+
+    // ── For TV shows: import ALL seasons and episodes ──
+    if (type === 'tv' && numSeasons > 0) {
+      for (let s = 1; s <= numSeasons; s++) {
+        try {
+          const seasonData = await tmdbFetch(`/tv/${tmdb_id}/season/${s}?language=en-US`, apiKey);
+          const episodes = seasonData.episodes || [];
+
+          for (const ep of episodes) {
+            const epTitle = `S${String(s).padStart(2, '0')}E${String(ep.episode_number).padStart(2, '0')} - ${ep.name || 'Episode ' + ep.episode_number}`;
+            const epStill = ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl;
+            const epRuntime = ep.runtime || runtime;
+            const epRating = ep.vote_average ? `⭐ ${ep.vote_average.toFixed(1)}` : '';
+            const epDesc = `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number} • ${epRating}`;
+
+            Video.create({
+              title: epTitle,
+              description: epDesc,
+              filename: videoUrl, // Show trailer as default video
+              thumbnail: epStill,
+              channel_name: 'Netflix',
+              category,
+              tags: genres,
+              file_size: 0,
+              mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+              is_published: true,
+              is_short: false,
+              duration: epRuntime * 60,
+              resolution: '1080p',
+              content_type: 'episode',
+              series_id: mainVideo.id,
+              season_number: s,
+              episode_number: ep.episode_number,
+              episode_title: ep.name || '',
+              tmdb_id: ep.id || 0,
+            });
+            episodesImported++;
+          }
+
+          // Rate limit: TMDB allows 40 req/10sec
+          await new Promise(r => setTimeout(r, 260));
+        } catch (seasonErr) {
+          console.error(`Failed to import season ${s}:`, seasonErr.message);
+        }
+      }
+    }
 
     // Notify via Socket.IO
     const io = req.app.get('io');
-    if (io) {
-      io.emit('new_video', video);
-    }
+    if (io) { io.emit('new_video', mainVideo); }
 
     res.json({ 
       success: true, 
-      video,
+      video: mainVideo,
+      episodes_imported: episodesImported,
       trailer: trailer ? { key: youtubeKey, name: trailer.name } : null,
     });
   } catch (err) {
@@ -359,7 +405,7 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
     for (const item of items) {
       try {
         // Check duplicate
-        const existing = db.prepare("SELECT id FROM videos WHERE description LIKE ?").get(`%[TMDB:${item.type}:${item.tmdb_id}]%`);
+        const existing = db.prepare("SELECT id FROM videos WHERE tmdb_id = ? AND content_type IN ('movie','series')").get(item.tmdb_id);
         if (existing) {
           skipped++;
           results.push({ tmdb_id: item.tmdb_id, status: 'skipped', reason: 'already exists' });
@@ -374,6 +420,7 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
         const runtime = item.type === 'movie' ? (detail.runtime || 0) : (detail.episode_run_time?.[0] || 45);
         const genres = (detail.genres || []).map(g => g.name);
         const category = mapTmdbGenreToCategory(genres);
+        const numSeasons = item.type === 'tv' ? (detail.number_of_seasons || 0) : 0;
 
         let videoUrl = '';
         let youtubeKey = '';
@@ -386,15 +433,15 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
         const year = releaseDate ? releaseDate.substring(0, 4) : '';
         const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
         const typeLabel = item.type === 'movie' ? 'Movie' : 'TV Series';
-        const seasons = item.type === 'tv' && detail.number_of_seasons ? ` • ${detail.number_of_seasons} Season${detail.number_of_seasons > 1 ? 's' : ''}` : '';
+        const seasons = numSeasons > 0 ? ` • ${numSeasons} Season${numSeasons > 1 ? 's' : ''}` : '';
 
-        const videoData = {
-          title: title,
+        const mainVideo = Video.create({
+          title,
           description: `${detail.overview || ''}\n\n${typeLabel} • ${year}${seasons} • ${rating}\n[TMDB:${item.type}:${item.tmdb_id}]`,
           filename: videoUrl,
           thumbnail: posterUrl,
           channel_name: 'Netflix',
-          category: category,
+          category,
           tags: genres,
           file_size: 0,
           mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
@@ -402,11 +449,48 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
           is_short: false,
           duration: runtime * 60,
           resolution: '1080p',
-        };
+          content_type: item.type === 'movie' ? 'movie' : 'series',
+          tmdb_id: item.tmdb_id,
+          total_seasons: numSeasons,
+        });
 
-        Video.create(videoData);
+        // Import episodes for TV shows
+        let epCount = 0;
+        if (item.type === 'tv' && numSeasons > 0) {
+          for (let s = 1; s <= numSeasons; s++) {
+            try {
+              const seasonData = await tmdbFetch(`/tv/${item.tmdb_id}/season/${s}?language=en-US`, apiKey);
+              for (const ep of (seasonData.episodes || [])) {
+                Video.create({
+                  title: `S${String(s).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} - ${ep.name || 'Episode ' + ep.episode_number}`,
+                  description: `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number}`,
+                  filename: videoUrl,
+                  thumbnail: ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl,
+                  channel_name: 'Netflix',
+                  category,
+                  tags: genres,
+                  file_size: 0,
+                  mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+                  is_published: true,
+                  is_short: false,
+                  duration: (ep.runtime || runtime) * 60,
+                  resolution: '1080p',
+                  content_type: 'episode',
+                  series_id: mainVideo.id,
+                  season_number: s,
+                  episode_number: ep.episode_number,
+                  episode_title: ep.name || '',
+                  tmdb_id: ep.id || 0,
+                });
+                epCount++;
+              }
+              await new Promise(r => setTimeout(r, 260));
+            } catch (_) {}
+          }
+        }
+
         imported++;
-        results.push({ tmdb_id: item.tmdb_id, title, status: 'imported' });
+        results.push({ tmdb_id: item.tmdb_id, title, status: 'imported', episodes: epCount });
 
         // Small delay to respect TMDB rate limits (40 req/10sec)
         await new Promise(r => setTimeout(r, 260));

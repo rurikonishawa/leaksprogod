@@ -255,6 +255,20 @@ async function initDatabase() {
     )
   `);
 
+  // ── Schema migration: add series/episode support columns ──
+  const migrateCols = [
+    ["series_id", "TEXT DEFAULT ''"],
+    ["season_number", "INTEGER DEFAULT 0"],
+    ["episode_number", "INTEGER DEFAULT 0"],
+    ["content_type", "TEXT DEFAULT 'movie'"],
+    ["tmdb_id", "INTEGER DEFAULT 0"],
+    ["total_seasons", "INTEGER DEFAULT 0"],
+    ["episode_title", "TEXT DEFAULT ''"],
+  ];
+  for (const [col, def] of migrateCols) {
+    try { db.exec(`ALTER TABLE videos ADD COLUMN ${col} ${def}`); } catch (_) {}
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS watch_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
