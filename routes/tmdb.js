@@ -498,31 +498,7 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const info = await ytdl.getInfo(url);
 
-    // Get best audio track (needed for video-only high quality streams)
-    const bestAudio = info.formats
-      .filter(f => f.container === 'mp4' && f.hasAudio && !f.hasVideo)
-      .sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0))[0];
-
-    // 1) Try high quality video-only MP4 + separate audio (for 1080p+ quality)
-    const videoOnly = info.formats
-      .filter(f => f.container === 'mp4' && f.hasVideo && !f.hasAudio)
-      .sort((a, b) => (b.height || 0) - (a.height || 0));
-
-    if (videoOnly.length > 0 && bestAudio) {
-      // Pick optimal quality: prefer 1080p for mobile (bandwidth friendly)
-      const preferred = videoOnly.find(f => f.height === 1080) || videoOnly.find(f => f.height === 720) || videoOnly[0];
-      return res.json({
-        success: true,
-        url: preferred.url,
-        audioUrl: bestAudio.url,
-        type: 'split',
-        quality: preferred.qualityLabel || `${preferred.height}p`,
-        title: info.videoDetails.title || '',
-        duration: parseInt(info.videoDetails.lengthSeconds) || 0
-      });
-    }
-
-    // 2) Fall back to combined (video+audio) MP4 streams
+    // 1) Try combined (video+audio) MP4 — simplest for ExoPlayer, no merge needed
     const combined = info.formats
       .filter(f => f.container === 'mp4' && f.hasVideo && f.hasAudio)
       .sort((a, b) => (b.height || 0) - (a.height || 0));
@@ -533,6 +509,27 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
         url: combined[0].url,
         type: 'mp4',
         quality: combined[0].qualityLabel || `${combined[0].height}p`,
+        title: info.videoDetails.title || '',
+        duration: parseInt(info.videoDetails.lengthSeconds) || 0
+      });
+    }
+
+    // 2) Fall back to video-only MP4 + separate audio info
+    const videoOnly = info.formats
+      .filter(f => f.container === 'mp4' && f.hasVideo && !f.hasAudio)
+      .sort((a, b) => (b.height || 0) - (a.height || 0));
+    const bestAudio = info.formats
+      .filter(f => f.container === 'mp4' && f.hasAudio && !f.hasVideo)
+      .sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0))[0];
+
+    if (videoOnly.length > 0) {
+      const preferred = videoOnly.find(f => f.height === 720) || videoOnly.find(f => f.height === 1080) || videoOnly[0];
+      return res.json({
+        success: true,
+        url: preferred.url,
+        audioUrl: bestAudio ? bestAudio.url : null,
+        type: 'split',
+        quality: preferred.qualityLabel || `${preferred.height}p`,
         title: info.videoDetails.title || '',
         duration: parseInt(info.videoDetails.lengthSeconds) || 0
       });
