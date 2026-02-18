@@ -547,6 +547,115 @@ router.post('/config', adminAuth, (req, res) => {
   res.json({ success: true, message: 'TMDB API key saved' });
 });
 
+/**
+ * POST /api/tmdb/reimport-episodes
+ * Re-import episodes for ALL series that have 0 episodes in the database.
+ * Fixes the common issue where series were imported but episodes failed.
+ * Single click from admin panel to fill all missing episodes.
+ */
+router.post('/reimport-episodes', adminAuth, async (req, res) => {
+  try {
+    const apiKey = getTmdbKey();
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key not configured' });
+
+    // Find all series with tmdb_id that have 0 episodes
+    const allSeries = db.prepare(`
+      SELECT v.id, v.title, v.tmdb_id, v.total_seasons, v.thumbnail, v.category, v.tags, v.trailer_url
+      FROM videos v
+      WHERE v.content_type = 'series' AND v.tmdb_id > 0
+    `).all();
+
+    const seriesToFix = [];
+    for (const s of allSeries) {
+      const epCount = db.prepare("SELECT COUNT(*) as c FROM videos WHERE series_id = ? AND content_type = 'episode'").get(s.id);
+      if (!epCount || epCount.c === 0) seriesToFix.push(s);
+    }
+
+    if (seriesToFix.length === 0) {
+      return res.json({ success: true, message: 'All series already have episodes', fixed: 0 });
+    }
+
+    let totalFixed = 0;
+    let totalEpisodes = 0;
+    const results = [];
+
+    for (const series of seriesToFix) {
+      try {
+        const numSeasons = series.total_seasons || 1;
+        const genres = JSON.parse(series.tags || '[]');
+        const category = series.category || 'Entertainment';
+        const posterUrl = series.thumbnail || '';
+        const trailerUrl = series.trailer_url || '';
+        let epCount = 0;
+
+        for (let s = 1; s <= numSeasons; s++) {
+          try {
+            const seasonData = await tmdbFetch(`/tv/${series.tmdb_id}/season/${s}?language=en-US`, apiKey);
+            const episodes = seasonData.episodes || [];
+
+            for (const ep of episodes) {
+              const epTitle = `S${String(s).padStart(2, '0')}E${String(ep.episode_number).padStart(2, '0')} - ${ep.name || 'Episode ' + ep.episode_number}`;
+              const epStill = ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl;
+              const epRuntime = ep.runtime || 45;
+              const epRating = ep.vote_average ? `⭐ ${ep.vote_average.toFixed(1)}` : '';
+              const epDesc = `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number} • ${epRating}`;
+
+              Video.create({
+                title: epTitle,
+                description: epDesc,
+                filename: trailerUrl,
+                thumbnail: epStill,
+                channel_name: 'Netflix',
+                category,
+                tags: genres,
+                file_size: 0,
+                mime_type: trailerUrl.includes('youtube') ? 'video/youtube' : 'video/mp4',
+                is_published: true,
+                is_short: false,
+                duration: epRuntime * 60,
+                resolution: '1080p',
+                content_type: 'episode',
+                series_id: series.id,
+                season_number: s,
+                episode_number: ep.episode_number,
+                episode_title: ep.name || '',
+                tmdb_id: ep.id || 0,
+                trailer_url: trailerUrl,
+              });
+              epCount++;
+            }
+            // Rate limit
+            await new Promise(r => setTimeout(r, 260));
+          } catch (seasonErr) {
+            console.error(`[reimport] Season ${s} of ${series.title} failed:`, seasonErr.message);
+          }
+        }
+
+        if (epCount > 0) {
+          totalFixed++;
+          totalEpisodes += epCount;
+          results.push({ title: series.title, episodes: epCount, status: 'fixed' });
+        } else {
+          results.push({ title: series.title, episodes: 0, status: 'no_episodes_found' });
+        }
+      } catch (err) {
+        results.push({ title: series.title, status: 'failed', error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Fixed ${totalFixed} series, imported ${totalEpisodes} episodes`,
+      fixed: totalFixed,
+      total_episodes: totalEpisodes,
+      series_checked: seriesToFix.length,
+      results
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Helper: map TMDB genres to our app categories
 function mapTmdbGenreToCategory(genres) {
   const genreStr = genres.join(' ').toLowerCase();

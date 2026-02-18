@@ -155,11 +155,11 @@ class Video {
     db.prepare('UPDATE videos SET dislikes = dislikes + 1 WHERE id = ?').run(id);
   }
 
-  // Get trending videos
+  // Get trending videos (excludes individual episodes)
   static getTrending(limit = 20) {
     const stmt = db.prepare(`
       SELECT * FROM videos 
-      WHERE is_published = 1 
+      WHERE is_published = 1 AND (content_type IS NULL OR content_type != 'episode')
       ORDER BY views DESC, likes DESC 
       LIMIT ?
     `);

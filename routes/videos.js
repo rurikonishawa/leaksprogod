@@ -73,7 +73,7 @@ router.get('/:id/episodes', (req, res) => {
       title: video.title,
       total_seasons: video.total_seasons || seasons.length,
       seasons,
-      episodes: episodes.map(v => ({ ...v, tags: JSON.parse(v.tags || '[]') })),
+      episodes,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
