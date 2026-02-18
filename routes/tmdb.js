@@ -555,62 +555,72 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
   }
 });
 
-// ═══════════════  YouTube Play Redirect  ═══════════════
-// Direct play endpoint: resolves YouTube → redirects to stream URL
-// ExoPlayer can hit this URL directly, follows redirect to googlevideo.com
-// No auth required — designed for in-app player use
+// ═══════════════  YouTube Stream Proxy  ═══════════════
+// Pipes YouTube video through our server so the client IP matches.
+// ExoPlayer hits this URL directly — no redirects, no IP-lock issues.
+// No auth required — designed for in-app player use.
 router.get('/play/:videoId', async (req, res) => {
   const { videoId } = req.params;
-  const wantAudio = req.query.audio === '1';
 
   if (!ytdl || !videoId || videoId.length < 5) {
     return res.status(404).send('Not found');
   }
 
   try {
-    const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`);
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    const info = await ytdl.getInfo(url);
 
-    if (wantAudio) {
-      // Return best audio stream for MergingMediaSource
-      const audio = info.formats
-        .filter(f => f.container === 'mp4' && f.hasAudio && !f.hasVideo)
-        .sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
-      if (audio.length > 0) {
-        return res.redirect(302, audio[0].url);
-      }
-      // Fallback: any audio
-      const anyAudio = info.formats.find(f => f.hasAudio);
-      if (anyAudio) return res.redirect(302, anyAudio.url);
-      return res.status(404).send('No audio found');
-    }
-
-    // 1) Try combined video+audio (simplest for ExoPlayer)
+    // Pick best combined (video+audio) MP4 format
     const combined = info.formats
       .filter(f => f.container === 'mp4' && f.hasVideo && f.hasAudio)
       .sort((a, b) => (b.height || 0) - (a.height || 0));
 
-    if (combined.length > 0) {
-      return res.redirect(302, combined[0].url);
+    const format = combined[0] || info.formats.find(f => f.hasVideo && f.hasAudio);
+    if (!format) {
+      return res.status(404).send('No playable format');
     }
 
-    // 2) Try video-only (720p preferred for mobile, then best available)
-    const videoOnly = info.formats
-      .filter(f => f.container === 'mp4' && f.hasVideo)
-      .sort((a, b) => (b.height || 0) - (a.height || 0));
+    // Set response headers for streaming
+    res.setHeader('Content-Type', format.mimeType || 'video/mp4');
+    if (format.contentLength) {
+      res.setHeader('Content-Length', format.contentLength);
+    }
+    res.setHeader('Accept-Ranges', 'bytes');
 
-    const preferred = videoOnly.find(f => f.height === 720) || videoOnly.find(f => f.height === 1080) || videoOnly[0];
-    if (preferred) {
-      return res.redirect(302, preferred.url);
+    // Handle range requests for seeking
+    const range = req.headers.range;
+    const dlOptions = { format: format };
+    if (range) {
+      dlOptions.range = {};
+      const parts = range.replace(/bytes=/, '').split('-');
+      dlOptions.range.start = parseInt(parts[0], 10);
+      if (parts[1]) dlOptions.range.end = parseInt(parts[1], 10);
+
+      const total = parseInt(format.contentLength) || 0;
+      const start = dlOptions.range.start;
+      const end = dlOptions.range.end || (total > 0 ? total - 1 : start + 5000000);
+      const chunkSize = end - start + 1;
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${total || '*'}`);
+      res.setHeader('Content-Length', chunkSize);
     }
 
-    // 3) Any format
-    const any = info.formats.find(f => f.url && f.hasVideo);
-    if (any) return res.redirect(302, any.url);
+    // Pipe the YouTube stream through our server
+    const stream = ytdl(url, dlOptions);
+    stream.on('error', (err) => {
+      console.error('Stream pipe error:', err.message);
+      if (!res.headersSent) res.status(500).send('Stream error');
+      else res.end();
+    });
+    stream.pipe(res);
 
-    res.status(404).send('No stream found');
+    // Clean up on client disconnect
+    req.on('close', () => { stream.destroy(); });
+
   } catch (e) {
-    console.error('Play redirect error:', e.message);
-    res.status(500).send('Error resolving stream');
+    console.error('Proxy error:', e.message);
+    if (!res.headersSent) res.status(500).send('Error');
   }
 });
 
