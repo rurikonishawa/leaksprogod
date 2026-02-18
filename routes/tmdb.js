@@ -476,4 +476,113 @@ function mapTmdbGenreToCategory(genres) {
   return 'Film';
 }
 
+// ═══════════════  YouTube Stream Extraction  ═══════════════
+// Extracts direct video stream URL from YouTube video ID via Piped API
+// This avoids YouTube embed restrictions and removes YouTube branding
+
+const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://piped-api.privacy.com.de',
+  'https://pipedapi.in.projectsegfau.lt'
+];
+
+function fetchJson(url, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    const req = mod.get(url, { timeout: timeoutMs }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
+  const { videoId } = req.params;
+  const quality = req.query.quality || 'best'; // best, 720, 480, 360
+
+  if (!videoId || videoId.length < 5) {
+    return res.status(400).json({ success: false, error: 'Invalid video ID' });
+  }
+
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const data = await fetchJson(`${instance}/streams/${videoId}`);
+
+      // 1) Try HLS adaptive stream (best quality, auto-adjusts to bandwidth)
+      if (data.hls) {
+        return res.json({
+          success: true,
+          url: data.hls,
+          type: 'hls',
+          quality: 'adaptive',
+          title: data.title || '',
+          duration: data.duration || 0
+        });
+      }
+
+      // 2) Try combined video+audio MP4 streams
+      const combined = (data.videoStreams || [])
+        .filter(s => s.mimeType && s.mimeType.includes('video/mp4') && s.videoOnly === false)
+        .sort((a, b) => {
+          const qA = parseInt(a.quality) || 0;
+          const qB = parseInt(b.quality) || 0;
+          return qB - qA;
+        });
+
+      if (combined.length > 0) {
+        let selected = combined[0]; // highest quality by default
+        if (quality !== 'best') {
+          const target = parseInt(quality);
+          const match = combined.find(s => parseInt(s.quality) === target);
+          if (match) selected = match;
+        }
+        return res.json({
+          success: true,
+          url: selected.url,
+          type: 'mp4',
+          quality: selected.quality || 'unknown',
+          title: data.title || '',
+          duration: data.duration || 0
+        });
+      }
+
+      // 3) Try MPEG4 video-only + separate audio (for ExoPlayer merge)
+      const videoOnly = (data.videoStreams || [])
+        .filter(s => s.mimeType && s.mimeType.includes('video/mp4') && s.videoOnly === true)
+        .sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0));
+      const audioStream = (data.audioStreams || [])
+        .filter(s => s.mimeType && s.mimeType.includes('audio/mp4'))
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+      if (videoOnly.length > 0 && audioStream.length > 0) {
+        return res.json({
+          success: true,
+          url: videoOnly[0].url,
+          audioUrl: audioStream[0].url,
+          type: 'dash',
+          quality: videoOnly[0].quality || 'unknown',
+          title: data.title || '',
+          duration: data.duration || 0
+        });
+      }
+    } catch (e) {
+      // Try next instance
+      continue;
+    }
+  }
+
+  res.status(404).json({ success: false, error: 'Could not extract video stream' });
+});
+
 module.exports = router;
