@@ -480,13 +480,14 @@ function mapTmdbGenreToCategory(genres) {
 // Extracts direct video stream URL from YouTube via ytdl-core
 // No third-party API dependency — runs directly on our server
 let ytdl = null;
-try { ytdl = require('@distube/ytdl-core'); } catch (e) { console.warn('ytdl-core not available:', e.message); }
+let ytdlError = '';
+try { ytdl = require('@distube/ytdl-core'); console.log('ytdl-core loaded successfully'); } catch (e) { ytdlError = e.message; console.error('ytdl-core failed to load:', e.stack); }
 
 router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
   const { videoId } = req.params;
 
   if (!ytdl) {
-    return res.status(500).json({ success: false, error: 'ytdl-core not available on this server' });
+    return res.status(500).json({ success: false, error: 'ytdl-core not available', detail: ytdlError });
   }
 
   if (!videoId || videoId.length < 5) {
