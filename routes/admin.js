@@ -225,6 +225,28 @@ router.delete('/videos/:id', adminAuth, async (req, res) => {
   }
 });
 
+// GET /api/admin/settings
+router.get('/settings', adminAuth, (req, res) => {
+  try {
+    const rows = db.prepare('SELECT key, value FROM admin_settings').all();
+    const settings = {};
+    for (const r of rows) settings[r.key] = r.value;
+    res.json({ success: true, settings });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/backup — trigger manual Cloudinary DB backup
+router.post('/backup', adminAuth, (req, res) => {
+  try {
+    db.saveNow();
+    res.json({ success: true, message: 'Database backup triggered' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/admin/settings
 router.put('/settings', adminAuth, (req, res) => {
   try {
