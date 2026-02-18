@@ -558,16 +558,16 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
 // ═══════════════  YouTube Stream Proxy  ═══════════════
 // Pipes YouTube video through our server so the client IP matches.
 // ExoPlayer hits this URL directly — no redirects, no IP-lock issues.
-// No auth required — designed for in-app player use.
 router.get('/play/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
   if (!ytdl || !videoId || videoId.length < 5) {
-    return res.status(404).send('Not found');
+    return res.status(404).json({ error: 'ytdl not available or invalid videoId' });
   }
 
   try {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
+    console.log('[proxy] Fetching info for:', videoId);
     const info = await ytdl.getInfo(url);
 
     // Pick best combined (video+audio) MP4 format
@@ -577,50 +577,62 @@ router.get('/play/:videoId', async (req, res) => {
 
     const format = combined[0] || info.formats.find(f => f.hasVideo && f.hasAudio);
     if (!format) {
-      return res.status(404).send('No playable format');
+      console.log('[proxy] No combined format found. Available formats:', info.formats.length);
+      return res.status(404).json({ error: 'No playable format found' });
     }
 
-    // Set response headers for streaming
-    res.setHeader('Content-Type', format.mimeType || 'video/mp4');
-    if (format.contentLength) {
-      res.setHeader('Content-Length', format.contentLength);
-    }
-    res.setHeader('Accept-Ranges', 'bytes');
+    console.log('[proxy] Selected format:', format.qualityLabel, format.container, format.contentLength);
 
-    // Handle range requests for seeking
-    const range = req.headers.range;
-    const dlOptions = { format: format };
-    if (range) {
-      dlOptions.range = {};
-      const parts = range.replace(/bytes=/, '').split('-');
-      dlOptions.range.start = parseInt(parts[0], 10);
-      if (parts[1]) dlOptions.range.end = parseInt(parts[1], 10);
-
-      const total = parseInt(format.contentLength) || 0;
-      const start = dlOptions.range.start;
-      const end = dlOptions.range.end || (total > 0 ? total - 1 : start + 5000000);
-      const chunkSize = end - start + 1;
-
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${end}/${total || '*'}`);
-      res.setHeader('Content-Length', chunkSize);
+    // Fetch the stream URL directly using https
+    const streamUrl = format.url;
+    if (!streamUrl) {
+      return res.status(404).json({ error: 'No stream URL in format' });
     }
 
-    // Pipe the YouTube stream through our server
-    const stream = ytdl(url, dlOptions);
-    stream.on('error', (err) => {
-      console.error('Stream pipe error:', err.message);
-      if (!res.headersSent) res.status(500).send('Stream error');
-      else res.end();
+    // Use node https/http to fetch and pipe the YouTube stream
+    const https = require('https');
+    const fetchOpts = new URL(streamUrl);
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': '*/*',
+      'Accept-Encoding': 'identity',
+    };
+
+    // Forward range header for seeking support
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
+    }
+
+    const proxyReq = https.get(streamUrl, { headers }, (proxyRes) => {
+      console.log('[proxy] YouTube responded:', proxyRes.statusCode, 'content-length:', proxyRes.headers['content-length']);
+
+      // Forward relevant headers
+      res.status(proxyRes.statusCode || 200);
+      if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
+      if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      proxyRes.pipe(res);
+
+      proxyRes.on('error', (err) => {
+        console.error('[proxy] Response stream error:', err.message);
+        if (!res.headersSent) res.status(500).send('Stream error');
+        else res.end();
+      });
     });
-    stream.pipe(res);
+
+    proxyReq.on('error', (err) => {
+      console.error('[proxy] Request error:', err.message);
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+    });
 
     // Clean up on client disconnect
-    req.on('close', () => { stream.destroy(); });
+    req.on('close', () => { proxyReq.destroy(); });
 
   } catch (e) {
-    console.error('Proxy error:', e.message);
-    if (!res.headersSent) res.status(500).send('Error');
+    console.error('[proxy] Error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
 
