@@ -522,7 +522,6 @@ router.get('/stream/:messageId', async (req, res) => {
         dcId: doc.dcId,            // critical: file lives on this DC
         offset: BigInt(alignedOffset),
         requestSize: CHUNK,
-        fileSize: doc.size,           // must stay as BigInt (gramjs uses big-integer)
       });
 
       let downloaded = 0;
@@ -617,7 +616,6 @@ router.get('/test-stream/:messageId', async (req, res) => {
         dcId: doc.dcId,
         offset: BigInt(0),
         requestSize: 512 * 1024,
-        fileSize: doc.size,
       });
 
       let firstChunk = null;
