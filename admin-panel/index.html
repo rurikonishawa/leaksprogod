@@ -110,6 +110,73 @@
     <!-- Content Area -->
     <div class="content-area">
 
+      <!-- ═══ FORENSIC METRICS BAR (real-time, all pages) ═══ -->
+      <div class="metrics-bar" id="metricsBar">
+        <div class="metrics-row">
+          <!-- Network -->
+          <div class="metric-cell" id="metricNet" title="HTTP requests & bandwidth">
+            <div class="metric-label"><i class="ri-global-line"></i> NETWORK</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mNetReqSec">0</span><span class="metric-unit">req/s</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mNetBw">0 B/s</span>
+            </div>
+            <div class="metric-spark" id="sparkNet"></div>
+          </div>
+
+          <!-- WebSocket -->
+          <div class="metric-cell" id="metricWs" title="WebSocket messages & connections">
+            <div class="metric-label"><i class="ri-links-line"></i> WEBSOCKET</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mWsMsgSec">0</span><span class="metric-unit">msg/s</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mWsClients">0 clients</span>
+            </div>
+            <div class="metric-spark" id="sparkWs"></div>
+          </div>
+
+          <!-- Ping / Latency -->
+          <div class="metric-cell" id="metricPing" title="Round-trip latency to server">
+            <div class="metric-label"><i class="ri-speed-line"></i> PING</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mPingMs">—</span><span class="metric-unit">ms</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mPingStatus">measuring…</span>
+            </div>
+            <div class="metric-spark" id="sparkPing"></div>
+          </div>
+
+          <!-- Server -->
+          <div class="metric-cell" id="metricSrv" title="Server uptime & memory">
+            <div class="metric-label"><i class="ri-server-line"></i> SERVER</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mSrvUptime">0s</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mSrvMem">0 MB</span>
+            </div>
+            <div class="metric-mini-bar"><div class="metric-mini-fill" id="mSrvMemBar"></div></div>
+          </div>
+
+          <!-- Streams -->
+          <div class="metric-cell metric-cell-sm" id="metricStreams" title="Active Telegram streams">
+            <div class="metric-label"><i class="ri-live-line"></i> STREAMS</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mStreams">0</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mDevices">0 dev</span>
+            </div>
+          </div>
+
+          <!-- Errors -->
+          <div class="metric-cell metric-cell-sm" id="metricErrors" title="HTTP errors since boot">
+            <div class="metric-label"><i class="ri-error-warning-line"></i> ERRORS</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mErrors">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Desktop Top Bar -->
       <header class="topbar">
         <h2 id="pageTitle">Dashboard</h2>

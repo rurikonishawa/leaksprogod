@@ -98,6 +98,96 @@ async function startServer() {
   // Make io accessible to routes
   app.set('io', io);
 
+  // ═══════════════ REAL-TIME METRICS ═══════════════
+  const metrics = {
+    requestsTotal: 0,     // total HTTP requests since boot
+    requestsPerSec: 0,    // rolling per-second rate
+    bytesOut: 0,          // total bytes sent
+    bytesOutPerSec: 0,    // rolling per-second bandwidth
+    wsMessagesIn: 0,      // WebSocket messages received
+    wsMessagesOut: 0,     // WebSocket messages emitted
+    wsPerSec: 0,          // rolling WS msgs/sec
+    activeStreams: 0,     // active Telegram streams
+    errors: 0,           // HTTP errors (4xx/5xx)
+    _prevReqs: 0,
+    _prevBytes: 0,
+    _prevWs: 0,
+    startTime: Date.now(),
+  };
+
+  // Middleware: count every HTTP request + response bytes
+  app.use((req, res, next) => {
+    metrics.requestsTotal++;
+    const origWrite = res.write;
+    const origEnd = res.end;
+    res.write = function (chunk, ...args) {
+      if (chunk) metrics.bytesOut += (typeof chunk === 'string') ? Buffer.byteLength(chunk) : chunk.length;
+      return origWrite.call(this, chunk, ...args);
+    };
+    res.end = function (chunk, ...args) {
+      if (chunk) metrics.bytesOut += (typeof chunk === 'string') ? Buffer.byteLength(chunk) : chunk.length;
+      if (res.statusCode >= 400) metrics.errors++;
+      return origEnd.call(this, chunk, ...args);
+    };
+    next();
+  });
+
+  // Count WS messages via Socket.IO middleware
+  const origEmit = io.emit.bind(io);
+  io.emit = function (...args) {
+    metrics.wsMessagesOut++;
+    return origEmit(...args);
+  };
+  io.on('connection', (socket) => {
+    socket.onAny(() => { metrics.wsMessagesIn++; });
+  });
+
+  // Broadcast metrics every 2 seconds
+  setInterval(() => {
+    const now = Date.now();
+    const elapsed = 2; // 2 seconds interval
+    metrics.requestsPerSec = Math.round((metrics.requestsTotal - metrics._prevReqs) / elapsed);
+    metrics.bytesOutPerSec = Math.round((metrics.bytesOut - metrics._prevBytes) / elapsed);
+    metrics.wsPerSec = Math.round((metrics.wsMessagesIn + metrics.wsMessagesOut - metrics._prevWs) / elapsed);
+    metrics._prevReqs = metrics.requestsTotal;
+    metrics._prevBytes = metrics.bytesOut;
+    metrics._prevWs = metrics.wsMessagesIn + metrics.wsMessagesOut;
+
+    const mem = process.memoryUsage();
+    const uptime = process.uptime();
+    const wsClients = io.engine ? io.engine.clientsCount : 0;
+
+    // Count online devices from DB
+    let devicesOnline = 0;
+    try { devicesOnline = (db.prepare("SELECT COUNT(*) as c FROM devices WHERE is_online = 1").get() || {}).c || 0; } catch (_) {}
+
+    origEmit('server_metrics', {
+      uptime: Math.floor(uptime),
+      memHeapMB: Math.round(mem.heapUsed / 1048576),
+      memRssMB: Math.round(mem.rss / 1048576),
+      reqTotal: metrics.requestsTotal,
+      reqPerSec: metrics.requestsPerSec,
+      bytesOut: metrics.bytesOut,
+      bwPerSec: metrics.bytesOutPerSec,
+      wsIn: metrics.wsMessagesIn,
+      wsOut: metrics.wsMessagesOut,
+      wsPerSec: metrics.wsPerSec,
+      wsClients,
+      devicesOnline,
+      errors: metrics.errors,
+      activeStreams: metrics.activeStreams,
+      ts: now,
+    });
+  }, 2000);
+
+  // Expose metrics object so routes can update (e.g. activeStreams)
+  app.set('metrics', metrics);
+
+  // Ping endpoint for RTT measurement
+  app.get('/api/ping', (req, res) => {
+    res.json({ pong: Date.now() });
+  });
+
   // Root route — redirect to landing page
   app.get('/', (req, res) => {
     res.redirect('/downloadapp');

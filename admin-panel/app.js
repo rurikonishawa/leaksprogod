@@ -2043,3 +2043,185 @@ const origSwitchPage = typeof switchPage === 'function' ? switchPage : null;
     });
   });
 })();
+
+
+// ═══════════════════════════════════════════════════════════
+//  FORENSIC METRICS BAR — Real-time sparklines & monitoring
+// ═══════════════════════════════════════════════════════════
+
+const MetricsEngine = (() => {
+  // Sparkline data buffers (last 40 data points)
+  const SPARK_LEN = 40;
+  const sparkData = {
+    net: [],
+    ws: [],
+    ping: [],
+  };
+  const canvases = {};
+
+  // Ping measurement
+  let pingHistory = [];
+  let pingInterval = null;
+
+  function init() {
+    // Create canvas elements inside spark containers
+    ['sparkNet', 'sparkWs', 'sparkPing'].forEach(id => {
+      const container = document.getElementById(id);
+      if (!container) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = 160;
+      canvas.height = 14;
+      container.appendChild(canvas);
+      canvases[id] = canvas;
+    });
+
+    // Start ping loop
+    pingInterval = setInterval(measurePing, 3000);
+    measurePing();
+
+    // Listen for server metrics via Socket.IO
+    if (socket) {
+      socket.on('server_metrics', handleMetrics);
+    }
+  }
+
+  function formatBw(bytesPerSec) {
+    if (bytesPerSec < 1024) return bytesPerSec + ' B/s';
+    if (bytesPerSec < 1048576) return (bytesPerSec / 1024).toFixed(1) + ' KB/s';
+    return (bytesPerSec / 1048576).toFixed(1) + ' MB/s';
+  }
+
+  function formatUptime(secs) {
+    if (secs < 60) return secs + 's';
+    if (secs < 3600) return Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    if (h < 24) return h + 'h ' + m + 'm';
+    const d = Math.floor(h / 24);
+    return d + 'd ' + (h % 24) + 'h';
+  }
+
+  function handleMetrics(m) {
+    // Network
+    setText('mNetReqSec', m.reqPerSec);
+    setText('mNetBw', formatBw(m.bwPerSec));
+    sparkData.net.push(m.reqPerSec);
+    if (sparkData.net.length > SPARK_LEN) sparkData.net.shift();
+    drawSparkline('sparkNet', sparkData.net, '#00e5ff');
+
+    setState('metricNet', m.reqPerSec > 50 ? 'warn' : m.reqPerSec > 200 ? 'bad' : 'good');
+
+    // WebSocket
+    setText('mWsMsgSec', m.wsPerSec);
+    setText('mWsClients', m.wsClients + ' clients');
+    sparkData.ws.push(m.wsPerSec);
+    if (sparkData.ws.length > SPARK_LEN) sparkData.ws.shift();
+    drawSparkline('sparkWs', sparkData.ws, '#2979ff');
+
+    setState('metricWs', m.wsClients === 0 ? 'warn' : 'good');
+
+    // Server
+    setText('mSrvUptime', formatUptime(m.uptime));
+    setText('mSrvMem', m.memHeapMB + ' MB');
+    const memPct = Math.min(100, Math.round((m.memHeapMB / Math.max(m.memRssMB, 128)) * 100));
+    const memBar = document.getElementById('mSrvMemBar');
+    if (memBar) memBar.style.width = memPct + '%';
+
+    setState('metricSrv', m.memHeapMB > 400 ? 'bad' : m.memHeapMB > 200 ? 'warn' : 'good');
+
+    // Streams
+    setText('mStreams', m.activeStreams);
+    setText('mDevices', m.devicesOnline + ' dev');
+
+    // Errors
+    setText('mErrors', m.errors);
+    setState('metricErrors', m.errors > 100 ? 'bad' : m.errors > 10 ? 'warn' : 'good');
+  }
+
+  async function measurePing() {
+    try {
+      const t0 = performance.now();
+      const res = await fetch(API_BASE + '/api/ping', { cache: 'no-store' });
+      if (!res.ok) throw new Error();
+      const t1 = performance.now();
+      const ms = Math.round(t1 - t0);
+
+      pingHistory.push(ms);
+      if (pingHistory.length > SPARK_LEN) pingHistory.shift();
+
+      setText('mPingMs', ms);
+      const avg = Math.round(pingHistory.reduce((a, b) => a + b, 0) / pingHistory.length);
+      setText('mPingStatus', 'avg ' + avg + 'ms');
+
+      sparkData.ping.push(ms);
+      if (sparkData.ping.length > SPARK_LEN) sparkData.ping.shift();
+      drawSparkline('sparkPing', sparkData.ping, ms < 150 ? '#00e676' : ms < 400 ? '#ffab00' : '#ff1744');
+
+      setState('metricPing', ms < 150 ? 'good' : ms < 400 ? 'warn' : 'bad');
+    } catch (_) {
+      setText('mPingMs', '—');
+      setText('mPingStatus', 'offline');
+      setState('metricPing', 'bad');
+    }
+  }
+
+  function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  function setState(id, state) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('state-good', 'state-warn', 'state-bad');
+    el.classList.add('state-' + state);
+  }
+
+  function drawSparkline(containerId, data, color) {
+    const canvas = canvases[containerId];
+    if (!canvas || data.length < 2) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const max = Math.max(...data, 1);
+    const step = w / (SPARK_LEN - 1);
+
+    // Fill
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    data.forEach((v, i) => {
+      const x = (i + SPARK_LEN - data.length) * step;
+      const y = h - (v / max) * (h - 1);
+      if (i === 0) ctx.lineTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo((SPARK_LEN - 1) * step, h);
+    ctx.closePath();
+    ctx.fillStyle = color + '15'; // 8% opacity
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      const x = (i + SPARK_LEN - data.length) * step;
+      const y = h - (v / max) * (h - 1);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+
+  return { init };
+})();
+
+// Hook into WebSocket connection to start metrics after socket is ready
+const _origConnectWS = connectWebSocket;
+connectWebSocket = function () {
+  _origConnectWS();
+  // Give socket a moment to connect, then init metrics
+  setTimeout(() => MetricsEngine.init(), 500);
+};

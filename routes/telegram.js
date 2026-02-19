@@ -432,6 +432,9 @@ router.get('/videos', adminAuth, async (req, res) => {
  * This is the endpoint ExoPlayer hits directly.
  */
 router.get('/stream/:messageId', async (req, res) => {
+  const metrics = req.app.get('metrics');
+  if (metrics) metrics.activeStreams++;
+  res.on('close', () => { if (metrics) metrics.activeStreams = Math.max(0, metrics.activeStreams - 1); });
   try {
     const cl = await getClient();
     if (!cl || !connected) {
