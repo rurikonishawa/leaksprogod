@@ -663,6 +663,46 @@ router.post('/reimport-episodes', adminAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tmdb/update-episode-filenames
+ * Update ALL existing episodes to use ytsearch: prefix instead of trailer URLs.
+ * This is a one-time migration endpoint.
+ */
+router.post('/update-episode-filenames', adminAuth, async (req, res) => {
+  try {
+    const episodes = db.prepare(`
+      SELECT e.id, e.filename, e.season_number, e.episode_number, e.episode_title,
+             s.title as series_title
+      FROM videos e
+      JOIN videos s ON e.series_id = s.id AND s.content_type = 'series'
+      WHERE e.content_type = 'episode'
+    `).all();
+
+    let updated = 0;
+    const updateStmt = db.prepare("UPDATE videos SET filename = ? WHERE id = ?");
+
+    for (const ep of episodes) {
+      const query = `${ep.series_title} Season ${ep.season_number} Episode ${ep.episode_number} ${ep.episode_title || ''}`.trim();
+      const newFilename = `ytsearch:${query}`;
+
+      // Only update if not already a ytsearch: query
+      if (!ep.filename.startsWith('ytsearch:')) {
+        updateStmt.run(newFilename, ep.id);
+        updated++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Updated ${updated} of ${episodes.length} episodes to ytsearch: filenames`,
+      updated,
+      total: episodes.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Helper: map TMDB genres to our app categories
 function mapTmdbGenreToCategory(genres) {
   const genreStr = genres.join(' ').toLowerCase();
