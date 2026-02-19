@@ -580,7 +580,8 @@ router.post('/scan', adminAuth, async (req, res) => {
       return res.status(500).json({ error: 'Channel not connected' });
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const baseUrl = `${proto}://${req.get('host')}`;
     let scanned = 0;
     let matched = 0;
     let unmatched = 0;
@@ -721,7 +722,8 @@ router.post('/link', adminAuth, async (req, res) => {
     }
 
     // Update the video entry
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const baseUrl = `${proto}://${req.get('host')}`;
     const streamUrl = `${baseUrl}/api/telegram/stream/${messageId}`;
 
     db.prepare(`UPDATE videos SET filename = ?, file_size = ?, mime_type = ?, duration = ?, resolution = ? WHERE id = ?`)
