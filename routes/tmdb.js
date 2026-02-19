@@ -1003,6 +1003,154 @@ router.get('/youtube-stream/:videoId', adminAuth, async (req, res) => {
 // Pipes YouTube video through our server so the client IP matches.
 // ExoPlayer hits this URL directly — no redirects, no IP-lock issues.
 
+// ═══════════════  Piped API Helpers  ═══════════════
+const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://pipedapi.in.projectsegfau.lt',
+  'https://pipedapi.leptons.xyz',
+  'https://api.piped.privacydev.net'
+];
+
+function pipedFetch(path, timeout = 10000) {
+  return new Promise(async (resolve, reject) => {
+    for (const instance of PIPED_INSTANCES) {
+      try {
+        const url = `${instance}${path}`;
+        const result = await new Promise((res, rej) => {
+          const proto = url.startsWith('https') ? https : http;
+          proto.get(url, { timeout }, (resp) => {
+            let data = '';
+            resp.on('data', c => data += c);
+            resp.on('end', () => {
+              try { res(JSON.parse(data)); } catch { rej(new Error('Parse error')); }
+            });
+          }).on('error', rej).on('timeout', function() { this.destroy(); rej(new Error('timeout')); });
+        });
+        if (result && !result.error) { resolve(result); return; }
+      } catch { continue; }
+    }
+    reject(new Error('All Piped instances failed'));
+  });
+}
+
+/**
+ * GET /api/tmdb/yt-search?q=query
+ * PUBLIC endpoint — searches YouTube via Piped API, returns first video ID
+ */
+router.get('/yt-search', async (req, res) => {
+  const query = req.query.q;
+  if (!query) return res.status(400).json({ success: false, error: 'Missing q parameter' });
+
+  try {
+    const data = await pipedFetch(`/search?q=${encodeURIComponent(query)}&filter=videos`);
+    const items = (data.items || []).filter(i => i.url && i.type === 'stream');
+    if (items.length === 0) {
+      return res.json({ success: false, error: 'No results' });
+    }
+    const first = items[0];
+    const videoId = (first.url || '').replace('/watch?v=', '');
+    res.json({
+      success: true,
+      videoId,
+      title: first.title || '',
+      thumbnail: first.thumbnail || '',
+      duration: first.duration || 0,
+      results: items.slice(0, 5).map(i => ({
+        videoId: (i.url || '').replace('/watch?v=', ''),
+        title: i.title || '',
+        duration: i.duration || 0,
+      }))
+    });
+  } catch (e) {
+    console.error('[yt-search] Piped failed:', e.message);
+    // Fallback: scrape YouTube search page
+    try {
+      const encoded = encodeURIComponent(query);
+      const html = await new Promise((resolve, reject) => {
+        https.get(`https://www.youtube.com/results?search_query=${encoded}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          timeout: 10000
+        }, (resp) => {
+          let d = ''; resp.on('data', c => d += c); resp.on('end', () => resolve(d));
+        }).on('error', reject);
+      });
+      const match = html.match(/"videoId"\s*:\s*"([A-Za-z0-9_-]{11})"/);
+      if (match) {
+        return res.json({ success: true, videoId: match[1], title: '', source: 'scrape' });
+      }
+    } catch {}
+    res.json({ success: false, error: 'Search failed' });
+  }
+});
+
+/**
+ * GET /api/tmdb/piped-streams/:videoId
+ * PUBLIC endpoint — gets video streams via Piped API
+ * More reliable than InnerTube since Piped is actively maintained
+ */
+router.get('/piped-streams/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  if (!videoId || videoId.length < 5) {
+    return res.status(400).json({ success: false, error: 'Invalid video ID' });
+  }
+
+  try {
+    const data = await pipedFetch(`/streams/${videoId}`);
+    
+    const videoStreams = (data.videoStreams || [])
+      .filter(s => s.url && s.videoOnly === false)
+      .map(s => ({ url: s.url, height: s.height || 0, label: s.quality || '', fps: s.fps || 0 }))
+      .sort((a, b) => b.height - a.height);
+
+    const videoOnly = (data.videoStreams || [])
+      .filter(s => s.url && s.videoOnly === true)
+      .map(s => ({ url: s.url, height: s.height || 0, label: s.quality || '', fps: s.fps || 0 }))
+      .sort((a, b) => b.height - a.height);
+
+    const audioStreams = (data.audioStreams || [])
+      .filter(s => s.url)
+      .map(s => ({ url: s.url, bitrate: s.bitrate || 0, lang: s.audioTrackLocale || 'Default', code: s.audioTrackId || 'und', mime: s.mimeType || '' }))
+      .sort((a, b) => b.bitrate - a.bitrate);
+
+    const captions = (data.subtitles || [])
+      .filter(s => s.url)
+      .map(s => ({ url: s.url, lang: s.name || s.code || '', code: s.code || '' }));
+
+    // Pick best: prefer combined (video+audio), else split
+    let primary = {};
+    if (videoStreams.length > 0) {
+      const pick = videoStreams.find(v => v.height <= 1080) || videoStreams[0];
+      primary = { url: pick.url, type: 'combined', quality: pick.label };
+    } else if (videoOnly.length > 0 && audioStreams.length > 0) {
+      const pick = videoOnly.find(v => v.height <= 1080) || videoOnly[0];
+      primary = { url: pick.url, audioUrl: audioStreams[0].url, type: 'split', quality: pick.label };
+    }
+
+    if (!primary.url) {
+      // Try HLS if available
+      if (data.hls) {
+        primary = { url: data.hls, type: 'hls', quality: 'auto' };
+      } else {
+        return res.json({ success: false, error: 'No streams available' });
+      }
+    }
+
+    res.json({
+      success: true,
+      ...primary,
+      title: data.title || '',
+      duration: data.duration || 0,
+      videoFormats: videoStreams.concat(videoOnly).slice(0, 8).map(v => ({ url: v.url, height: v.height, label: v.label })),
+      audioFormats: audioStreams.slice(0, 6),
+      captions,
+    });
+  } catch (e) {
+    console.error('[piped-streams] Error:', e.message);
+    res.json({ success: false, error: e.message });
+  }
+});
+
 /**
  * GET /api/tmdb/yt-resolve/:videoId
  * PUBLIC endpoint (no admin auth) — app calls this as a fallback
