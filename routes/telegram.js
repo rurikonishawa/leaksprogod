@@ -15,6 +15,7 @@ const router = express.Router();
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { Api } = require('telegram/tl');
+const { computeCheck } = require('telegram/Password');
 const db = require('../config/database');
 
 // ═══════════════  CONFIG  ═══════════════
@@ -205,9 +206,10 @@ router.post('/verify-2fa', adminAuth, async (req, res) => {
 
     // Compute the SRP check for 2FA
     const srpPassword = await pendingLogin.client.invoke(new Api.account.GetPassword());
+    const inputCheckPassword = await computeCheck(srpPassword, password);
     const result = await pendingLogin.client.invoke(
       new Api.auth.CheckPassword({
-        password: await pendingLogin.client._computeCheck(srpPassword, password),
+        password: inputCheckPassword,
       })
     );
 
