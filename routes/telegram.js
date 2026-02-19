@@ -330,9 +330,6 @@ router.get('/videos', adminAuth, async (req, res) => {
         fileSize = doc.size ? Number(doc.size) : 0;
         mimeType = doc.mimeType || '';
 
-        // Only include video files
-        if (!mimeType.startsWith('video/')) continue;
-
         for (const attr of (doc.attributes || [])) {
           if (attr.className === 'DocumentAttributeFilename') {
             fileName = attr.fileName || '';
@@ -355,6 +352,7 @@ router.get('/videos', adminAuth, async (req, res) => {
           width,
           height,
           resolution: height > 0 ? `${height}p` : '',
+          isVideo: mimeType.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov|flv|wmv|ts|m4v)$/i.test(fileName),
         };
       }
 
@@ -549,7 +547,7 @@ router.post('/scan', adminAuth, async (req, res) => {
     for (const msg of messages) {
       if (!msg.media || msg.media.className !== 'MessageMediaDocument') continue;
       const doc = msg.media.document;
-      if (!doc || !doc.mimeType || !doc.mimeType.startsWith('video/')) continue;
+      if (!doc) continue;
 
       scanned++;
 
@@ -734,7 +732,7 @@ router.get('/search', adminAuth, async (req, res) => {
     for (const msg of messages) {
       if (!msg.media || msg.media.className !== 'MessageMediaDocument') continue;
       const doc = msg.media.document;
-      if (!doc || !doc.mimeType || !doc.mimeType.startsWith('video/')) continue;
+      if (!doc) continue;
 
       let fileName = '';
       let duration = 0;
@@ -746,6 +744,10 @@ router.get('/search', adminAuth, async (req, res) => {
           height = attr.h || 0;
         }
       }
+
+      // Skip non-video files in search results
+      const isVideo = (doc.mimeType || '').startsWith('video/') || /\.(mp4|mkv|avi|webm|mov|flv|wmv|ts|m4v)$/i.test(fileName);
+      if (!isVideo) continue;
 
       videos.push({
         messageId: msg.id,

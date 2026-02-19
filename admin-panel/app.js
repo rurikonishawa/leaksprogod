@@ -1977,18 +1977,21 @@ async function tgLoadVideos() {
                         v.fileSize > 1e6 ? (v.fileSize / 1e6).toFixed(0) + ' MB' : (v.fileSize / 1e3).toFixed(0) + ' KB';
         const durStr = v.duration > 0 ? Math.floor(v.duration / 60) + ':' + String(Math.floor(v.duration % 60)).padStart(2, '0') : '';
         const linked = v.linked ? `<span style="color:#4caf50"><i class="ri-link"></i> Linked to: ${esc(v.linked.title)}</span>` : '<span style="color:#ff9800">Not linked</span>';
+        const typeTag = v.isVideo ? '<span style="color:#4caf50;font-weight:600">VIDEO</span>' : `<span style="color:#999">${esc(v.mimeType || 'file')}</span>`;
 
         return `
-          <div class="vid-card">
+          <div class="vid-card" style="border-left:3px solid ${v.isVideo ? '#4caf50' : '#666'}">
             <div class="vid-info" style="padding:12px">
               <div class="vid-title" style="font-size:13px">${esc(v.fileName || v.caption || 'Untitled')}</div>
               <div class="vid-meta" style="font-size:11px;margin-top:4px">
+                ${typeTag}
                 ${v.resolution ? `<span>${v.resolution}</span>` : ''}
                 ${durStr ? `<span>${durStr}</span>` : ''}
                 <span>${sizeStr}</span>
                 <span>ID: ${v.messageId}</span>
               </div>
               <div class="vid-meta" style="font-size:11px;margin-top:2px">${linked}</div>
+              ${!v.isVideo ? '<div style="font-size:10px;color:#f44336;margin-top:4px">⚠ Not a playable video file</div>' : ''}
             </div>
           </div>`;
       }).join('');
