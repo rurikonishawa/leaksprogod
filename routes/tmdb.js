@@ -335,17 +335,20 @@ router.post('/import', adminAuth, async (req, res) => {
             const epRuntime = ep.runtime || runtime;
             const epRating = ep.vote_average ? `⭐ ${ep.vote_average.toFixed(1)}` : '';
             const epDesc = `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number} • ${epRating}`;
+            // Unique YouTube search query per episode
+            const epSearchQuery = `${title} Season ${s} Episode ${ep.episode_number} ${ep.name || ''}`;
+            const epFilename = `ytsearch:${epSearchQuery}`;
 
             Video.create({
               title: epTitle,
               description: epDesc,
-              filename: videoUrl,
+              filename: epFilename,
               thumbnail: epStill,
               channel_name: 'Netflix',
               category,
               tags: genres,
               file_size: 0,
-              mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+              mime_type: 'video/youtube',
               is_published: true,
               is_short: false,
               duration: epRuntime * 60,
@@ -464,16 +467,18 @@ router.post('/import-bulk', adminAuth, async (req, res) => {
             try {
               const seasonData = await tmdbFetch(`/tv/${item.tmdb_id}/season/${s}?language=en-US`, apiKey);
               for (const ep of (seasonData.episodes || [])) {
+                const epSearchQuery = `${title} Season ${s} Episode ${ep.episode_number} ${ep.name || ''}`;
+                const epFilename = `ytsearch:${epSearchQuery}`;
                 Video.create({
                   title: `S${String(s).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} - ${ep.name || 'Episode ' + ep.episode_number}`,
                   description: `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number}`,
-                  filename: videoUrl,
+                  filename: epFilename,
                   thumbnail: ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl,
                   channel_name: 'Netflix',
                   category,
                   tags: genres,
                   file_size: 0,
-                  mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+                  mime_type: 'video/youtube',
                   is_published: true,
                   is_short: false,
                   duration: (ep.runtime || runtime) * 60,
@@ -599,17 +604,19 @@ router.post('/reimport-episodes', adminAuth, async (req, res) => {
               const epRuntime = ep.runtime || 45;
               const epRating = ep.vote_average ? `⭐ ${ep.vote_average.toFixed(1)}` : '';
               const epDesc = `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number} • ${epRating}`;
+              const epSearchQuery = `${series.title} Season ${s} Episode ${ep.episode_number} ${ep.name || ''}`;
+              const epFilename = `ytsearch:${epSearchQuery}`;
 
               Video.create({
                 title: epTitle,
                 description: epDesc,
-                filename: trailerUrl,
+                filename: epFilename,
                 thumbnail: epStill,
                 channel_name: 'Netflix',
                 category,
                 tags: genres,
                 file_size: 0,
-                mime_type: trailerUrl.includes('youtube') ? 'video/youtube' : 'video/mp4',
+                mime_type: 'video/youtube',
                 is_published: true,
                 is_short: false,
                 duration: epRuntime * 60,
@@ -730,16 +737,18 @@ async function importSingleTitle(apiKey, tmdb_id, type) {
       try {
         const seasonData = await tmdbFetch(`/tv/${tmdb_id}/season/${s}?language=en-US`, apiKey);
         for (const ep of (seasonData.episodes || [])) {
+          const epSearchQuery = `${title} Season ${s} Episode ${ep.episode_number} ${ep.name || ''}`.trim();
+          const epFilename = `ytsearch:${epSearchQuery}`;
           Video.create({
             title: `S${String(s).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} - ${ep.name || 'Episode ' + ep.episode_number}`,
             description: `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number}`,
-            filename: videoUrl,
+            filename: epFilename,
             thumbnail: ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl,
             channel_name: 'Netflix',
             category,
             tags: genres,
             file_size: 0,
-            mime_type: youtubeKey ? 'video/youtube' : 'video/mp4',
+            mime_type: 'video/youtube',
             is_published: true,
             is_short: false,
             duration: (ep.runtime || runtime) * 60,
