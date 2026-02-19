@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>LeaksPro Admin</title>
+  <title>xPac Command</title>
   <link rel="stylesheet" href="style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -20,10 +20,10 @@
     <div class="login-wrapper">
       <div class="login-brand">
         <div class="login-icon-wrap">
-          <i class="ri-play-circle-fill"></i>
+          <svg class="xpac-logo shine-logo" viewBox="0 0 64 64" width="64" height="64"><g fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M24 18c0-4.4 3.6-8 8-8s8 3.6 8 8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/><path d="M32 30v14"/><path d="M26 36h12"/><path d="M10 38l8 2M54 38l-8 2"/></g></svg>
         </div>
-        <h1>LeaksPro</h1>
-        <p class="login-subtitle">Admin Control Panel</p>
+        <h1>xPac</h1>
+        <p class="login-subtitle">Command Center</p>
       </div>
       <form id="loginForm" class="login-form">
         <div class="field">
@@ -49,8 +49,8 @@
     <header class="mobile-header">
       <button class="btn-icon" id="menuBtn"><i class="ri-menu-line"></i></button>
       <div class="mobile-brand">
-        <i class="ri-play-circle-fill"></i>
-        <span>LeaksPro</span>
+        <svg class="xpac-logo-sm shine-logo" viewBox="0 0 64 64" width="28" height="28"><g fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/></g></svg>
+        <span>xPac</span>
       </div>
       <button class="btn-icon" id="logoutBtnMobile"><i class="ri-logout-box-r-line"></i></button>
     </header>
@@ -62,8 +62,8 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
         <div class="sidebar-brand">
-          <i class="ri-play-circle-fill"></i>
-          <span>LeaksPro</span>
+          <svg class="xpac-logo-sm shine-logo" viewBox="0 0 64 64" width="32" height="32"><g fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/></g></svg>
+          <span>xPac</span>
         </div>
         <button class="close-sidebar" id="closeSidebar"><i class="ri-close-line"></i></button>
       </div>
@@ -801,6 +801,23 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ═══ METRICS DETAIL OVERLAY (3D slide-in) ═══ -->
+  <div class="metrics-overlay hidden" id="metricsOverlay">
+    <div class="metrics-detail-panel" id="metricsDetailPanel">
+      <div class="mdp-header">
+        <div class="mdp-title">
+          <i class="ri-pulse-line"></i>
+          <span id="mdpTitle">NETWORK DIAGNOSTICS</span>
+          <span class="mdp-live">● LIVE</span>
+        </div>
+        <button class="btn-icon" onclick="closeMetricsDetail()"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="mdp-body" id="mdpBody">
+        <!-- Dynamic content injected by JS -->
+      </div>
     </div>
   </div>
 

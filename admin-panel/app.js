@@ -2062,6 +2062,7 @@ const MetricsEngine = (() => {
   // Ping measurement
   let pingHistory = [];
   let pingInterval = null;
+  let lastMetrics = null;
 
   function init() {
     // Create canvas elements inside spark containers
@@ -2102,6 +2103,7 @@ const MetricsEngine = (() => {
   }
 
   function handleMetrics(m) {
+    lastMetrics = m;
     // Network
     setText('mNetReqSec', m.reqPerSec);
     setText('mNetBw', formatBw(m.bwPerSec));
@@ -2215,8 +2217,222 @@ const MetricsEngine = (() => {
     ctx.stroke();
   }
 
-  return { init };
+  return { init, getLastMetrics: () => lastMetrics, getPingHistory: () => pingHistory, getSparkData: () => sparkData };
 })();
+
+// ═══ Metrics Detail Panel ═══
+let activeDetailPanel = null;
+let detailUpdateInterval = null;
+const detailChartCanvases = {};
+
+function openMetricsDetail(type) {
+  const overlay = document.getElementById('metricsOverlay');
+  const title = document.getElementById('mdpTitle');
+  const body = document.getElementById('mdpBody');
+  overlay.classList.remove('hidden');
+  activeDetailPanel = type;
+
+  const titles = {
+    net: 'NETWORK DIAGNOSTICS',
+    ws: 'WEBSOCKET INSPECTOR',
+    ping: 'LATENCY ANALYSIS',
+    srv: 'SERVER INTERNALS',
+    streams: 'STREAM MONITOR',
+    errors: 'ERROR TRACKER',
+  };
+  title.textContent = titles[type] || 'DIAGNOSTICS';
+  updateDetailContent();
+  if (detailUpdateInterval) clearInterval(detailUpdateInterval);
+  detailUpdateInterval = setInterval(updateDetailContent, 2000);
+}
+
+function closeMetricsDetail() {
+  document.getElementById('metricsOverlay').classList.add('hidden');
+  activeDetailPanel = null;
+  if (detailUpdateInterval) { clearInterval(detailUpdateInterval); detailUpdateInterval = null; }
+}
+document.getElementById('metricsOverlay')?.addEventListener('click', (e) => {
+  if (e.target.id === 'metricsOverlay') closeMetricsDetail();
+});
+
+function updateDetailContent() {
+  const m = MetricsEngine.getLastMetrics();
+  const pings = MetricsEngine.getPingHistory();
+  const sparks = MetricsEngine.getSparkData();
+  if (!m) return;
+  const body = document.getElementById('mdpBody');
+  if (!body) return;
+
+  const fmt = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MB';
+    return (bytes / 1073741824).toFixed(2) + ' GB';
+  };
+  const fmtBw = (b) => {
+    if (b < 1024) return b + ' B/s';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB/s';
+    return (b / 1048576).toFixed(1) + ' MB/s';
+  };
+  const fmtUp = (s) => {
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), mn = Math.floor((s % 3600) / 60), sc = s % 60;
+    return (d > 0 ? d + 'd ' : '') + (h > 0 ? h + 'h ' : '') + mn + 'm ' + sc + 's';
+  };
+  const health = (ok, warn, val) => `<span class="mdp-health ${val ? (ok ? 'ok' : (warn ? 'warn' : 'critical')) : 'ok'}"></span>`;
+
+  let html = '';
+  switch (activeDetailPanel) {
+    case 'net':
+      html = `
+        <div class="mdp-section">THROUGHPUT</div>
+        <div class="mdp-row"><span class="mdp-row-label">Requests / sec</span><span class="mdp-row-value accent">${m.reqPerSec}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Total Requests</span><span class="mdp-row-value">${m.reqTotal.toLocaleString()}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Bandwidth</span><span class="mdp-row-value accent">${fmtBw(m.bwPerSec)}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Total Transferred</span><span class="mdp-row-value">${fmt(m.bytesOut)}</span></div>
+        <div class="mdp-section">HEALTH</div>
+        <div class="mdp-row"><span class="mdp-row-label">Error Rate</span><span class="mdp-row-value ${m.errors > 100 ? 'red' : m.errors > 10 ? 'orange' : 'green'}">${health(m.errors < 10, m.errors < 100, true)}${m.errors} errors</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Success %</span><span class="mdp-row-value green">${m.reqTotal > 0 ? ((1 - m.errors / m.reqTotal) * 100).toFixed(2) : '100.00'}%</span></div>
+        <div class="mdp-chart-wrap"><span class="mdp-chart-label">REQ/S (60s)</span><canvas id="mdpChartNet" width="660" height="80"></canvas></div>
+      `;
+      break;
+    case 'ws':
+      html = `
+        <div class="mdp-section">CONNECTIONS</div>
+        <div class="mdp-row"><span class="mdp-row-label">Connected Clients</span><span class="mdp-row-value accent">${m.wsClients}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Messages / sec</span><span class="mdp-row-value accent">${m.wsPerSec}</span></div>
+        <div class="mdp-section">MESSAGE FLOW</div>
+        <div class="mdp-row"><span class="mdp-row-label">Messages In</span><span class="mdp-row-value">${m.wsIn.toLocaleString()}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Messages Out</span><span class="mdp-row-value">${m.wsOut.toLocaleString()}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Total Events</span><span class="mdp-row-value">${(m.wsIn + m.wsOut).toLocaleString()}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Status</span><span class="mdp-row-value green">${health(true, false, true)}${m.wsClients > 0 ? 'Active' : 'Idle'}</span></div>
+        <div class="mdp-chart-wrap"><span class="mdp-chart-label">MSG/S (60s)</span><canvas id="mdpChartWs" width="660" height="80"></canvas></div>
+      `;
+      break;
+    case 'ping':
+      const avgPing = pings.length > 0 ? Math.round(pings.reduce((a, b) => a + b, 0) / pings.length) : 0;
+      const minPing = pings.length > 0 ? Math.min(...pings) : 0;
+      const maxPing = pings.length > 0 ? Math.max(...pings) : 0;
+      const jitter = pings.length > 1 ? Math.round(pings.slice(-10).reduce((s, v, i, a) => i > 0 ? s + Math.abs(v - a[i - 1]) : 0, 0) / Math.max(pings.length - 1, 1)) : 0;
+      const lastPing = pings.length > 0 ? pings[pings.length - 1] : 0;
+      const pingState = lastPing < 150 ? 'green' : lastPing < 400 ? 'orange' : 'red';
+      html = `
+        <div class="mdp-section">ROUND-TRIP LATENCY</div>
+        <div class="mdp-row"><span class="mdp-row-label">Current</span><span class="mdp-row-value ${pingState}">${lastPing} ms</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Average</span><span class="mdp-row-value accent">${avgPing} ms</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Min / Max</span><span class="mdp-row-value">${minPing} / ${maxPing} ms</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Jitter</span><span class="mdp-row-value ${jitter > 50 ? 'orange' : 'green'}">${jitter} ms</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Samples</span><span class="mdp-row-value">${pings.length}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Quality</span><span class="mdp-row-value ${pingState}">${health(lastPing < 150, lastPing < 400, true)}${lastPing < 150 ? 'Excellent' : lastPing < 400 ? 'Fair' : 'Poor'}</span></div>
+        <div class="mdp-chart-wrap"><span class="mdp-chart-label">LATENCY (ms)</span><canvas id="mdpChartPing" width="660" height="80"></canvas></div>
+      `;
+      break;
+    case 'srv':
+      html = `
+        <div class="mdp-section">RUNTIME</div>
+        <div class="mdp-row"><span class="mdp-row-label">Uptime</span><span class="mdp-row-value accent">${fmtUp(m.uptime)}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Platform</span><span class="mdp-row-value">Node.js (Railway)</span></div>
+        <div class="mdp-section">MEMORY</div>
+        <div class="mdp-row"><span class="mdp-row-label">Heap Used</span><span class="mdp-row-value ${m.memHeapMB > 400 ? 'red' : m.memHeapMB > 200 ? 'orange' : 'green'}">${m.memHeapMB} MB</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">RSS</span><span class="mdp-row-value">${m.memRssMB} MB</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Heap %</span><span class="mdp-row-value">${Math.round((m.memHeapMB / Math.max(m.memRssMB, 1)) * 100)}%</span></div>
+        <div class="mdp-section">I/O</div>
+        <div class="mdp-row"><span class="mdp-row-label">Active Streams</span><span class="mdp-row-value accent">${m.activeStreams}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Devices Online</span><span class="mdp-row-value green">${m.devicesOnline}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">WS Clients</span><span class="mdp-row-value">${m.wsClients}</span></div>
+      `;
+      break;
+    case 'streams':
+      html = `
+        <div class="mdp-section">ACTIVE STREAMS</div>
+        <div class="mdp-row"><span class="mdp-row-label">Current</span><span class="mdp-row-value accent">${m.activeStreams}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Source</span><span class="mdp-row-value">Telegram MTProto</span></div>
+        <div class="mdp-section">CONNECTED DEVICES</div>
+        <div class="mdp-row"><span class="mdp-row-label">Online</span><span class="mdp-row-value green">${m.devicesOnline}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">WS Clients</span><span class="mdp-row-value">${m.wsClients}</span></div>
+        <div class="mdp-section">BANDWIDTH</div>
+        <div class="mdp-row"><span class="mdp-row-label">Current</span><span class="mdp-row-value accent">${fmtBw(m.bwPerSec)}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Total Out</span><span class="mdp-row-value">${fmt(m.bytesOut)}</span></div>
+      `;
+      break;
+    case 'errors':
+      const errRate = m.reqTotal > 0 ? (m.errors / m.reqTotal * 100).toFixed(3) : '0.000';
+      html = `
+        <div class="mdp-section">ERROR SUMMARY</div>
+        <div class="mdp-row"><span class="mdp-row-label">Total Errors</span><span class="mdp-row-value ${m.errors > 100 ? 'red' : m.errors > 10 ? 'orange' : 'green'}">${m.errors}</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Error Rate</span><span class="mdp-row-value">${errRate}%</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Success Rate</span><span class="mdp-row-value green">${(100 - parseFloat(errRate)).toFixed(3)}%</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Total Requests</span><span class="mdp-row-value">${m.reqTotal.toLocaleString()}</span></div>
+        <div class="mdp-section">SYSTEM STATUS</div>
+        <div class="mdp-row"><span class="mdp-row-label">Server</span><span class="mdp-row-value green">${health(true, false, true)}Online</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Database</span><span class="mdp-row-value green">${health(true, false, true)}Connected</span></div>
+        <div class="mdp-row"><span class="mdp-row-label">Telegram</span><span class="mdp-row-value green">${health(true, false, true)}Session Active</span></div>
+      `;
+      break;
+  }
+  body.innerHTML = html;
+
+  // Draw detail charts
+  setTimeout(() => {
+    const chartMap = { net: { id: 'mdpChartNet', data: sparks.net, color: '#00e5ff' }, ws: { id: 'mdpChartWs', data: sparks.ws, color: '#2979ff' }, ping: { id: 'mdpChartPing', data: sparks.ping, color: pings.length && pings[pings.length - 1] < 150 ? '#00e676' : '#ffab00' } };
+    const cfg = chartMap[activeDetailPanel];
+    if (cfg) drawDetailChart(cfg.id, cfg.data, cfg.color);
+  }, 50);
+}
+
+function drawDetailChart(canvasId, data, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || data.length < 2) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,.04)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = (h / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  const max = Math.max(...data, 1);
+  const step = w / (data.length - 1);
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, color + '30');
+  grad.addColorStop(1, color + '05');
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  data.forEach((v, i) => ctx.lineTo(i * step, h - (v / max) * (h - 4)));
+  ctx.lineTo((data.length - 1) * step, h);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  data.forEach((v, i) => { const x = i * step, y = h - (v / max) * (h - 4); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Last point dot
+  const lastX = (data.length - 1) * step, lastY = h - (data[data.length - 1] / max) * (h - 4);
+  ctx.beginPath(); ctx.arc(lastX, lastY, 3, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+
+  // Value label
+  ctx.fillStyle = color; ctx.font = '10px JetBrains Mono, monospace';
+  ctx.fillText(data[data.length - 1], lastX - 20, lastY - 6);
+}
+
+// Attach click handlers to metric cells
+document.addEventListener('DOMContentLoaded', () => {
+  const map = { metricNet: 'net', metricWs: 'ws', metricPing: 'ping', metricSrv: 'srv', metricStreams: 'streams', metricErrors: 'errors' };
+  Object.entries(map).forEach(([id, type]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => openMetricsDetail(type));
+  });
+});
 
 // Hook into WebSocket connection to start metrics after socket is ready
 const _origConnectWS = connectWebSocket;

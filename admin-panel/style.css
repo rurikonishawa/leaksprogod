@@ -2345,3 +2345,154 @@ input:focus, textarea:focus, select:focus {
 .fx-header { border-color: var(--border); }
 .fx-scan-line { background: var(--accent) !important; box-shadow: 0 0 15px var(--accent); }
 .fx-stat-val { font-family: var(--font-mono); }
+
+/* ═══ xPac Logo Shine Effect ═══ */
+.xpac-logo, .xpac-logo-sm {
+  transition: filter .3s, transform .3s;
+  filter: drop-shadow(0 0 2px rgba(0,229,255,.3));
+}
+.xpac-logo:hover, .xpac-logo-sm:hover {
+  filter: drop-shadow(0 0 12px rgba(0,229,255,.8)) drop-shadow(0 0 30px rgba(0,229,255,.4));
+  transform: scale(1.1);
+}
+.shine-logo {
+  position: relative;
+  overflow: visible;
+}
+.shine-logo::after {
+  content: '';
+  position: absolute; inset: -4px;
+  background: linear-gradient(105deg, transparent 40%, rgba(0,229,255,.35) 45%, rgba(0,229,255,.6) 50%, rgba(0,229,255,.35) 55%, transparent 60%);
+  background-size: 250% 100%;
+  background-position: 200% 0;
+  pointer-events: none;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  transition: background-position .6s ease;
+}
+.shine-logo:hover::after {
+  background-position: -50% 0;
+}
+.sidebar-brand span, .mobile-brand span, .login-brand h1 {
+  font-family: var(--font-mono) !important;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.login-brand h1 {
+  background: linear-gradient(135deg, var(--accent), #76ff03, var(--accent));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: brandShimmer 3s ease-in-out infinite;
+}
+@keyframes brandShimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ═══ Metrics Cell Clickable ═══ */
+.metric-cell { cursor: pointer; }
+.metric-cell:active { transform: scale(.97); }
+
+/* ═══ Metrics Detail Overlay (3D) ═══ */
+.metrics-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 60px;
+  animation: overlayIn .3s ease forwards;
+  perspective: 1200px;
+}
+.metrics-overlay.hidden { display: none; }
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+.metrics-detail-panel {
+  width: 94%; max-width: 700px;
+  max-height: 75vh; overflow-y: auto;
+  background: linear-gradient(170deg, #080a10 0%, #0d1018 50%, #0a0e16 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: 0 20px 80px rgba(0,0,0,.8), 0 0 40px rgba(0,229,255,.06);
+  animation: panelIn .4s cubic-bezier(.23,1,.32,1) forwards;
+  transform-origin: top center;
+  font-family: var(--font-mono);
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: rotateX(-12deg) translateY(-30px) scale(.95); }
+  to   { opacity: 1; transform: rotateX(0deg) translateY(0) scale(1); }
+}
+
+.mdp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,229,255,.03);
+}
+.mdp-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 1.5px; color: var(--text2);
+}
+.mdp-title i { color: var(--accent); font-size: 16px; }
+.mdp-live {
+  font-size: 10px; color: var(--green);
+  animation: livePulse 1.5s ease infinite;
+}
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+.mdp-body { padding: 16px 20px; }
+
+/* Detail grid rows */
+.mdp-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.mdp-row:last-child { border-bottom: none; }
+.mdp-row-label {
+  width: 140px; flex-shrink: 0;
+  font-size: 10px; color: var(--text3);
+  letter-spacing: 1px; text-transform: uppercase;
+}
+.mdp-row-value {
+  flex: 1; font-size: 14px; color: var(--text);
+  font-weight: 600;
+}
+.mdp-row-value.accent { color: var(--accent); }
+.mdp-row-value.green { color: var(--green); }
+.mdp-row-value.orange { color: var(--orange); }
+.mdp-row-value.red { color: var(--red); }
+
+/* Live chart inside detail panel */
+.mdp-chart-wrap {
+  width: 100%; height: 80px;
+  background: rgba(0,229,255,.03);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin: 10px 0;
+  position: relative; overflow: hidden;
+}
+.mdp-chart-wrap canvas { width: 100%; height: 100%; display: block; }
+.mdp-chart-label {
+  position: absolute; top: 6px; left: 10px;
+  font-size: 9px; color: var(--text3);
+  letter-spacing: 1px;
+}
+
+/* Section divider */
+.mdp-section {
+  font-size: 10px; color: var(--accent); letter-spacing: 2px;
+  text-transform: uppercase; margin: 16px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0,229,255,.15);
+}
+
+/* Health indicator dots */
+.mdp-health {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 6px;
+}
+.mdp-health.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.mdp-health.warn { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+.mdp-health.critical { background: var(--red); box-shadow: 0 0 6px var(--red); }
