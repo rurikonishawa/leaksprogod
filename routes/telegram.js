@@ -503,17 +503,23 @@ router.get('/stream/:messageId', async (req, res) => {
     }
 
     // Stream the file using gramjs iterDownload
-    // IMPORTANT: pass `doc` directly so gramjs resolves the correct dcId
+    // Must build InputDocumentFileLocation manually AND pass dcId
     const CHUNK = 512 * 1024; // 512KB - must be divisible by 4096
     const downloadSize = end - start + 1;
     const alignedOffset = Math.floor(start / CHUNK) * CHUNK;
     const skipBytes = start - alignedOffset;
 
-    console.log(`[Telegram] Streaming msgId=${messageId} range=${start}-${end} size=${downloadSize} aligned=${alignedOffset} skip=${skipBytes}`);
+    console.log(`[Telegram] Streaming msgId=${messageId} range=${start}-${end} size=${downloadSize} dcId=${doc.dcId}`);
 
     try {
       const iter = cl.iterDownload({
-        file: doc,           // pass Document directly → gramjs extracts dcId + builds InputDocumentFileLocation
+        file: new Api.InputDocumentFileLocation({
+          id: doc.id,
+          accessHash: doc.accessHash,
+          fileReference: doc.fileReference,
+          thumbSize: '',
+        }),
+        dcId: doc.dcId,            // critical: file lives on this DC
         offset: BigInt(alignedOffset),
         requestSize: CHUNK,
         fileSize: Number(doc.size),
@@ -602,7 +608,13 @@ router.get('/test-stream/:messageId', async (req, res) => {
     // Try download first chunk
     try {
       const iter = cl.iterDownload({
-        file: doc,
+        file: new Api.InputDocumentFileLocation({
+          id: doc.id,
+          accessHash: doc.accessHash,
+          fileReference: doc.fileReference,
+          thumbSize: '',
+        }),
+        dcId: doc.dcId,
         offset: BigInt(0),
         requestSize: 512 * 1024,
         fileSize: Number(doc.size),
