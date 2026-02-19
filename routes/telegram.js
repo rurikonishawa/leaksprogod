@@ -570,6 +570,67 @@ router.get('/stream/:messageId', async (req, res) => {
 
 
 /**
+ * GET /api/telegram/test-stream/:messageId
+ * Debug: try downloading the first 4KB and return info (not actual bytes)
+ */
+router.get('/test-stream/:messageId', async (req, res) => {
+  try {
+    const cl = await getClient();
+    if (!cl || !connected) return res.json({ error: 'not connected' });
+    if (!channelEntity) return res.json({ error: 'no channel' });
+
+    const messageId = parseInt(req.params.messageId);
+    const messages = await cl.getMessages(channelEntity, { ids: [messageId] });
+    if (!messages || !messages[0]) return res.json({ error: 'message not found' });
+
+    const msg = messages[0];
+    if (!msg.media || msg.media.className !== 'MessageMediaDocument') {
+      return res.json({ error: 'not a document', className: msg.media?.className });
+    }
+
+    const doc = msg.media.document;
+    const info = {
+      docId: doc.id?.toString(),
+      accessHash: doc.accessHash?.toString(),
+      dcId: doc.dcId,
+      size: doc.size?.toString(),
+      mimeType: doc.mimeType,
+      fileRefLength: doc.fileReference?.length,
+      fileRefHex: doc.fileReference ? Buffer.from(doc.fileReference).toString('hex').slice(0, 40) + '...' : null,
+    };
+
+    // Try download first chunk
+    try {
+      const iter = cl.iterDownload({
+        file: doc,
+        offset: BigInt(0),
+        requestSize: 512 * 1024,
+        fileSize: Number(doc.size),
+      });
+
+      let firstChunk = null;
+      for await (const chunk of iter) {
+        firstChunk = Buffer.from(chunk);
+        break; // just get first chunk
+      }
+
+      info.firstChunkSize = firstChunk ? firstChunk.length : 0;
+      info.firstBytes = firstChunk ? firstChunk.slice(0, 16).toString('hex') : null;
+      info.downloadOk = true;
+    } catch (dlErr) {
+      info.downloadOk = false;
+      info.downloadError = dlErr.message;
+      info.downloadStack = dlErr.stack?.split('\n').slice(0, 5);
+    }
+
+    res.json(info);
+  } catch (e) {
+    res.json({ error: e.message, stack: e.stack?.split('\n').slice(0, 5) });
+  }
+});
+
+
+/**
  * POST /api/telegram/scan
  * Scan the channel and auto-match videos to existing TMDB entries.
  */
