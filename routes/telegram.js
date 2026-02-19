@@ -1,9 +1,14 @@
 /**
- * Telegram Channel Integration
+ * Telegram Channel Integration (User Session / MTProto)
  * 
- * Streams video files from a Telegram channel via MTProto (gramjs).
- * Videos forwarded/uploaded to the channel can be auto-matched to
- * TMDB entries and played directly in the app via ExoPlayer.
+ * Uses gramjs with a USER session (phone + OTP login) to:
+ * - List all video files in a Telegram channel
+ * - Stream video files with HTTP Range support for ExoPlayer
+ * - Auto-match videos to TMDB entries by filename parsing
+ * 
+ * Bots can't list channel history (BOT_METHOD_INVALID), so we
+ * use a user account session authenticated via phone number.
+ * The session string is saved to the database for persistence.
  */
 const express = require('express');
 const router = express.Router();
@@ -11,12 +16,10 @@ const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { Api } = require('telegram/tl');
 const db = require('../config/database');
-const Video = require('../models/Video');
 
 // ═══════════════  CONFIG  ═══════════════
 const API_ID = 38667742;
 const API_HASH = 'e2d1321760b33b3e013364a862ad84bb';
-const BOT_TOKEN = '8380090374:AAHNdlsGOw2MeNsrv7liWXxmR2A6dlm4rCs';
 const CHANNEL_USERNAME = 'moviesfrer';
 
 let client = null;
@@ -24,12 +27,23 @@ let connected = false;
 let channelEntity = null;
 let connectPromise = null;
 
+// Pending login state (for phone → code → 2FA flow)
+let pendingLogin = {
+  client: null,
+  phoneCodeHash: null,
+  phone: null,
+};
+
 // Admin auth middleware
 const adminAuth = (req, res, next) => {
   const password = req.headers['x-admin-password'] || req.query.password;
-  const stored = db.prepare("SELECT value FROM admin_settings WHERE key = 'admin_password'").get();
-  if (!stored || password !== stored.value) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const stored = db.prepare("SELECT value FROM admin_settings WHERE key = 'admin_password'").get();
+    if (!stored || password !== stored.value) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  } catch (e) {
+    return res.status(401).json({ error: 'Auth check failed' });
   }
   next();
 };
@@ -49,28 +63,26 @@ async function getClient() {
         if (saved && saved.value) sessionStr = saved.value;
       } catch (_) {}
 
+      if (!sessionStr) {
+        console.log('[Telegram] No saved session. Login required via admin panel.');
+        connectPromise = null;
+        return null;
+      }
+
       client = new TelegramClient(new StringSession(sessionStr), API_ID, API_HASH, {
         connectionRetries: 5,
         timeout: 30,
       });
 
-      await client.start({ botAuthToken: BOT_TOKEN });
+      await client.connect();
       connected = true;
-
-      // Save session for faster reconnect
-      const newSession = client.session.save();
-      if (newSession) {
-        try {
-          db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('telegram_session', ?)").run(newSession);
-        } catch (_) {}
-      }
 
       // Resolve channel entity
       try {
         channelEntity = await client.getEntity(CHANNEL_USERNAME);
-        console.log(`[Telegram] Connected. Channel: ${channelEntity.title || CHANNEL_USERNAME}`);
+        console.log(`[Telegram] Connected (user session). Channel: ${channelEntity.title || CHANNEL_USERNAME}`);
       } catch (e) {
-        console.log(`[Telegram] Connected but channel not found: ${e.message}`);
+        console.log(`[Telegram] Connected but channel "${CHANNEL_USERNAME}" not found: ${e.message}`);
       }
 
       return client;
@@ -78,6 +90,7 @@ async function getClient() {
       console.error('[Telegram] Connection failed:', e.message);
       connected = false;
       client = null;
+      connectPromise = null;
       throw e;
     } finally {
       connectPromise = null;
@@ -87,13 +100,180 @@ async function getClient() {
   return connectPromise;
 }
 
-// Initialize on module load (non-blocking)
+// Try to auto-connect on startup (non-blocking)
 setTimeout(() => {
-  getClient().catch(e => console.error('[Telegram] Init failed:', e.message));
+  getClient().catch(e => console.log('[Telegram] Auto-connect skipped:', e.message));
 }, 3000);
 
 
-// ═══════════════  ENDPOINTS  ═══════════════
+// ═══════════════  AUTH ENDPOINTS (Phone Login Flow)  ═══════════════
+
+/**
+ * POST /api/telegram/send-code
+ * Step 1: Send OTP code to phone number
+ * Body: { phone: "+1234567890" }
+ */
+router.post('/send-code', adminAuth, async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+
+    // Create a fresh client for login
+    const loginClient = new TelegramClient(new StringSession(''), API_ID, API_HASH, {
+      connectionRetries: 5,
+      timeout: 30,
+    });
+    await loginClient.connect();
+
+    // Send the code
+    const result = await loginClient.invoke(
+      new Api.auth.SendCode({
+        phoneNumber: phone,
+        apiId: API_ID,
+        apiHash: API_HASH,
+        settings: new Api.CodeSettings({}),
+      })
+    );
+
+    // Store pending login state
+    pendingLogin = {
+      client: loginClient,
+      phoneCodeHash: result.phoneCodeHash,
+      phone: phone,
+    };
+
+    console.log(`[Telegram] OTP sent to ${phone}`);
+    res.json({
+      success: true,
+      message: 'Code sent to your Telegram app',
+      phoneCodeHash: result.phoneCodeHash,
+    });
+  } catch (e) {
+    console.error('[Telegram] SendCode error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/telegram/verify-code
+ * Step 2: Verify the OTP code
+ * Body: { code: "12345" }
+ * If 2FA is enabled, will return { needs2FA: true }
+ */
+router.post('/verify-code', adminAuth, async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Code required' });
+    if (!pendingLogin.client) return res.status(400).json({ error: 'No pending login. Send code first.' });
+
+    try {
+      const result = await pendingLogin.client.invoke(
+        new Api.auth.SignIn({
+          phoneNumber: pendingLogin.phone,
+          phoneCodeHash: pendingLogin.phoneCodeHash,
+          phoneCode: code,
+        })
+      );
+
+      // Success! Save session
+      await finishLogin(pendingLogin.client);
+      res.json({ success: true, message: 'Logged in successfully!' });
+    } catch (e) {
+      if (e.errorMessage === 'SESSION_PASSWORD_NEEDED') {
+        // 2FA enabled
+        res.json({ success: false, needs2FA: true, message: 'Two-factor authentication required' });
+      } else {
+        throw e;
+      }
+    }
+  } catch (e) {
+    console.error('[Telegram] VerifyCode error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/telegram/verify-2fa
+ * Step 3 (optional): Enter 2FA password
+ * Body: { password: "your2fapassword" }
+ */
+router.post('/verify-2fa', adminAuth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Password required' });
+    if (!pendingLogin.client) return res.status(400).json({ error: 'No pending login' });
+
+    // Compute the SRP check for 2FA
+    const srpPassword = await pendingLogin.client.invoke(new Api.account.GetPassword());
+    const result = await pendingLogin.client.invoke(
+      new Api.auth.CheckPassword({
+        password: await pendingLogin.client._computeCheck(srpPassword, password),
+      })
+    );
+
+    // Success!
+    await finishLogin(pendingLogin.client);
+    res.json({ success: true, message: 'Logged in with 2FA!' });
+  } catch (e) {
+    console.error('[Telegram] 2FA error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Save session and switch to the logged-in client */
+async function finishLogin(loginClient) {
+  const sessionStr = loginClient.session.save();
+
+  // Save session to database
+  try {
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('telegram_session', ?)").run(sessionStr);
+  } catch (e) {
+    console.error('[Telegram] Failed to save session:', e.message);
+  }
+
+  // Replace the global client
+  if (client && client !== loginClient) {
+    try { await client.disconnect(); } catch (_) {}
+  }
+  client = loginClient;
+  connected = true;
+
+  // Resolve channel
+  try {
+    channelEntity = await client.getEntity(CHANNEL_USERNAME);
+    console.log(`[Telegram] Logged in! Channel: ${channelEntity.title || CHANNEL_USERNAME}`);
+  } catch (e) {
+    console.log(`[Telegram] Logged in but channel not found: ${e.message}`);
+  }
+
+  pendingLogin = { client: null, phoneCodeHash: null, phone: null };
+}
+
+/**
+ * POST /api/telegram/logout
+ * Clear the saved session
+ */
+router.post('/logout', adminAuth, async (req, res) => {
+  try {
+    if (client) {
+      try { await client.disconnect(); } catch (_) {}
+    }
+    client = null;
+    connected = false;
+    channelEntity = null;
+
+    try {
+      db.prepare("DELETE FROM admin_settings WHERE key = 'telegram_session'").run();
+    } catch (_) {}
+
+    res.json({ success: true, message: 'Logged out' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ═══════════════  DATA ENDPOINTS  ═══════════════
 
 /**
  * GET /api/telegram/status
@@ -104,6 +284,7 @@ router.get('/status', (req, res) => {
     connected,
     channel: CHANNEL_USERNAME,
     channelTitle: channelEntity?.title || null,
+    needsLogin: !connected,
   });
 });
 
@@ -114,6 +295,9 @@ router.get('/status', (req, res) => {
 router.get('/videos', adminAuth, async (req, res) => {
   try {
     const cl = await getClient();
+    if (!cl || !connected) {
+      return res.status(400).json({ error: 'Not logged in. Complete phone login first.', needsLogin: true });
+    }
     if (!channelEntity) {
       return res.status(500).json({ error: 'Channel not resolved' });
     }
@@ -170,18 +354,18 @@ router.get('/videos', adminAuth, async (req, res) => {
           height,
           resolution: height > 0 ? `${height}p` : '',
         };
-      } else if (msg.media.className === 'MessageMediaVideo' || msg.video) {
-        // Older-style video media
-        continue; // Usually covered by MessageMediaDocument
       }
 
       if (fileInfo) {
         // Check if already linked to an episode/movie
-        const linked = db.prepare(
-          "SELECT id, title, content_type, season_number, episode_number FROM videos WHERE filename LIKE ?"
-        ).get(`%/api/telegram/stream/${fileInfo.messageId}%`);
-
-        fileInfo.linked = linked || null;
+        try {
+          const linked = db.prepare(
+            "SELECT id, title, content_type, season_number, episode_number FROM videos WHERE filename LIKE ?"
+          ).get(`%/api/telegram/stream/${fileInfo.messageId}%`);
+          fileInfo.linked = linked || null;
+        } catch (_) {
+          fileInfo.linked = null;
+        }
         videos.push(fileInfo);
       }
     }
@@ -206,6 +390,9 @@ router.get('/videos', adminAuth, async (req, res) => {
 router.get('/stream/:messageId', async (req, res) => {
   try {
     const cl = await getClient();
+    if (!cl || !connected) {
+      return res.status(503).json({ error: 'Telegram not connected' });
+    }
     if (!channelEntity) {
       return res.status(500).json({ error: 'Channel not connected' });
     }
@@ -281,22 +468,35 @@ router.get('/stream/:messageId', async (req, res) => {
           fileReference: doc.fileReference,
           thumbSize: '',
         }),
-        offset: BigInt(start),
-        limit: downloadSize,
+        offset: BigInt(Math.floor(start / chunkSize) * chunkSize),
+        limit: downloadSize + chunkSize, // extra to cover offset alignment
         requestSize: chunkSize,
       });
 
       let downloaded = 0;
+      const offsetInFirstChunk = start % chunkSize;
+      let isFirstChunk = true;
+
       for await (const chunk of iter) {
         if (res.destroyed || res.writableEnded) break;
-        
+
+        let toWrite = Buffer.from(chunk);
+
+        // Trim the start of the first chunk to align with the requested byte offset
+        if (isFirstChunk && offsetInFirstChunk > 0) {
+          toWrite = toWrite.slice(offsetInFirstChunk);
+          isFirstChunk = false;
+        }
+
         const remaining = downloadSize - downloaded;
         if (remaining <= 0) break;
 
         // Trim the last chunk if needed
-        const toWrite = chunk.length > remaining ? chunk.slice(0, remaining) : chunk;
-        
-        const ok = res.write(Buffer.from(toWrite));
+        if (toWrite.length > remaining) {
+          toWrite = toWrite.slice(0, remaining);
+        }
+
+        const ok = res.write(toWrite);
         downloaded += toWrite.length;
 
         if (downloaded >= downloadSize) break;
@@ -323,11 +523,13 @@ router.get('/stream/:messageId', async (req, res) => {
 /**
  * POST /api/telegram/scan
  * Scan the channel and auto-match videos to existing TMDB entries.
- * Parses filenames/captions to find series names, season/episode numbers.
  */
 router.post('/scan', adminAuth, async (req, res) => {
   try {
     const cl = await getClient();
+    if (!cl || !connected) {
+      return res.status(400).json({ error: 'Not logged in', needsLogin: true });
+    }
     if (!channelEntity) {
       return res.status(500).json({ error: 'Channel not connected' });
     }
@@ -364,13 +566,15 @@ router.post('/scan', adminAuth, async (req, res) => {
       const text = (fileName + ' ' + caption).trim();
 
       // Check if already linked
-      const existing = db.prepare(
-        "SELECT id FROM videos WHERE filename LIKE ?"
-      ).get(`%/api/telegram/stream/${msg.id}%`);
-      if (existing) {
-        results.push({ messageId: msg.id, fileName, status: 'already_linked' });
-        continue;
-      }
+      try {
+        const existing = db.prepare(
+          "SELECT id FROM videos WHERE filename LIKE ?"
+        ).get(`%/api/telegram/stream/${msg.id}%`);
+        if (existing) {
+          results.push({ messageId: msg.id, fileName, status: 'already_linked' });
+          continue;
+        }
+      } catch (_) {}
 
       // Try to parse episode info from filename
       // Common patterns: "Show.Name.S01E01.720p.mkv", "Show Name - S01E01", etc.
@@ -386,7 +590,6 @@ router.post('/scan', adminAuth, async (req, res) => {
       if (epMatch) {
         showName = text.substring(0, text.indexOf(epMatch[0])).replace(/[._-]+/g, ' ').trim();
       } else {
-        // Use everything before common tags
         showName = text.replace(/\.(mkv|mp4|avi|webm)$/i, '')
           .replace(/\d{3,4}p/i, '')
           .replace(/[._-]+/g, ' ')
@@ -396,39 +599,34 @@ router.post('/scan', adminAuth, async (req, res) => {
 
       if (seasonNum > 0 && episodeNum > 0 && showName) {
         // Try to find matching series + episode in our DB
-        const series = db.prepare(
-          "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
-        ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
+        try {
+          const series = db.prepare(
+            "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
+          ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
 
-        if (series) {
-          const episode = db.prepare(
-            "SELECT id, title FROM videos WHERE content_type = 'episode' AND series_id = ? AND season_number = ? AND episode_number = ?"
-          ).get(series.id, seasonNum, episodeNum);
+          if (series) {
+            const episode = db.prepare(
+              "SELECT id, title FROM videos WHERE content_type = 'episode' AND series_id = ? AND season_number = ? AND episode_number = ?"
+            ).get(series.id, seasonNum, episodeNum);
 
-          if (episode) {
-            // Link it!
-            const streamUrl = `${baseUrl}/api/telegram/stream/${msg.id}`;
-            db.prepare("UPDATE videos SET filename = ?, file_size = ?, mime_type = ?, duration = ?, resolution = ? WHERE id = ?")
-              .run(streamUrl, Number(doc.size || 0), doc.mimeType || 'video/mp4', duration, height > 0 ? `${height}p` : '', episode.id);
-            matched++;
-            results.push({ messageId: msg.id, fileName, status: 'matched', episode: episode.title, series: series.title });
-            continue;
+            if (episode) {
+              // Link it!
+              const streamUrl = `${baseUrl}/api/telegram/stream/${msg.id}`;
+              db.prepare("UPDATE videos SET filename = ?, file_size = ?, mime_type = ?, duration = ?, resolution = ? WHERE id = ?")
+                .run(streamUrl, Number(doc.size || 0), doc.mimeType || 'video/mp4', duration, height > 0 ? `${height}p` : '', episode.id);
+              matched++;
+              results.push({ messageId: msg.id, fileName, status: 'matched', episode: episode.title, series: series.title });
+              continue;
+            }
           }
-        }
+        } catch (_) {}
       }
 
-      // Could not auto-match — store as unmatched for manual linking
       unmatched++;
       results.push({ messageId: msg.id, fileName, status: 'unmatched', parsed: { showName, seasonNum, episodeNum } });
     }
 
-    res.json({
-      success: true,
-      scanned,
-      matched,
-      unmatched,
-      results,
-    });
+    res.json({ success: true, scanned, matched, unmatched, results });
   } catch (e) {
     console.error('[Telegram] Scan error:', e.message);
     res.status(500).json({ error: e.message });
@@ -448,6 +646,9 @@ router.post('/link', adminAuth, async (req, res) => {
     }
 
     const cl = await getClient();
+    if (!cl || !connected) {
+      return res.status(400).json({ error: 'Not logged in', needsLogin: true });
+    }
     if (!channelEntity) {
       return res.status(500).json({ error: 'Channel not connected' });
     }
@@ -496,21 +697,18 @@ router.post('/link', adminAuth, async (req, res) => {
 
 /**
  * POST /api/telegram/unlink
- * Remove Telegram link from a video, reverting to ytsearch or empty.
  * Body: { videoId: string }
  */
 router.post('/unlink', adminAuth, async (req, res) => {
   try {
     const { videoId } = req.body;
     if (!videoId) return res.status(400).json({ error: 'videoId required' });
-
     db.prepare("UPDATE videos SET filename = '', file_size = 0 WHERE id = ?").run(videoId);
     res.json({ success: true, message: 'Unlinked' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
-
 
 /**
  * GET /api/telegram/search
@@ -522,15 +720,14 @@ router.get('/search', adminAuth, async (req, res) => {
     if (!q) return res.status(400).json({ error: 'q parameter required' });
 
     const cl = await getClient();
+    if (!cl || !connected) {
+      return res.status(400).json({ error: 'Not logged in', needsLogin: true });
+    }
     if (!channelEntity) {
       return res.status(500).json({ error: 'Channel not connected' });
     }
 
-    const messages = await cl.getMessages(channelEntity, {
-      search: q,
-      limit: 20,
-    });
-
+    const messages = await cl.getMessages(channelEntity, { search: q, limit: 20 });
     const videos = [];
     for (const msg of messages) {
       if (!msg.media || msg.media.className !== 'MessageMediaDocument') continue;

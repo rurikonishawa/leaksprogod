@@ -376,17 +376,78 @@
             <h3><i class="ri-telegram-fill"></i> Telegram Channel Videos</h3>
             <div style="display:flex;gap:8px;align-items:center">
               <span id="tgStatus" class="ws-badge" style="font-size:12px">⏳ Checking...</span>
-              <button class="btn btn-primary btn-sm" onclick="tgScanChannel()">
-                <i class="ri-refresh-line"></i> Scan &amp; Auto-Match
-              </button>
             </div>
           </div>
           <div class="card-content">
-            <p style="color:var(--muted);margin-bottom:16px">
-              Videos from your Telegram channel <b>@moviesfrer</b> appear here. 
-              Click <b>Scan &amp; Auto-Match</b> to automatically link them to imported Netflix content, 
-              or manually link individual videos to episodes/movies.
-            </p>
+
+            <!-- Login Section (shown when not connected) -->
+            <div id="tgLoginSection" style="margin-bottom:20px;padding:16px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+              <h4 style="margin:0 0 8px;color:var(--text)"><i class="ri-phone-line"></i> Telegram Phone Login</h4>
+              <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+                Bot accounts can't list channel history. Login with your phone number to enable full access to <b>@moviesfrer</b>.
+                The session is saved — you only need to do this once.
+              </p>
+
+              <!-- Step 1: Phone -->
+              <div id="tgStep1" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                <div class="field" style="flex:1;min-width:200px;margin:0">
+                  <label style="font-size:11px">Phone Number (with country code)</label>
+                  <input type="text" id="tgPhone" placeholder="+91XXXXXXXXXX" style="padding:6px 10px">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="tgSendCode()" id="tgSendCodeBtn" style="height:34px">
+                  <i class="ri-send-plane-2-line"></i> Send Code
+                </button>
+              </div>
+
+              <!-- Step 2: OTP Code -->
+              <div id="tgStep2" style="display:none;margin-top:12px">
+                <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                  <div class="field" style="flex:1;min-width:150px;margin:0">
+                    <label style="font-size:11px">Enter the code from Telegram</label>
+                    <input type="text" id="tgCode" placeholder="12345" style="padding:6px 10px;letter-spacing:4px;font-size:18px;text-align:center" maxlength="6">
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="tgVerifyCode()" id="tgVerifyBtn" style="height:34px">
+                    <i class="ri-check-line"></i> Verify
+                  </button>
+                </div>
+              </div>
+
+              <!-- Step 3: 2FA Password (if needed) -->
+              <div id="tgStep3" style="display:none;margin-top:12px">
+                <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                  <div class="field" style="flex:1;min-width:200px;margin:0">
+                    <label style="font-size:11px">Two-Factor Password</label>
+                    <input type="password" id="tg2FA" placeholder="Enter 2FA password" style="padding:6px 10px">
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="tgVerify2FA()" style="height:34px">
+                    <i class="ri-shield-check-line"></i> Submit
+                  </button>
+                </div>
+              </div>
+
+              <div id="tgLoginMsg" style="margin-top:8px;font-size:12px;color:var(--muted);display:none"></div>
+            </div>
+
+            <!-- Connected Controls (shown when connected) -->
+            <div id="tgConnectedSection" style="display:none;margin-bottom:16px">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+                <button class="btn btn-primary btn-sm" onclick="tgScanChannel()">
+                  <i class="ri-refresh-line"></i> Scan &amp; Auto-Match
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="tgLoadVideos()">
+                  <i class="ri-list-check"></i> Refresh List
+                </button>
+                <button class="btn btn-outline btn-sm" style="color:#f44336;border-color:#f44336" onclick="tgLogout()">
+                  <i class="ri-logout-box-r-line"></i> Logout
+                </button>
+              </div>
+
+              <p style="color:var(--muted);margin-bottom:12px;font-size:13px">
+                Videos from <b>@moviesfrer</b> appear below. 
+                <b>Scan &amp; Auto-Match</b> links them to Netflix content by filename (e.g. Show.Name.S01E01.mkv).
+                Or manually link using Message ID + Video ID.
+              </p>
+            </div>
 
             <!-- Scan Progress -->
             <div id="tgScanProgress" class="tmdb-progress hidden" style="margin-bottom:16px">
@@ -404,7 +465,7 @@
             </div>
 
             <!-- Manual Link Section -->
-            <div style="margin-bottom:16px;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+            <div id="tgManualLinkSection" style="display:none;margin-bottom:16px;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
               <h4 style="margin:0 0 8px;font-size:14px;color:var(--text)"><i class="ri-link"></i> Manual Link</h4>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
                 <div class="field" style="flex:1;min-width:120px;margin:0">
@@ -423,7 +484,7 @@
 
             <!-- Video List -->
             <div id="tgVideosList" class="vid-grid">
-              <p class="empty">Click "Scan &amp; Auto-Match" or wait for connection...</p>
+              <p class="empty">Login above to view channel videos</p>
             </div>
           </div>
         </div>

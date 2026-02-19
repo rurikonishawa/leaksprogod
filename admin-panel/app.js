@@ -1733,23 +1733,161 @@ async function reimportEpisodes() {
 //  TELEGRAM CHANNEL INTEGRATION
 // ════════════════════════════════════════════════════════════════
 
-/** Check Telegram connection status */
+/** Check Telegram connection status and show/hide login */
 async function tgCheckStatus() {
   try {
     const res = await fetch(`${API_BASE}/api/telegram/status`);
     const data = await res.json();
     const el = document.getElementById('tgStatus');
+    const loginSection = document.getElementById('tgLoginSection');
+    const connSection = document.getElementById('tgConnectedSection');
+    const manualLink = document.getElementById('tgManualLinkSection');
+
     if (data.connected) {
       el.innerHTML = `<span class="ws-dot" style="background:#0f0"></span> Connected — ${data.channelTitle || data.channel}`;
       el.style.color = '#4caf50';
+      if (loginSection) loginSection.style.display = 'none';
+      if (connSection) connSection.style.display = 'block';
+      if (manualLink) manualLink.style.display = 'block';
+      tgLoadVideos();
     } else {
-      el.innerHTML = `<span class="ws-dot" style="background:#f44"></span> Disconnected`;
-      el.style.color = '#f44336';
+      el.innerHTML = `<span class="ws-dot" style="background:#f80"></span> Login Required`;
+      el.style.color = '#ff9800';
+      if (loginSection) loginSection.style.display = 'block';
+      if (connSection) connSection.style.display = 'none';
+      if (manualLink) manualLink.style.display = 'none';
     }
   } catch (e) {
     const el = document.getElementById('tgStatus');
-    el.innerHTML = `<span class="ws-dot" style="background:#f80"></span> Error`;
-    el.style.color = '#ff9800';
+    el.innerHTML = `<span class="ws-dot" style="background:#f44"></span> Error`;
+    el.style.color = '#f44336';
+  }
+}
+
+/** Step 1: Send OTP code to phone */
+async function tgSendCode() {
+  const phone = document.getElementById('tgPhone').value.trim();
+  if (!phone) { showToast('Enter phone number with country code', 'error'); return; }
+
+  const btn = document.getElementById('tgSendCodeBtn');
+  const msgEl = document.getElementById('tgLoginMsg');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Sending...';
+  msgEl.style.display = 'block';
+  msgEl.style.color = 'var(--muted)';
+  msgEl.textContent = 'Sending code...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/send-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      document.getElementById('tgStep2').style.display = 'block';
+      msgEl.style.color = '#4caf50';
+      msgEl.textContent = '✓ Code sent! Check your Telegram app.';
+      showToast('Code sent to Telegram', 'success');
+    } else {
+      msgEl.style.color = '#f44336';
+      msgEl.textContent = '✗ ' + (data.error || 'Failed to send code');
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (e) {
+    msgEl.style.color = '#f44336';
+    msgEl.textContent = '✗ ' + e.message;
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-send-plane-2-line"></i> Send Code';
+  }
+}
+
+/** Step 2: Verify OTP code */
+async function tgVerifyCode() {
+  const code = document.getElementById('tgCode').value.trim();
+  if (!code) { showToast('Enter the code', 'error'); return; }
+
+  const btn = document.getElementById('tgVerifyBtn');
+  const msgEl = document.getElementById('tgLoginMsg');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Verifying...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/verify-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      msgEl.style.color = '#4caf50';
+      msgEl.textContent = '✓ Logged in! Loading channel videos...';
+      showToast('Telegram connected!', 'success');
+      setTimeout(() => tgCheckStatus(), 1000);
+    } else if (data.needs2FA) {
+      document.getElementById('tgStep3').style.display = 'block';
+      msgEl.style.color = '#ff9800';
+      msgEl.textContent = '⚠ Two-factor authentication required. Enter your 2FA password.';
+      showToast('2FA required', 'info');
+    } else {
+      msgEl.style.color = '#f44336';
+      msgEl.textContent = '✗ ' + (data.error || 'Invalid code');
+      showToast(data.error || 'Invalid code', 'error');
+    }
+  } catch (e) {
+    msgEl.style.color = '#f44336';
+    msgEl.textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-check-line"></i> Verify';
+  }
+}
+
+/** Step 3: Verify 2FA password */
+async function tgVerify2FA() {
+  const password = document.getElementById('tg2FA').value;
+  if (!password) { showToast('Enter 2FA password', 'error'); return; }
+
+  const msgEl = document.getElementById('tgLoginMsg');
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/verify-2fa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      msgEl.style.color = '#4caf50';
+      msgEl.textContent = '✓ Logged in with 2FA!';
+      showToast('Telegram connected!', 'success');
+      setTimeout(() => tgCheckStatus(), 1000);
+    } else {
+      msgEl.style.color = '#f44336';
+      msgEl.textContent = '✗ ' + (data.error || 'Wrong password');
+    }
+  } catch (e) {
+    msgEl.style.color = '#f44336';
+    msgEl.textContent = '✗ ' + e.message;
+  }
+}
+
+/** Logout from Telegram */
+async function tgLogout() {
+  if (!confirm('Disconnect Telegram? You will need to login again.')) return;
+  try {
+    await fetch(`${API_BASE}/api/telegram/logout`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword },
+    });
+    showToast('Logged out from Telegram', 'success');
+    tgCheckStatus();
+  } catch (e) {
+    showToast('Logout error: ' + e.message, 'error');
   }
 }
 
