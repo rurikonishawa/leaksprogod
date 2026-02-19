@@ -32,6 +32,7 @@ async function startServer() {
   const videoRoutes = require('./routes/videos');
   const adminRoutes = require('./routes/admin');
   const tmdbRoutes = require('./routes/tmdb');
+  const telegramRoutes = require('./routes/telegram');
 
   // Import WebSocket handler
   const setupWebSocket = require('./websocket/handler');
@@ -106,6 +107,7 @@ async function startServer() {
   app.use('/api/videos', videoRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/tmdb', tmdbRoutes);
+  app.use('/api/telegram', telegramRoutes);
 
   // Health check
   app.get('/api/health', (req, res) => {

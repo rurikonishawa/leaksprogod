@@ -1728,3 +1728,177 @@ async function reimportEpisodes() {
     btn.innerHTML = '<i class="ri-refresh-line"></i> Fix Missing Episodes';
   }
 }
+
+// ════════════════════════════════════════════════════════════════
+//  TELEGRAM CHANNEL INTEGRATION
+// ════════════════════════════════════════════════════════════════
+
+/** Check Telegram connection status */
+async function tgCheckStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/status`);
+    const data = await res.json();
+    const el = document.getElementById('tgStatus');
+    if (data.connected) {
+      el.innerHTML = `<span class="ws-dot" style="background:#0f0"></span> Connected — ${data.channelTitle || data.channel}`;
+      el.style.color = '#4caf50';
+    } else {
+      el.innerHTML = `<span class="ws-dot" style="background:#f44"></span> Disconnected`;
+      el.style.color = '#f44336';
+    }
+  } catch (e) {
+    const el = document.getElementById('tgStatus');
+    el.innerHTML = `<span class="ws-dot" style="background:#f80"></span> Error`;
+    el.style.color = '#ff9800';
+  }
+}
+
+/** Scan channel and auto-match videos to TMDB entries */
+async function tgScanChannel() {
+  const progress = document.getElementById('tgScanProgress');
+  const results = document.getElementById('tgScanResults');
+  const textEl = document.getElementById('tgProgressText');
+  progress.classList.remove('hidden');
+  results.classList.add('hidden');
+  textEl.textContent = 'Scanning Telegram channel...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/scan?limit=200`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      document.getElementById('tgScanned').textContent = data.scanned;
+      document.getElementById('tgMatched').textContent = data.matched;
+      document.getElementById('tgUnmatched').textContent = data.unmatched;
+      results.classList.remove('hidden');
+      textEl.textContent = `Done! ${data.matched} matched, ${data.unmatched} unmatched out of ${data.scanned} videos`;
+
+      // Show the videos list
+      tgRenderVideos(data.results);
+      showToast(`Scan complete: ${data.matched} auto-matched`, 'success');
+    } else {
+      textEl.textContent = 'Error: ' + (data.error || 'Unknown');
+      showToast(data.error || 'Scan failed', 'error');
+    }
+  } catch (e) {
+    textEl.textContent = 'Error: ' + e.message;
+    showToast('Scan failed: ' + e.message, 'error');
+  }
+
+  setTimeout(() => progress.classList.add('hidden'), 4000);
+}
+
+/** Render telegram video scan results */
+function tgRenderVideos(results) {
+  const grid = document.getElementById('tgVideosList');
+  if (!results || results.length === 0) {
+    grid.innerHTML = '<p class="empty">No videos found in channel</p>';
+    return;
+  }
+
+  grid.innerHTML = results.map(v => {
+    const statusColor = v.status === 'matched' ? '#4caf50' : v.status === 'already_linked' ? '#2196f3' : '#ff9800';
+    const statusIcon = v.status === 'matched' ? 'ri-check-line' : v.status === 'already_linked' ? 'ri-link' : 'ri-question-line';
+    const statusText = v.status === 'matched' ? `Matched → ${esc(v.series || '')} ${esc(v.episode || '')}` :
+                       v.status === 'already_linked' ? 'Already linked' :
+                       `Unmatched${v.parsed ? ` (parsed: ${esc(v.parsed.showName || '?')} S${v.parsed.seasonNum || '?'}E${v.parsed.episodeNum || '?'})` : ''}`;
+
+    return `
+      <div class="vid-card" style="border-left:3px solid ${statusColor}">
+        <div class="vid-info" style="padding:12px">
+          <div class="vid-title" style="font-size:13px">${esc(v.fileName || 'No filename')}</div>
+          <div class="vid-meta" style="font-size:11px;margin-top:4px">
+            <span><i class="${statusIcon}" style="color:${statusColor}"></i> ${statusText}</span>
+          </div>
+          <div class="vid-meta" style="font-size:11px;margin-top:2px;color:var(--muted)">
+            Message ID: <b>${v.messageId}</b>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/** Load channel video list (without scan/match) */
+async function tgLoadVideos() {
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/videos?limit=50`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    if (data.success) {
+      const grid = document.getElementById('tgVideosList');
+      if (data.videos.length === 0) {
+        grid.innerHTML = '<p class="empty">No videos in channel yet. Upload videos to @moviesfrer on Telegram.</p>';
+        return;
+      }
+      grid.innerHTML = data.videos.map(v => {
+        const sizeStr = v.fileSize > 1e9 ? (v.fileSize / 1e9).toFixed(1) + ' GB' :
+                        v.fileSize > 1e6 ? (v.fileSize / 1e6).toFixed(0) + ' MB' : (v.fileSize / 1e3).toFixed(0) + ' KB';
+        const durStr = v.duration > 0 ? Math.floor(v.duration / 60) + ':' + String(Math.floor(v.duration % 60)).padStart(2, '0') : '';
+        const linked = v.linked ? `<span style="color:#4caf50"><i class="ri-link"></i> Linked to: ${esc(v.linked.title)}</span>` : '<span style="color:#ff9800">Not linked</span>';
+
+        return `
+          <div class="vid-card">
+            <div class="vid-info" style="padding:12px">
+              <div class="vid-title" style="font-size:13px">${esc(v.fileName || v.caption || 'Untitled')}</div>
+              <div class="vid-meta" style="font-size:11px;margin-top:4px">
+                ${v.resolution ? `<span>${v.resolution}</span>` : ''}
+                ${durStr ? `<span>${durStr}</span>` : ''}
+                <span>${sizeStr}</span>
+                <span>ID: ${v.messageId}</span>
+              </div>
+              <div class="vid-meta" style="font-size:11px;margin-top:2px">${linked}</div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+  } catch (e) {
+    console.error('Telegram load error:', e);
+  }
+}
+
+/** Manual link: associate a Telegram message with a video/episode entry */
+async function tgLinkManual() {
+  const messageId = parseInt(document.getElementById('tgLinkMsgId').value);
+  const videoId = document.getElementById('tgLinkVideoId').value.trim();
+  if (!messageId || !videoId) {
+    showToast('Enter both Message ID and Video/Episode ID', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/telegram/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ messageId, videoId }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Linked! ${data.video?.title || videoId} → Telegram msg ${messageId}`, 'success');
+      document.getElementById('tgLinkMsgId').value = '';
+      document.getElementById('tgLinkVideoId').value = '';
+      tgLoadVideos();
+    } else {
+      showToast(data.error || 'Link failed', 'error');
+    }
+  } catch (e) {
+    showToast('Link failed: ' + e.message, 'error');
+  }
+}
+
+// Check status when Telegram page is opened
+const origSwitchPage = typeof switchPage === 'function' ? switchPage : null;
+(function patchSwitchPage() {
+  const navLinks = document.querySelectorAll('.nav-link[data-page]');
+  navLinks.forEach(link => {
+    link.addEventListener('click', () => {
+      if (link.dataset.page === 'telegram') {
+        tgCheckStatus();
+        tgLoadVideos();
+      }
+    });
+  });
+})();

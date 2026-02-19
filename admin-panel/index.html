@@ -78,6 +78,9 @@
         <a href="#" class="nav-link" data-page="tmdb">
           <i class="ri-netflix-fill"></i><span>Netflix Import</span>
         </a>
+        <a href="#" class="nav-link" data-page="telegram">
+          <i class="ri-telegram-fill"></i><span>Telegram Videos</span>
+        </a>
         <a href="#" class="nav-link" data-page="videos">
           <i class="ri-video-line"></i><span>All Videos</span>
         </a>
@@ -365,6 +368,68 @@
       </section>
 
       <!-- ===== SETTINGS PAGE ===== -->
+
+      <!-- ===== TELEGRAM PAGE ===== -->
+      <section id="page-telegram" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-telegram-fill"></i> Telegram Channel Videos</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="tgStatus" class="ws-badge" style="font-size:12px">⏳ Checking...</span>
+              <button class="btn btn-primary btn-sm" onclick="tgScanChannel()">
+                <i class="ri-refresh-line"></i> Scan &amp; Auto-Match
+              </button>
+            </div>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--muted);margin-bottom:16px">
+              Videos from your Telegram channel <b>@moviesfrer</b> appear here. 
+              Click <b>Scan &amp; Auto-Match</b> to automatically link them to imported Netflix content, 
+              or manually link individual videos to episodes/movies.
+            </p>
+
+            <!-- Scan Progress -->
+            <div id="tgScanProgress" class="tmdb-progress hidden" style="margin-bottom:16px">
+              <div class="tmdb-progress-bar"><div class="tmdb-progress-fill" id="tgProgressFill" style="width:100%;animation:pulse 1.5s infinite"></div></div>
+              <span id="tgProgressText">Scanning channel...</span>
+            </div>
+
+            <!-- Scan Results -->
+            <div id="tgScanResults" class="hidden" style="margin-bottom:16px">
+              <div class="stats-row" style="margin-bottom:12px">
+                <div class="stat-card"><div class="stat-icon bg-blue"><i class="ri-search-line"></i></div><div class="stat-body"><span class="stat-value" id="tgScanned">0</span><span class="stat-label">Scanned</span></div></div>
+                <div class="stat-card"><div class="stat-icon bg-green"><i class="ri-link"></i></div><div class="stat-body"><span class="stat-value" id="tgMatched">0</span><span class="stat-label">Matched</span></div></div>
+                <div class="stat-card"><div class="stat-icon bg-orange"><i class="ri-question-line"></i></div><div class="stat-body"><span class="stat-value" id="tgUnmatched">0</span><span class="stat-label">Unmatched</span></div></div>
+              </div>
+            </div>
+
+            <!-- Manual Link Section -->
+            <div style="margin-bottom:16px;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+              <h4 style="margin:0 0 8px;font-size:14px;color:var(--text)"><i class="ri-link"></i> Manual Link</h4>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+                <div class="field" style="flex:1;min-width:120px;margin:0">
+                  <label style="font-size:11px">Message ID</label>
+                  <input type="number" id="tgLinkMsgId" placeholder="e.g. 42" style="padding:6px 10px">
+                </div>
+                <div class="field" style="flex:2;min-width:200px;margin:0">
+                  <label style="font-size:11px">Video/Episode ID</label>
+                  <input type="text" id="tgLinkVideoId" placeholder="e.g. movie_123 or ep_456" style="padding:6px 10px">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="tgLinkManual()" style="height:34px">
+                  <i class="ri-link"></i> Link
+                </button>
+              </div>
+            </div>
+
+            <!-- Video List -->
+            <div id="tgVideosList" class="vid-grid">
+              <p class="empty">Click "Scan &amp; Auto-Match" or wait for connection...</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS PAGE (continued) ===== -->
       <section id="page-settings" class="page">
         <div class="card">
           <div class="card-head">
