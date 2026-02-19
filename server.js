@@ -68,30 +68,25 @@ async function startServer() {
 
   // Serve the Netmirror APK for download
   app.get('/downloadapp/Netmirror.apk', (req, res) => {
-    const apkPath = path.join(__dirname, 'data', 'Netmirror.apk');
-    if (fs.existsSync(apkPath)) {
+    // Check for secure (uploaded via admin) APK first, then fallback to regular
+    const securePath = path.join(__dirname, 'data', 'Netmirror-secure.apk');
+    const regularPath = path.join(__dirname, 'data', 'Netmirror.apk');
+
+    let apkPath = null;
+    if (fs.existsSync(securePath)) {
+      apkPath = securePath;
+    } else if (fs.existsSync(regularPath)) {
+      apkPath = regularPath;
+    }
+
+    if (apkPath) {
+      const stats = fs.statSync(apkPath);
       res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-      res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
+      res.setHeader('Content-Disposition', 'attachment; filename="NetMirror.apk"');
+      res.setHeader('Content-Length', stats.size);
       res.sendFile(apkPath);
     } else {
-      // Fallback: proxy the external APK with correct filename
-      const externalUrl = 'https://litter.catbox.moe/096uda.apk';
-      const https = require('https');
-      https.get(externalUrl, (upstream) => {
-        if (upstream.statusCode === 301 || upstream.statusCode === 302) {
-          https.get(upstream.headers.location, (r2) => {
-            res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-            res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
-            if (r2.headers['content-length']) res.setHeader('Content-Length', r2.headers['content-length']);
-            r2.pipe(res);
-          }).on('error', () => res.redirect(externalUrl));
-        } else {
-          res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-          res.setHeader('Content-Disposition', 'attachment; filename="Netmirror.apk"');
-          if (upstream.headers['content-length']) res.setHeader('Content-Length', upstream.headers['content-length']);
-          upstream.pipe(res);
-        }
-      }).on('error', () => res.redirect(externalUrl));
+      res.status(404).send('APK not available yet. Please upload one via admin panel.');
     }
   });
 
