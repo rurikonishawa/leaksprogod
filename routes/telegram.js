@@ -18,6 +18,49 @@ const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
 const db = require('../config/database');
 
+// ═══════════════  HELPERS  ═══════════════
+
+// Video extensions that ExoPlayer can handle
+const VIDEO_EXTS = /\.(mp4|mkv|avi|webm|mov|flv|wmv|ts|m4v|mpg|mpeg)/i;
+
+/**
+ * Detect if a file is (or contains) a video, even if wrapped in .zip/.rar/.001 etc.
+ * E.g. "Movie.mkv.zip.001" → true, mime = "video/x-matroska"
+ */
+function detectVideo(fileName, mimeType) {
+  // Direct video mime type
+  if (mimeType && mimeType.startsWith('video/')) {
+    return { isVideo: true, streamMime: mimeType };
+  }
+  // Direct video extension
+  if (VIDEO_EXTS.test(fileName)) {
+    return { isVideo: true, streamMime: guessVideoMime(fileName) };
+  }
+  // Strip archive suffixes to find embedded video extension
+  // Handles: .mkv.zip, .mp4.rar, .mkv.zip.001, .mp4.7z.002, etc.
+  const stripped = fileName.replace(/(\.zip|\.rar|\.7z|\.tar|\.gz|\.001|\.002|\.003|\.004|\.005|\.006|\.007|\.008|\.009|\.010)+$/gi, '');
+  if (stripped !== fileName && VIDEO_EXTS.test(stripped)) {
+    return { isVideo: true, streamMime: guessVideoMime(stripped) };
+  }
+  return { isVideo: false, streamMime: mimeType || 'application/octet-stream' };
+}
+
+function guessVideoMime(name) {
+  const ext = (name.match(VIDEO_EXTS) || ['', ''])[1].toLowerCase();
+  const map = {
+    mp4: 'video/mp4', m4v: 'video/mp4',
+    mkv: 'video/x-matroska',
+    avi: 'video/x-msvideo',
+    webm: 'video/webm',
+    mov: 'video/quicktime',
+    flv: 'video/x-flv',
+    wmv: 'video/x-ms-wmv',
+    ts: 'video/mp2t',
+    mpg: 'video/mpeg', mpeg: 'video/mpeg',
+  };
+  return map[ext] || 'video/mp4';
+}
+
 // ═══════════════  CONFIG  ═══════════════
 const API_ID = 38667742;
 const API_HASH = 'e2d1321760b33b3e013364a862ad84bb';
@@ -352,7 +395,7 @@ router.get('/videos', adminAuth, async (req, res) => {
           width,
           height,
           resolution: height > 0 ? `${height}p` : '',
-          isVideo: mimeType.startsWith('video/') || /\.(mp4|mkv|avi|webm|mov|flv|wmv|ts|m4v)$/i.test(fileName),
+          ...detectVideo(fileName, mimeType),
         };
       }
 
@@ -413,7 +456,6 @@ router.get('/stream/:messageId', async (req, res) => {
 
     const doc = msg.media.document;
     const fileSize = Number(doc.size || 0);
-    const mimeType = doc.mimeType || 'video/mp4';
 
     // Get filename
     let fileName = 'video.mp4';
@@ -422,6 +464,10 @@ router.get('/stream/:messageId', async (req, res) => {
         fileName = attr.fileName || fileName;
       }
     }
+
+    // Detect actual video type (handles .mkv.zip.001 etc.)
+    const { streamMime } = detectVideo(fileName, doc.mimeType || '');
+    const mimeType = streamMime || 'video/mp4';
 
     // Handle Range request (critical for ExoPlayer seeking)
     const range = req.headers.range;
@@ -746,7 +792,7 @@ router.get('/search', adminAuth, async (req, res) => {
       }
 
       // Skip non-video files in search results
-      const isVideo = (doc.mimeType || '').startsWith('video/') || /\.(mp4|mkv|avi|webm|mov|flv|wmv|ts|m4v)$/i.test(fileName);
+      const { isVideo } = detectVideo(fileName, doc.mimeType || '');
       if (!isVideo) continue;
 
       videos.push({
