@@ -16,6 +16,7 @@ const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
+const bigInt = require('big-integer');
 const db = require('../config/database');
 
 // ═══════════════  HELPERS  ═══════════════
@@ -520,7 +521,7 @@ router.get('/stream/:messageId', async (req, res) => {
           thumbSize: '',
         }),
         dcId: doc.dcId,            // critical: file lives on this DC
-        offset: BigInt(alignedOffset),
+        offset: bigInt(alignedOffset),
         requestSize: CHUNK,
       });
 
@@ -614,7 +615,7 @@ router.get('/test-stream/:messageId', async (req, res) => {
           thumbSize: '',
         }),
         dcId: doc.dcId,
-        offset: BigInt(0),
+        offset: bigInt(0),
         requestSize: 512 * 1024,
       });
 
