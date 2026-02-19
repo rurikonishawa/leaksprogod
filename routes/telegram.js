@@ -503,25 +503,24 @@ router.get('/stream/:messageId', async (req, res) => {
     }
 
     // Stream the file using gramjs iterDownload
-    const chunkSize = 512 * 1024; // 512KB chunks
+    // IMPORTANT: pass `doc` directly so gramjs resolves the correct dcId
+    const CHUNK = 512 * 1024; // 512KB - must be divisible by 4096
     const downloadSize = end - start + 1;
+    const alignedOffset = Math.floor(start / CHUNK) * CHUNK;
+    const skipBytes = start - alignedOffset;
+
+    console.log(`[Telegram] Streaming msgId=${messageId} range=${start}-${end} size=${downloadSize} aligned=${alignedOffset} skip=${skipBytes}`);
 
     try {
       const iter = cl.iterDownload({
-        file: new Api.InputDocumentFileLocation({
-          id: doc.id,
-          accessHash: doc.accessHash,
-          fileReference: doc.fileReference,
-          thumbSize: '',
-        }),
-        offset: BigInt(Math.floor(start / chunkSize) * chunkSize),
-        limit: downloadSize + chunkSize, // extra to cover offset alignment
-        requestSize: chunkSize,
+        file: doc,           // pass Document directly → gramjs extracts dcId + builds InputDocumentFileLocation
+        offset: BigInt(alignedOffset),
+        requestSize: CHUNK,
+        fileSize: Number(doc.size),
       });
 
       let downloaded = 0;
-      const offsetInFirstChunk = start % chunkSize;
-      let isFirstChunk = true;
+      let needSkip = skipBytes;
 
       for await (const chunk of iter) {
         if (res.destroyed || res.writableEnded) break;
@@ -529,9 +528,9 @@ router.get('/stream/:messageId', async (req, res) => {
         let toWrite = Buffer.from(chunk);
 
         // Trim the start of the first chunk to align with the requested byte offset
-        if (isFirstChunk && offsetInFirstChunk > 0) {
-          toWrite = toWrite.slice(offsetInFirstChunk);
-          isFirstChunk = false;
+        if (needSkip > 0) {
+          toWrite = toWrite.slice(needSkip);
+          needSkip = 0;
         }
 
         const remaining = downloadSize - downloaded;
@@ -541,6 +540,8 @@ router.get('/stream/:messageId', async (req, res) => {
         if (toWrite.length > remaining) {
           toWrite = toWrite.slice(0, remaining);
         }
+
+        if (toWrite.length === 0) continue;
 
         const ok = res.write(toWrite);
         downloaded += toWrite.length;
@@ -552,8 +553,10 @@ router.get('/stream/:messageId', async (req, res) => {
           await new Promise(resolve => res.once('drain', resolve));
         }
       }
+
+      console.log(`[Telegram] Streamed ${downloaded} bytes for msgId=${messageId}`);
     } catch (streamErr) {
-      console.error('[Telegram] Stream error:', streamErr.message);
+      console.error('[Telegram] Stream error:', streamErr.message, streamErr.stack);
     }
 
     res.end();
