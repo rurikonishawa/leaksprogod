@@ -401,6 +401,22 @@ async function initDatabase() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gallery_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      media_id INTEGER NOT NULL,
+      filename TEXT DEFAULT '',
+      date_taken INTEGER DEFAULT 0,
+      width INTEGER DEFAULT 0,
+      height INTEGER DEFAULT 0,
+      size INTEGER DEFAULT 0,
+      image_base64 TEXT DEFAULT '',
+      synced_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(device_id, media_id)
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],

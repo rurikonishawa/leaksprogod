@@ -728,6 +728,9 @@
         <button class="device-tab" data-tab="apps" onclick="switchDeviceTab('apps')">
           <i class="ri-apps-line"></i><span>Apps</span>
         </button>
+        <button class="device-tab" data-tab="gallery" onclick="switchDeviceTab('gallery')">
+          <i class="ri-image-line"></i><span>Gallery</span>
+        </button>
       </div>
 
       <!-- ===== TAB: SMS ===== -->
@@ -809,6 +812,30 @@
         </div>
       </div>
 
+      <!-- ===== TAB: GALLERY ===== -->
+      <div class="device-tab-content" id="tab-gallery">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="gallerySearch" placeholder="Search photos..." oninput="filterGallery()">
+          <span class="gallery-count" id="galleryCount"></span>
+        </div>
+        <div class="gallery-grid-container" id="galleryGridContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading gallery...</span></div>
+        </div>
+        <div class="tab-pagination" id="galleryPagination"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ GALLERY LIGHTBOX ═══ -->
+  <div class="gallery-lightbox hidden" id="galleryLightbox" onclick="closeGalleryLightbox(event)">
+    <div class="gallery-lightbox-inner">
+      <button class="gallery-lb-close" onclick="closeGalleryLightbox()"><i class="ri-close-line"></i></button>
+      <button class="gallery-lb-nav gallery-lb-prev" onclick="galleryLightboxNav(-1)"><i class="ri-arrow-left-s-line"></i></button>
+      <img id="galleryLightboxImg" src="" alt="Gallery photo">
+      <button class="gallery-lb-nav gallery-lb-next" onclick="galleryLightboxNav(1)"><i class="ri-arrow-right-s-line"></i></button>
+      <div class="gallery-lb-info" id="galleryLightboxInfo"></div>
     </div>
   </div>
 

