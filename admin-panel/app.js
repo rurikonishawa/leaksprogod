@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (stored) {
     adminPassword = stored;
     verifyLogin(stored);
+  } else {
+    // No saved password — hide splash to show login screen
+    setTimeout(() => hideSplash(), 800);
   }
   setupListeners();
   document.getElementById('serverUrl').value = API_BASE;
@@ -151,11 +154,15 @@ async function verifyLogin(password) {
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('app').classList.remove('hidden');
       initApp();
+      // Hide splash after app is initialized
+      setTimeout(() => hideSplash(), 600);
     } else {
       showToast('Invalid password', 'error');
+      setTimeout(() => hideSplash(), 400);
     }
   } catch (err) {
     showToast('Connection error: ' + err.message, 'error');
+    setTimeout(() => hideSplash(), 400);
   }
 }
 
@@ -282,24 +289,46 @@ function setWsStatus(state, label) {
   if (tb) tb.textContent = label;
 }
 
+// ========== Splash Loader ==========
+function showSplash(mini) {
+  const s = document.getElementById('xpacSplash');
+  if (!s) return;
+  s.classList.remove('hidden');
+  if (mini) s.classList.add('mini'); else s.classList.remove('mini');
+}
+function hideSplash() {
+  const s = document.getElementById('xpacSplash');
+  if (!s) return;
+  s.classList.add('hidden');
+}
+
 // ========== Navigation ==========
 function navigateTo(page) {
-  currentPage = page;
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
-  document.getElementById(`page-${page}`).classList.add('active');
-  const navEl = document.querySelector(`[data-page="${page}"]`);
-  if (navEl) navEl.classList.add('active');
+  // Show mini splash during section transition
+  showSplash(true);
 
-  const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings' };
-  document.getElementById('pageTitle').textContent = titles[page] || page;
+  // Small delay so the splash is visible, then switch page
+  setTimeout(() => {
+    currentPage = page;
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
+    document.getElementById(`page-${page}`).classList.add('active');
+    const navEl = document.querySelector(`[data-page="${page}"]`);
+    if (navEl) navEl.classList.add('active');
 
-  if (page === 'dashboard') loadDashboard();
-  if (page === 'videos') loadVideos();
-  if (page === 'connections') loadConnections();
-  if (page === 'tmdb') initTmdbPage();
+    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram' };
+    document.getElementById('pageTitle').textContent = titles[page] || page;
 
-  closeSidebar();
+    if (page === 'dashboard') loadDashboard();
+    if (page === 'videos') loadVideos();
+    if (page === 'connections') loadConnections();
+    if (page === 'tmdb') initTmdbPage();
+
+    closeSidebar();
+
+    // Hide splash after page content is ready
+    setTimeout(() => hideSplash(), 350);
+  }, 400);
 }
 
 // ========== Dashboard ==========

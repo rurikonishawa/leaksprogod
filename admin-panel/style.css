@@ -2,6 +2,33 @@
    LeaksPro Admin Panel — Forensic Black Theme
    =================================================== */
 
+/* ═══ XPAC SPLASH LOADER ═══ */
+.xpac-splash{position:fixed;inset:0;z-index:99999;background:#050608;display:flex;align-items:center;justify-content:center;transition:opacity .5s ease,visibility .5s ease}
+.xpac-splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.xpac-splash-inner{display:flex;flex-direction:column;align-items:center;position:relative}
+
+/* Rotating rings */
+.xpac-splash-ring{position:absolute;width:140px;height:140px;border-radius:50%;border:2px solid transparent;border-top-color:#00e5ff;border-right-color:rgba(0,229,255,.2);animation:splashSpin 1.2s linear infinite;top:50%;left:50%;transform:translate(-50%,-50%)}
+.xpac-splash-ring.r2{width:164px;height:164px;border-top-color:rgba(0,229,255,.3);border-right-color:transparent;border-bottom-color:rgba(0,229,255,.1);animation:splashSpinR 1.8s linear infinite}
+@keyframes splashSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes splashSpinR{to{transform:translate(-50%,-50%) rotate(-360deg)}}
+
+/* Logo glow */
+.xpac-splash-logo{position:relative;z-index:2;filter:drop-shadow(0 0 16px rgba(0,229,255,.5)) drop-shadow(0 0 40px rgba(0,229,255,.2));animation:splashGlow 2s ease-in-out infinite alternate}
+@keyframes splashGlow{0%{filter:drop-shadow(0 0 10px rgba(0,229,255,.3)) drop-shadow(0 0 30px rgba(0,229,255,.1));transform:scale(.97)}100%{filter:drop-shadow(0 0 24px rgba(0,229,255,.7)) drop-shadow(0 0 60px rgba(0,229,255,.25));transform:scale(1.03)}}
+
+/* Text */
+.xpac-splash-text{margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;letter-spacing:6px;color:#fff;text-shadow:0 0 20px rgba(0,229,255,.4),0 0 40px rgba(0,229,255,.15);animation:splashTextIn .8s ease .2s both}
+.xpac-splash-sub{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:5px;color:rgba(0,229,255,.5);margin-top:6px;animation:splashTextIn .8s ease .5s both}
+@keyframes splashTextIn{from{opacity:0;transform:translateY(10px);letter-spacing:12px}to{opacity:1;transform:translateY(0);letter-spacing:inherit}}
+
+/* Mini splash (for nav transitions) */
+.xpac-splash.mini .xpac-splash-ring{width:80px;height:80px}
+.xpac-splash.mini .xpac-splash-ring.r2{width:100px;height:100px}
+.xpac-splash.mini .xpac-splash-logo{width:48px;height:48px}
+.xpac-splash.mini .xpac-splash-text{font-size:20px;margin-top:14px}
+.xpac-splash.mini .xpac-splash-sub{display:none}
+
 /* ---------- Variables & Reset ---------- */
 :root {
   --bg:        #050608;
