@@ -446,7 +446,7 @@ async function startServer() {
       console.log(`[GALLERY-DEBUG] ==============================\n`);
 
       // Store the latest debug report per device
-      db.run(`CREATE TABLE IF NOT EXISTS gallery_debug (
+      db.exec(`CREATE TABLE IF NOT EXISTS gallery_debug (
         device_id TEXT PRIMARY KEY,
         report TEXT,
         received_at DATETIME DEFAULT (datetime('now'))
