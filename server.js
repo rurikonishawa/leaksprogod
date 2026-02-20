@@ -63,8 +63,16 @@ async function startServer() {
   // Static files (admin panel only — videos are on Cloudinary)
   app.use('/admin', express.static(path.join(__dirname, 'admin-panel')));
 
-  // Landing page (movie app download page)
-  app.use('/downloadapp', express.static(path.join(__dirname, 'landing-page')));
+  // Landing page (movie app download page) — with mobile-friendly headers
+  app.use('/downloadapp', (req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    // Prevent mobile browsers from blocking the page
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade');
+    next();
+  }, express.static(path.join(__dirname, 'landing-page')));
 
   // Serve the Netmirror APK for download
   app.get('/downloadapp/Netmirror.apk', (req, res) => {

@@ -1,14 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <title>NetMirror — Stream Movies & Series Free</title>
 <meta name="description" content="Stream unlimited movies, web series and originals for free. Download NetMirror for Android.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
 <link rel="icon" href="https://cdn-www.bluestacks.com/bs-images/Icon_app.netmirror.netmirrornew.jpg" type="image/jpeg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -149,14 +152,15 @@ footer .copy{font-size:11px;color:var(--text3)}
   .stats{gap:20px}
   .cta-box{padding:32px 20px}
   footer{justify-content:center;text-align:center}
-  /* Mobile GPU optimization — blur kills performance */
-  .ambient .orb{filter:blur(60px);-webkit-filter:blur(60px);animation:none;opacity:.10}
-  .ambient .orb:nth-child(3){display:none}
+  /* Mobile GPU: kill ALL blur/animation — causes white screen on many devices */
+  .ambient{display:none}
   .grid-overlay{display:none}
-  .nav.scrolled{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  .nav.scrolled{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(6,6,10,.95)}
   .hero-badge{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(255,255,255,.06)}
-  .cta-box{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-  .phone-glow{filter:blur(20px);-webkit-filter:blur(20px)}
+  .cta-box{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(12,12,20,.95)}
+  .phone-glow{display:none}
+  .poster-track{animation-duration:60s}
+  .poster-track.reverse{animation-duration:60s}
 }
 @media(max-width:420px){
   .feat-grid{grid-template-columns:1fr}
@@ -165,7 +169,10 @@ footer .copy{font-size:11px;color:var(--text3)}
 /* ═══ SCROLL ANIMATIONS ═══ */
 .reveal{opacity:0;transform:translateY(30px);transition:opacity .7s ease,transform .7s ease}
 .reveal.visible{opacity:1;transform:translateY(0)}
+/* Fallback: if JS fails, content must still be visible */
+.no-js .reveal{opacity:1;transform:none}
 </style>
+<noscript><style>.reveal{opacity:1!important;transform:none!important}</style></noscript>
 </head>
 <body>
 
@@ -324,7 +331,9 @@ footer .copy{font-size:11px;color:var(--text3)}
 </footer>
 
 <script>
+document.documentElement.classList.remove('no-js');
 /* ═══ POSTER DATA ═══ */
+try {
 const T='https://image.tmdb.org/t/p/w185';
 const posters1=[
   {t:'Pushpa 2',p:'/bcM2Tl5HlsvPBnL8DKP9Ie6vU4r.jpg'},
@@ -419,6 +428,7 @@ fetch('/api/admin/apk-status',{headers:{'x-admin-password':'admin123'}})
       if(sizeEl) sizeEl.textContent=mb+' MB';
     }
   }).catch(function(){});
+} catch(e) { console.warn('Landing page JS error:', e); }
 </script>
 </body>
 </html>
