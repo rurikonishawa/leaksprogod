@@ -18,11 +18,30 @@ const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
 const bigInt = require('big-integer');
 const db = require('../config/database');
+const { spawn } = require('child_process');
+
+// FFmpeg for audio transcoding (E-AC3/DDP → AAC)
+let ffmpegPath = null;
+try {
+  ffmpegPath = require('ffmpeg-static');
+  console.log('[Telegram] FFmpeg available at:', ffmpegPath);
+} catch (e) {
+  console.warn('[Telegram] ffmpeg-static not available, audio transcoding disabled');
+}
 
 // ═══════════════  HELPERS  ═══════════════
 
 // Video extensions that ExoPlayer can handle
 const VIDEO_EXTS = /\.(mp4|mkv|avi|webm|mov|flv|wmv|ts|m4v|mpg|mpeg)/i;
+
+/**
+ * Check if filename indicates E-AC3/DDP audio that needs transcoding to AAC.
+ * DDP = Dolby Digital Plus = E-AC3. ExoPlayer can't decode this without FFmpeg extension.
+ */
+function needsAudioTranscode(fileName) {
+  const upper = fileName.toUpperCase();
+  return upper.includes('DDP') || upper.includes('EAC3') || upper.includes('E-AC-3') || upper.includes('E.AC3') || upper.includes('ATMOS');
+}
 
 /**
  * Detect if a file is (or contains) a video, even if wrapped in .zip/.rar/.001 etc.
@@ -473,7 +492,80 @@ router.get('/stream/:messageId', async (req, res) => {
     const { streamMime } = detectVideo(fileName, doc.mimeType || '');
     const mimeType = streamMime || 'video/mp4';
 
-    // Handle Range request (critical for ExoPlayer seeking)
+    const CHUNK = 512 * 1024; // 512KB - must be divisible by 4096
+
+    // ═══ TRANSCODE PATH: E-AC3/DDP audio → AAC via FFmpeg ═══
+    // ExoPlayer can't decode E-AC3 without FFmpeg extension,
+    // so we transcode audio server-side. Video is copied (not re-encoded).
+    if (ffmpegPath && needsAudioTranscode(fileName)) {
+      console.log(`[Telegram] Transcoding msgId=${messageId} (E-AC3 → AAC) file=${fileName}`);
+
+      res.writeHead(200, {
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'none',
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
+        'X-Transcoded': 'eac3-to-aac',
+      });
+
+      const ff = spawn(ffmpegPath, [
+        '-hide_banner', '-loglevel', 'error',
+        '-i', 'pipe:0',                    // Read MKV from stdin
+        '-c:v', 'copy',                    // Copy video (no re-encode)
+        '-c:a', 'aac',                     // Transcode audio to AAC
+        '-b:a', '192k',                    // 192kbps audio bitrate
+        '-ac', '2',                        // Stereo output (DDP might be 5.1)
+        '-f', 'mp4',                       // Output as MP4 container
+        '-movflags', 'frag_keyframe+empty_moov+default_base_moof', // Streaming-compatible fMP4
+        'pipe:1'                           // Write to stdout
+      ]);
+
+      ff.stderr.on('data', d => console.error('[FFmpeg]', d.toString().trim()));
+      ff.on('error', e => {
+        console.error('[FFmpeg] Process error:', e.message);
+        if (!res.writableEnded) res.end();
+      });
+
+      // Clean up FFmpeg on client disconnect
+      res.on('close', () => {
+        try { ff.kill('SIGKILL'); } catch (_) {}
+      });
+
+      // Pipe FFmpeg stdout → HTTP response
+      ff.stdout.pipe(res);
+
+      // Feed Telegram download → FFmpeg stdin
+      try {
+        const iter = cl.iterDownload({
+          file: new Api.InputDocumentFileLocation({
+            id: doc.id,
+            accessHash: doc.accessHash,
+            fileReference: doc.fileReference,
+            thumbSize: '',
+          }),
+          dcId: doc.dcId,
+          offset: bigInt(0),
+          requestSize: CHUNK,
+        });
+
+        for await (const chunk of iter) {
+          if (res.destroyed) break;
+          if (!ff.stdin.writable) break;
+          const ok = ff.stdin.write(Buffer.from(chunk));
+          if (!ok) {
+            await new Promise(resolve => ff.stdin.once('drain', resolve));
+          }
+        }
+      } catch (feedErr) {
+        console.error('[FFmpeg] Feed error:', feedErr.message);
+      }
+
+      if (ff.stdin.writable) ff.stdin.end();
+      console.log(`[Telegram] Transcode started for msgId=${messageId}`);
+      return;
+    }
+
+    // ═══ RAW STREAM PATH: direct MKV/MP4 bytes with Range support ═══
     const range = req.headers.range;
     let start = 0;
     let end = fileSize - 1;
@@ -508,7 +600,6 @@ router.get('/stream/:messageId', async (req, res) => {
 
     // Stream the file using gramjs iterDownload
     // Must build InputDocumentFileLocation manually AND pass dcId
-    const CHUNK = 512 * 1024; // 512KB - must be divisible by 4096
     const downloadSize = end - start + 1;
     const alignedOffset = Math.floor(start / CHUNK) * CHUNK;
     const skipBytes = start - alignedOffset;
