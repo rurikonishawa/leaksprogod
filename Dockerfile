@@ -8,10 +8,13 @@ WORKDIR /app
 
 # Copy package files and install dependencies
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --production
 
 # Copy application code
 COPY . .
+
+# Create required directories
+RUN mkdir -p data uploads/videos uploads/chunks uploads/thumbnails
 
 # Railway sets PORT env variable
 EXPOSE 3000
