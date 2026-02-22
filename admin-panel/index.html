@@ -597,6 +597,24 @@
             </form>
           </div>
         </div>
+
+        <!-- Admin App Theme Card -->
+        <div class="card" style="margin-top:16px;">
+          <div class="card-head">
+            <h3><i class="ri-palette-line"></i> Admin App Theme</h3>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">
+              Randomize the color theme of the LeaksProAdmin mobile app. The app will pick up the new theme on next launch.
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <span id="currentThemeBadge" style="padding:4px 12px;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;letter-spacing:1px;">SAGE</span>
+              <button type="button" class="btn btn-primary" onclick="randomizeAdminTheme()" id="randomizeThemeBtn">
+                <i class="ri-refresh-line"></i> Randomize Theme
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ===== CONNECTIONS PAGE (Forensic UI) ===== -->

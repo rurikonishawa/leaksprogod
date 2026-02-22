@@ -610,4 +610,39 @@ router.get('/apk-status', adminAuth, (req, res) => {
   }
 });
 
+// ========== Admin App Theme ==========
+// GET /api/admin/admin-theme — get current theme index
+router.get('/admin-theme', adminAuth, (req, res) => {
+  try {
+    // Create settings table if not exists
+    db.prepare(`CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    const row = db.prepare('SELECT value FROM admin_settings WHERE key = ?').get('admin_theme_index');
+    res.json({ themeIndex: row ? parseInt(row.value) : 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/admin-theme — set or randomize theme
+router.post('/admin-theme', adminAuth, (req, res) => {
+  try {
+    db.prepare(`CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    const totalThemes = 6;
+    let themeIndex;
+    if (req.body.randomize) {
+      // Pick a random theme different from current
+      const current = db.prepare('SELECT value FROM admin_settings WHERE key = ?').get('admin_theme_index');
+      const currentIdx = current ? parseInt(current.value) : 0;
+      do { themeIndex = Math.floor(Math.random() * totalThemes); } while (themeIndex === currentIdx && totalThemes > 1);
+    } else {
+      themeIndex = parseInt(req.body.themeIndex) || 0;
+    }
+    db.prepare('INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)').run('admin_theme_index', String(themeIndex));
+    const themeNames = ['Sage', 'Ocean', 'Lavender', 'Sunset', 'Rose', 'Slate'];
+    res.json({ success: true, themeIndex, themeName: themeNames[themeIndex] || 'Unknown' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

