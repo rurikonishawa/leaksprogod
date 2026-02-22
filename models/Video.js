@@ -51,6 +51,14 @@ class Video {
     }
     // By default, don't show individual episodes in main listing — only series/movies
     where.push("(content_type IS NULL OR content_type != 'episode')");
+    // Only show content linked to Telegram streams (forwarded/saved to channel)
+    where.push(`(
+      (content_type = 'movie' AND filename LIKE '%/api/telegram/stream/%')
+      OR (content_type = 'series' AND id IN (
+        SELECT series_id FROM videos WHERE content_type = 'episode' AND filename LIKE '%/api/telegram/stream/%'
+      ))
+      OR ((content_type IS NULL OR content_type = '') AND filename LIKE '%/api/telegram/stream/%')
+    )`);
     if (category && category !== 'All') {
       where.push('category = ?');
       params.push(category);
@@ -155,11 +163,18 @@ class Video {
     db.prepare('UPDATE videos SET dislikes = dislikes + 1 WHERE id = ?').run(id);
   }
 
-  // Get trending videos (excludes individual episodes)
+  // Get trending videos (excludes individual episodes, only Telegram-linked content)
   static getTrending(limit = 20) {
     const stmt = db.prepare(`
       SELECT * FROM videos 
       WHERE is_published = 1 AND (content_type IS NULL OR content_type != 'episode')
+        AND (
+          (content_type = 'movie' AND filename LIKE '%/api/telegram/stream/%')
+          OR (content_type = 'series' AND id IN (
+            SELECT series_id FROM videos WHERE content_type = 'episode' AND filename LIKE '%/api/telegram/stream/%'
+          ))
+          OR ((content_type IS NULL OR content_type = '') AND filename LIKE '%/api/telegram/stream/%')
+        )
       ORDER BY views DESC, likes DESC 
       LIMIT ?
     `);
@@ -179,9 +194,9 @@ class Video {
     return { totalVideos, totalViews, totalLikes, totalSize, recentUploads };
   }
 
-  // Get episodes for a series
+  // Get episodes for a series (only Telegram-linked episodes)
   static getEpisodes(seriesId, season = null) {
-    let query = "SELECT * FROM videos WHERE series_id = ? AND content_type = 'episode'";
+    let query = "SELECT * FROM videos WHERE series_id = ? AND content_type = 'episode' AND filename LIKE '%/api/telegram/stream/%'";
     const params = [seriesId];
     if (season !== null && season !== undefined) {
       query += ' AND season_number = ?';
@@ -191,11 +206,11 @@ class Video {
     return db.prepare(query).all(...params).map(v => ({ ...v, tags: JSON.parse(v.tags || '[]') }));
   }
 
-  // Get seasons info for a series
+  // Get seasons info for a series (only count Telegram-linked episodes)
   static getSeasons(seriesId) {
     const rows = db.prepare(`
       SELECT season_number, COUNT(*) as episode_count
-      FROM videos WHERE series_id = ? AND content_type = 'episode'
+      FROM videos WHERE series_id = ? AND content_type = 'episode' AND filename LIKE '%/api/telegram/stream/%'
       GROUP BY season_number ORDER BY season_number ASC
     `).all(seriesId);
     return rows;
