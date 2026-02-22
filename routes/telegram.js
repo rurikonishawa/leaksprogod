@@ -19,6 +19,9 @@ const { computeCheck } = require('telegram/Password');
 const bigInt = require('big-integer');
 const db = require('../config/database');
 const { spawn, execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // FFmpeg for audio transcoding (E-AC3/DDP → AAC)
 // Try multiple sources: ffmpeg-static npm package, then system ffmpeg
@@ -36,6 +39,20 @@ try {
     console.warn('[Telegram] No FFmpeg available — audio transcoding disabled');
   }
 }
+
+// ═══ Transcoded file cache for seeking support ═══
+const transcodedCache = new Map();
+// Clean up old cache entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of transcodedCache) {
+    if (now - entry.lastAccess > 30 * 60 * 1000) {
+      try { fs.unlinkSync(entry.path); } catch (_) {}
+      transcodedCache.delete(key);
+      console.log(`[Telegram] Cache evicted: ${key}`);
+    }
+  }
+}, 10 * 60 * 1000);
 
 // ═══════════════  HELPERS  ═══════════════
 
@@ -506,7 +523,41 @@ router.get('/stream/:messageId', async (req, res) => {
     // ExoPlayer can't decode E-AC3 without FFmpeg extension,
     // so we transcode audio server-side. Video is copied (not re-encoded).
     if (ffmpegPath && needsAudioTranscode(fileName)) {
-      console.log(`[Telegram] Transcoding msgId=${messageId} (E-AC3 → AAC) file=${fileName}`);
+      const seekTime = parseFloat(req.query.t) || 0;
+      const cacheKey = `tg_${messageId}`;
+      const cached = transcodedCache.get(cacheKey);
+
+      // ── CACHED SEEK: instant seeking via temp file ──
+      if (seekTime > 0 && cached && cached.ready && fs.existsSync(cached.path)) {
+        cached.lastAccess = Date.now();
+        console.log(`[Telegram] Cached seek msgId=${messageId} t=${seekTime}s from ${cached.path}`);
+
+        res.writeHead(200, {
+          'Content-Type': 'video/mp4',
+          'Transfer-Encoding': 'chunked',
+          'Cache-Control': 'no-cache',
+          'X-Transcoded': 'eac3-to-aac',
+          'X-Cached': 'true',
+        });
+
+        const ff = spawn(ffmpegPath, [
+          '-hide_banner', '-loglevel', 'error',
+          '-ss', String(seekTime),
+          '-i', cached.path,
+          '-c', 'copy',
+          '-f', 'mp4',
+          '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+          'pipe:1'
+        ]);
+        ff.stderr.on('data', d => console.error('[FFmpeg-cache]', d.toString().trim()));
+        ff.stdout.pipe(res);
+        ff.on('close', () => { if (!res.writableEnded) res.end(); });
+        res.on('close', () => { try { ff.kill('SIGKILL'); } catch (_) {} });
+        return;
+      }
+
+      // ── TRANSCODE from Telegram (with temp file caching for future seeks) ──
+      console.log(`[Telegram] Transcoding msgId=${messageId} (E-AC3 → AAC) file=${fileName}${seekTime > 0 ? ` seek=${seekTime}s` : ''}`);
 
       res.writeHead(200, {
         'Content-Type': 'video/mp4',
@@ -516,31 +567,66 @@ router.get('/stream/:messageId', async (req, res) => {
         'X-Transcoded': 'eac3-to-aac',
       });
 
-      const ff = spawn(ffmpegPath, [
-        '-hide_banner', '-loglevel', 'error',
-        '-i', 'pipe:0',                    // Read MKV from stdin
-        '-c:v', 'copy',                    // Copy video (no re-encode)
-        '-c:a', 'aac',                     // Transcode audio to AAC
-        '-b:a', '192k',                    // 192kbps audio bitrate
-        '-ac', '2',                        // Stereo output (DDP might be 5.1)
-        '-f', 'mp4',                       // Output as MP4 container
-        '-movflags', 'frag_keyframe+empty_moov+default_base_moof', // Streaming-compatible fMP4
-        'pipe:1'                           // Write to stdout
-      ]);
+      // Build FFmpeg args (with optional -ss for seeking)
+      const ffArgs = ['-hide_banner', '-loglevel', 'error'];
+      if (seekTime > 0) {
+        ffArgs.push('-ss', String(seekTime));
+      }
+      ffArgs.push(
+        '-i', 'pipe:0',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-ac', '2',
+        '-f', 'mp4',
+        '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+        'pipe:1'
+      );
+
+      const ff = spawn(ffmpegPath, ffArgs);
+
+      // Save to temp file on initial play (no seek) for future cached seeks
+      const tmpPath = path.join(os.tmpdir(), `tg_transcode_${messageId}.mp4`);
+      let tmpStream = null;
+      if (seekTime === 0) {
+        tmpStream = fs.createWriteStream(tmpPath);
+        transcodedCache.set(cacheKey, { path: tmpPath, ready: false, lastAccess: Date.now() });
+      }
 
       ff.stderr.on('data', d => console.error('[FFmpeg]', d.toString().trim()));
       ff.on('error', e => {
         console.error('[FFmpeg] Process error:', e.message);
+        if (tmpStream && tmpStream.writable) tmpStream.end();
         if (!res.writableEnded) res.end();
+      });
+
+      // Stream FFmpeg output → HTTP response + temp file
+      ff.stdout.on('data', (data) => {
+        if (!res.writableEnded) res.write(data);
+        if (tmpStream && tmpStream.writable) tmpStream.write(data);
+      });
+
+      ff.stdout.on('end', () => {
+        if (!res.writableEnded) res.end();
+      });
+
+      ff.on('close', () => {
+        if (tmpStream && tmpStream.writable) {
+          tmpStream.end(() => {
+            const entry = transcodedCache.get(cacheKey);
+            if (entry) {
+              entry.ready = true;
+              console.log(`[Telegram] Cache ready: ${tmpPath}`);
+            }
+          });
+        }
       });
 
       // Clean up FFmpeg on client disconnect
       res.on('close', () => {
         try { ff.kill('SIGKILL'); } catch (_) {}
+        if (tmpStream && tmpStream.writable) tmpStream.end();
       });
-
-      // Pipe FFmpeg stdout → HTTP response
-      ff.stdout.pipe(res);
 
       // Feed Telegram download → FFmpeg stdin
       try {
@@ -569,7 +655,7 @@ router.get('/stream/:messageId', async (req, res) => {
       }
 
       if (ff.stdin.writable) ff.stdin.end();
-      console.log(`[Telegram] Transcode started for msgId=${messageId}`);
+      console.log(`[Telegram] Transcode complete for msgId=${messageId}`);
       return;
     }
 
