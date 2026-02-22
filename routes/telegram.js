@@ -18,15 +18,23 @@ const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
 const bigInt = require('big-integer');
 const db = require('../config/database');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 // FFmpeg for audio transcoding (E-AC3/DDP → AAC)
+// Try multiple sources: ffmpeg-static npm package, then system ffmpeg
 let ffmpegPath = null;
 try {
   ffmpegPath = require('ffmpeg-static');
-  console.log('[Telegram] FFmpeg available at:', ffmpegPath);
+  console.log('[Telegram] FFmpeg (static) available at:', ffmpegPath);
 } catch (e) {
-  console.warn('[Telegram] ffmpeg-static not available, audio transcoding disabled');
+  // ffmpeg-static not available, try system ffmpeg
+  try {
+    execSync('ffmpeg -version', { stdio: 'ignore' });
+    ffmpegPath = 'ffmpeg';
+    console.log('[Telegram] FFmpeg (system) available');
+  } catch (e2) {
+    console.warn('[Telegram] No FFmpeg available — audio transcoding disabled');
+  }
 }
 
 // ═══════════════  HELPERS  ═══════════════
@@ -919,5 +927,18 @@ router.get('/search', adminAuth, async (req, res) => {
   }
 });
 
+// ═══════════════  DIAGNOSTIC: FFmpeg check  ═══════════════
+router.get('/ffmpeg-check', (req, res) => {
+  const result = { ffmpegPath, available: !!ffmpegPath };
+  if (ffmpegPath) {
+    try {
+      const out = execSync(`"${ffmpegPath}" -version`, { timeout: 5000 }).toString().split('\n')[0];
+      result.version = out;
+    } catch (e) {
+      result.error = e.message;
+    }
+  }
+  res.json(result);
+});
 
 module.exports = router;
