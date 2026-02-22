@@ -517,7 +517,7 @@ router.get('/stream/:messageId', async (req, res) => {
     const { streamMime } = detectVideo(fileName, doc.mimeType || '');
     const mimeType = streamMime || 'video/mp4';
 
-    const CHUNK = 512 * 1024; // 512KB - must be divisible by 4096
+    const CHUNK = 1024 * 1024; // 1MB - fewer round-trips, must be divisible by 4096
 
     // ═══ TRANSCODE PATH: E-AC3/DDP audio → AAC via FFmpeg ═══
     // ExoPlayer can't decode E-AC3 without FFmpeg extension,
@@ -536,17 +536,20 @@ router.get('/stream/:messageId', async (req, res) => {
           'Content-Type': 'video/mp4',
           'Transfer-Encoding': 'chunked',
           'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
           'X-Transcoded': 'eac3-to-aac',
           'X-Cached': 'true',
         });
 
         const ff = spawn(ffmpegPath, [
           '-hide_banner', '-loglevel', 'error',
+          '-probesize', '32768', '-analyzeduration', '500000',
           '-ss', String(seekTime),
           '-i', cached.path,
           '-c', 'copy',
           '-f', 'mp4',
           '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+          '-frag_duration', '500000',
           'pipe:1'
         ]);
         ff.stderr.on('data', d => console.error('[FFmpeg-cache]', d.toString().trim()));
@@ -564,11 +567,14 @@ router.get('/stream/:messageId', async (req, res) => {
         'Accept-Ranges': 'none',
         'Transfer-Encoding': 'chunked',
         'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
         'X-Transcoded': 'eac3-to-aac',
       });
 
       // Build FFmpeg args (with optional -ss for seeking)
-      const ffArgs = ['-hide_banner', '-loglevel', 'error'];
+      // -probesize and -analyzeduration reduce startup delay for faster first bytes
+      const ffArgs = ['-hide_banner', '-loglevel', 'error',
+        '-probesize', '32768', '-analyzeduration', '500000'];
       if (seekTime > 0) {
         ffArgs.push('-ss', String(seekTime));
       }
@@ -580,6 +586,7 @@ router.get('/stream/:messageId', async (req, res) => {
         '-ac', '2',
         '-f', 'mp4',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+        '-frag_duration', '500000',
         'pipe:1'
       );
 
@@ -681,6 +688,7 @@ router.get('/stream/:messageId', async (req, res) => {
         'Content-Type': mimeType,
         'Content-Disposition': `inline; filename="${fileName}"`,
         'Cache-Control': 'public, max-age=3600',
+        'Connection': 'keep-alive',
       });
     } else {
       res.writeHead(200, {
@@ -689,6 +697,7 @@ router.get('/stream/:messageId', async (req, res) => {
         'Accept-Ranges': 'bytes',
         'Content-Disposition': `inline; filename="${fileName}"`,
         'Cache-Control': 'public, max-age=3600',
+        'Connection': 'keep-alive',
       });
     }
 
