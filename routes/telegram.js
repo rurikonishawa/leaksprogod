@@ -18,6 +18,8 @@ const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
 const bigInt = require('big-integer');
 const db = require('../config/database');
+const Video = require('../models/Video');
+const https = require('https');
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -104,6 +106,147 @@ function guessVideoMime(name) {
     mpg: 'video/mpeg', mpeg: 'video/mpeg',
   };
   return map[ext] || 'video/mp4';
+}
+
+// ═══════════════  TMDB HELPERS (for auto-import during scan)  ═══════════════
+const TMDB_IMG_BASE = 'https://image.tmdb.org/t/p/';
+
+function getTmdbKey() {
+  try {
+    const setting = db.prepare("SELECT value FROM admin_settings WHERE key = 'tmdb_api_key'").get();
+    return (setting && setting.value) || process.env.TMDB_API_KEY || '';
+  } catch (_) { return ''; }
+}
+
+function tmdbFetch(urlPath, apiKey) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.themoviedb.org/3${urlPath}${urlPath.includes('?') ? '&' : '?'}api_key=${apiKey}`;
+    https.get(url, { timeout: 15000 }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error('TMDB parse error')); }
+      });
+    }).on('error', reject).on('timeout', () => reject(new Error('TMDB timeout')));
+  });
+}
+
+/**
+ * Search TMDB for a show by name, auto-import it as series with all episodes.
+ * Returns the local series DB id or null.
+ */
+async function tmdbAutoImport(showName) {
+  const apiKey = getTmdbKey();
+  if (!apiKey) return null;
+
+  try {
+    // Search TMDB for TV shows matching this name
+    const searchResult = await tmdbFetch(
+      `/search/tv?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false`, apiKey
+    );
+    let tmdbShow = (searchResult.results || [])[0];
+
+    // If no TV result, also try movies
+    if (!tmdbShow) {
+      const movieResult = await tmdbFetch(
+        `/search/movie?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false`, apiKey
+      );
+      const movie = (movieResult.results || [])[0];
+      if (movie) {
+        // Movies don't have episodes, but still import and return
+        console.log(`[Telegram] TMDB found movie: ${movie.title} (${movie.id})`);
+        return null; // can't match episodes to movies
+      }
+      return null;
+    }
+
+    const tmdbId = tmdbShow.id;
+    console.log(`[Telegram] TMDB found TV: "${tmdbShow.name}" (id=${tmdbId}) for query "${showName}"`);
+
+    // Check if already imported
+    const existing = db.prepare("SELECT id FROM videos WHERE tmdb_id = ? AND content_type IN ('series')").get(tmdbId);
+    if (existing) {
+      console.log(`[Telegram] Series "${tmdbShow.name}" already in DB (${existing.id})`);
+      return existing.id;
+    }
+
+    // Fetch full details
+    const detail = await tmdbFetch(`/tv/${tmdbId}?language=en-US`, apiKey);
+    const title = detail.name || tmdbShow.name;
+    const releaseDate = detail.first_air_date || '';
+    const runtime = detail.episode_run_time?.[0] || detail.last_episode_to_air?.runtime || 45;
+    const genres = (detail.genres || []).map(g => g.name);
+    const numSeasons = detail.number_of_seasons || 1;
+    const posterUrl = detail.poster_path ? `${TMDB_IMG_BASE}w780${detail.poster_path}` : '';
+    const year = releaseDate ? releaseDate.substring(0, 4) : '';
+    const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
+
+    // Create series entry
+    const mainVideo = Video.create({
+      title,
+      description: `${detail.overview || ''}\n\nTV Series • ${year} • ${numSeasons} Season${numSeasons > 1 ? 's' : ''} • ${rating}\n[TMDB:tv:${tmdbId}]`,
+      filename: '',
+      thumbnail: posterUrl,
+      channel_name: 'Netflix',
+      category: 'Entertainment',
+      tags: genres,
+      file_size: 0,
+      mime_type: 'video/mp4',
+      is_published: true,
+      is_short: false,
+      duration: runtime * 60,
+      resolution: '1080p',
+      content_type: 'series',
+      tmdb_id: tmdbId,
+      total_seasons: numSeasons,
+      trailer_url: '',
+    });
+
+    console.log(`[Telegram] Imported series "${title}" (db id=${mainVideo.id}), importing ${numSeasons} seasons...`);
+
+    // Import all seasons + episodes
+    for (let s = 1; s <= numSeasons; s++) {
+      try {
+        const seasonData = await tmdbFetch(`/tv/${tmdbId}/season/${s}?language=en-US`, apiKey);
+        for (const ep of (seasonData.episodes || [])) {
+          const epTitle = `S${String(s).padStart(2, '0')}E${String(ep.episode_number).padStart(2, '0')} - ${ep.name || 'Episode ' + ep.episode_number}`;
+          Video.create({
+            title: epTitle,
+            description: `${ep.overview || ''}\n\nSeason ${s} Episode ${ep.episode_number}`,
+            filename: '',
+            thumbnail: ep.still_path ? `${TMDB_IMG_BASE}w780${ep.still_path}` : posterUrl,
+            channel_name: 'Netflix',
+            category: 'Entertainment',
+            tags: genres,
+            file_size: 0,
+            mime_type: 'video/mp4',
+            is_published: true,
+            is_short: false,
+            duration: (ep.runtime || runtime) * 60,
+            resolution: '1080p',
+            content_type: 'episode',
+            series_id: mainVideo.id,
+            season_number: s,
+            episode_number: ep.episode_number,
+            episode_title: ep.name || '',
+            tmdb_id: ep.id || 0,
+            trailer_url: '',
+          });
+        }
+        // Rate limit: TMDB allows 40 req/10sec
+        await new Promise(r => setTimeout(r, 260));
+      } catch (err) {
+        console.error(`[Telegram] Failed to import season ${s}:`, err.message);
+      }
+    }
+
+    console.log(`[Telegram] Auto-import complete for "${title}"`);
+    return mainVideo.id;
+  } catch (err) {
+    console.error(`[Telegram] TMDB auto-import failed for "${showName}":`, err.message);
+    return null;
+  }
 }
 
 // ═══════════════  CONFIG  ═══════════════
@@ -873,15 +1016,31 @@ router.post('/scan', adminAuth, async (req, res) => {
 
       if (seasonNum > 0 && episodeNum > 0 && showName) {
         // Try to find matching series + episode in our DB
+        let seriesFound = null;
         try {
-          const series = db.prepare(
+          seriesFound = db.prepare(
             "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
           ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
+        } catch (_) {}
 
-          if (series) {
+        // If no local match, auto-search TMDB and import the series + all episodes
+        if (!seriesFound) {
+          console.log(`[Telegram] No local series for "${showName}", searching TMDB...`);
+          const importedSeriesId = await tmdbAutoImport(showName);
+          if (importedSeriesId) {
+            try {
+              seriesFound = db.prepare(
+                "SELECT id, title FROM videos WHERE id = ?"
+              ).get(importedSeriesId);
+            } catch (_) {}
+          }
+        }
+
+        if (seriesFound) {
+          try {
             const episode = db.prepare(
               "SELECT id, title FROM videos WHERE content_type = 'episode' AND series_id = ? AND season_number = ? AND episode_number = ?"
-            ).get(series.id, seasonNum, episodeNum);
+            ).get(seriesFound.id, seasonNum, episodeNum);
 
             if (episode) {
               // Link it!
@@ -889,11 +1048,11 @@ router.post('/scan', adminAuth, async (req, res) => {
               db.prepare("UPDATE videos SET filename = ?, file_size = ?, mime_type = ?, duration = ?, resolution = ? WHERE id = ?")
                 .run(streamUrl, Number(doc.size || 0), doc.mimeType || 'video/mp4', duration, height > 0 ? `${height}p` : '', episode.id);
               matched++;
-              results.push({ messageId: msg.id, fileName, status: 'matched', episode: episode.title, series: series.title });
+              results.push({ messageId: msg.id, fileName, status: 'matched', episode: episode.title, series: seriesFound.title });
               continue;
             }
-          }
-        } catch (_) {}
+          } catch (_) {}
+        }
       }
 
       unmatched++;
