@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Video = require('../models/Video');
 const db = require('../config/database');
+const https = require('https');
 
 // GET /api/videos - List all videos with pagination & filters
 router.get('/', (req, res) => {
@@ -107,6 +108,55 @@ router.get('/history', (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/videos/netflix-posters — Latest Netflix show backdrops from TMDB
+router.get('/netflix-posters', async (req, res) => {
+  try {
+    // Check 24-hour cache
+    const cached = db.prepare("SELECT value FROM admin_settings WHERE key = 'netflix_posters'").get();
+    const cacheTime = db.prepare("SELECT value FROM admin_settings WHERE key = 'netflix_posters_time'").get();
+    if (cached && cacheTime) {
+      const age = Date.now() - parseInt(cacheTime.value);
+      if (age < 24 * 60 * 60 * 1000) {
+        return res.json(JSON.parse(cached.value));
+      }
+    }
+
+    // Get TMDB API key
+    const keyRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'tmdb_api_key'").get();
+    if (!keyRow || !keyRow.value) return res.json({ posters: [] });
+    const apiKey = keyRow.value;
+
+    // Helper to fetch a TMDB page
+    const fetchPage = (page) => new Promise((resolve, reject) => {
+      const url = `https://api.themoviedb.org/3/discover/tv?api_key=${apiKey}&with_networks=213&sort_by=popularity.desc&page=${page}&language=en-US`;
+      https.get(url, (resp) => {
+        let body = '';
+        resp.on('data', c => body += c);
+        resp.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+      }).on('error', reject);
+    });
+
+    // Fetch 3 pages of popular Netflix shows (60 shows)
+    const [p1, p2, p3] = await Promise.all([fetchPage(1), fetchPage(2), fetchPage(3)]);
+    const allShows = [...(p1.results || []), ...(p2.results || []), ...(p3.results || [])];
+
+    const posters = allShows
+      .filter(s => s.backdrop_path)
+      .map(s => `https://image.tmdb.org/t/p/w1280${s.backdrop_path}`);
+
+    const result = { posters, count: posters.length };
+
+    // Cache result
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('netflix_posters', ?)").run(JSON.stringify(result));
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('netflix_posters_time', ?)").run(String(Date.now()));
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Netflix Posters] Error:', err.message);
+    res.json({ posters: [] });
   }
 });
 
