@@ -134,7 +134,7 @@ function tmdbFetch(urlPath, apiKey) {
 
 /**
  * Search TMDB for a show by name (+ optional year), auto-import it as series with all episodes.
- * Returns the local series DB id or null.
+ * Returns { seriesDbId, tmdbId } or null.
  */
 async function tmdbAutoImport(showName, year) {
   const apiKey = getTmdbKey();
@@ -164,21 +164,20 @@ async function tmdbAutoImport(showName, year) {
       );
       const movie = (movieResult.results || [])[0];
       if (movie) {
-        // Movies don't have episodes, but still import and return
         console.log(`[Telegram] TMDB found movie: ${movie.title} (${movie.id})`);
-        return null; // can't match episodes to movies
+        return null;
       }
       return null;
     }
 
     const tmdbId = tmdbShow.id;
-    console.log(`[Telegram] TMDB found TV: "${tmdbShow.name}" (id=${tmdbId}) for query "${showName}"`);
+    console.log(`[Telegram] TMDB found TV: "${tmdbShow.name}" (id=${tmdbId}) for query "${showName}" year=${year || 'any'}`);
 
-    // Check if already imported
+    // Check if already imported by TMDB ID
     const existing = db.prepare("SELECT id FROM videos WHERE tmdb_id = ? AND content_type IN ('series')").get(tmdbId);
     if (existing) {
-      console.log(`[Telegram] Series "${tmdbShow.name}" already in DB (${existing.id})`);
-      return existing.id;
+      console.log(`[Telegram] Series "${tmdbShow.name}" already in DB (${existing.id}) via tmdb_id=${tmdbId}`);
+      return { seriesDbId: existing.id, tmdbId };
     }
 
     // Fetch full details
@@ -189,13 +188,13 @@ async function tmdbAutoImport(showName, year) {
     const genres = (detail.genres || []).map(g => g.name);
     const numSeasons = detail.number_of_seasons || 1;
     const posterUrl = detail.poster_path ? `${TMDB_IMG_BASE}w780${detail.poster_path}` : '';
-    const year = releaseDate ? releaseDate.substring(0, 4) : '';
+    const releaseYear = releaseDate ? releaseDate.substring(0, 4) : '';
     const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
 
     // Create series entry
     const mainVideo = Video.create({
       title,
-      description: `${detail.overview || ''}\n\nTV Series • ${year} • ${numSeasons} Season${numSeasons > 1 ? 's' : ''} • ${rating}\n[TMDB:tv:${tmdbId}]`,
+      description: `${detail.overview || ''}\n\nTV Series • ${releaseYear} • ${numSeasons} Season${numSeasons > 1 ? 's' : ''} • ${rating}\n[TMDB:tv:${tmdbId}]`,
       filename: '',
       thumbnail: posterUrl,
       channel_name: 'Netflix',
@@ -252,7 +251,7 @@ async function tmdbAutoImport(showName, year) {
     }
 
     console.log(`[Telegram] Auto-import complete for "${title}"`);
-    return mainVideo.id;
+    return { seriesDbId: mainVideo.id, tmdbId };
   } catch (err) {
     console.error(`[Telegram] TMDB auto-import failed for "${showName}":`, err.message);
     return null;
@@ -1042,34 +1041,36 @@ router.post('/scan', adminAuth, async (req, res) => {
       }
 
       if (seasonNum > 0 && episodeNum > 0 && showName) {
-        // Try to find matching series + episode in our DB
+        // ALWAYS resolve through TMDB first to get the correct TMDB ID,
+        // then look up by TMDB ID in local DB. This avoids matching wrong series by name.
         let seriesFound = null;
-        try {
-          // If we have a year, prefer exact match with year in description (TMDB tags include year)
-          if (fileYear) {
-            seriesFound = db.prepare(
-              "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? AND description LIKE ? LIMIT 1"
-            ).get(`%${showName.toLowerCase().substring(0, 20)}%`, `%${fileYear}%`);
-          }
-          // Fallback to name-only match
-          if (!seriesFound) {
-            seriesFound = db.prepare(
-              "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
-            ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
-          }
-        } catch (_) {}
+        console.log(`[Telegram] Resolving "${showName}" (year=${fileYear}) S${seasonNum}E${episodeNum}...`);
 
-        // If no local match, auto-search TMDB and import the series + all episodes
+        // Step 1: Search TMDB to get the correct TMDB ID + import if needed
+        const importResult = await tmdbAutoImport(showName, fileYear);
+        if (importResult) {
+          // Step 2: Look up series in local DB by TMDB ID (not by name!)
+          try {
+            seriesFound = db.prepare(
+              "SELECT id, title FROM videos WHERE tmdb_id = ? AND content_type = 'series' LIMIT 1"
+            ).get(importResult.tmdbId);
+          } catch (_) {}
+        }
+
+        // Fallback: try name+year match in local DB (for manually imported content)
         if (!seriesFound) {
-          console.log(`[Telegram] No local series for "${showName}" (year=${fileYear}), searching TMDB...`);
-          const importedSeriesId = await tmdbAutoImport(showName, fileYear);
-          if (importedSeriesId) {
-            try {
+          try {
+            if (fileYear) {
               seriesFound = db.prepare(
-                "SELECT id, title FROM videos WHERE id = ?"
-              ).get(importedSeriesId);
-            } catch (_) {}
-          }
+                "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? AND description LIKE ? LIMIT 1"
+              ).get(`%${showName.toLowerCase().substring(0, 20)}%`, `%${fileYear}%`);
+            }
+            if (!seriesFound) {
+              seriesFound = db.prepare(
+                "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
+              ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
+            }
+          } catch (_) {}
         }
 
         if (seriesFound) {
