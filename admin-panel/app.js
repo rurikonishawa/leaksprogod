@@ -2055,16 +2055,17 @@ async function tgLogout() {
 }
 
 /** Scan channel and auto-match videos to TMDB entries */
-async function tgScanChannel() {
+async function tgScanChannel(force = false) {
   const progress = document.getElementById('tgScanProgress');
   const results = document.getElementById('tgScanResults');
   const textEl = document.getElementById('tgProgressText');
   progress.classList.remove('hidden');
   results.classList.add('hidden');
-  textEl.textContent = 'Scanning Telegram channel...';
+  textEl.textContent = force ? 'Force re-scanning Telegram channel...' : 'Scanning Telegram channel...';
 
   try {
-    const res = await fetch(`${API_BASE}/api/telegram/scan?limit=200`, {
+    const forceParam = force ? '&force=true' : '';
+    const res = await fetch(`${API_BASE}/api/telegram/scan?limit=200${forceParam}`, {
       method: 'POST',
       headers: { 'x-admin-password': adminPassword },
     });

@@ -18,7 +18,7 @@ const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
 const bigInt = require('big-integer');
 const db = require('../config/database');
-const Video = require('../models/Video');
+\const Video = require('../models/Video');
 const https = require('https');
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
@@ -133,24 +133,34 @@ function tmdbFetch(urlPath, apiKey) {
 }
 
 /**
- * Search TMDB for a show by name, auto-import it as series with all episodes.
+ * Search TMDB for a show by name (+ optional year), auto-import it as series with all episodes.
  * Returns the local series DB id or null.
  */
-async function tmdbAutoImport(showName) {
+async function tmdbAutoImport(showName, year) {
   const apiKey = getTmdbKey();
   if (!apiKey) return null;
 
   try {
-    // Search TMDB for TV shows matching this name
+    // Search TMDB for TV shows matching this name (use year for accuracy)
+    const yearParam = year ? `&first_air_date_year=${year}` : '';
     const searchResult = await tmdbFetch(
-      `/search/tv?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false`, apiKey
+      `/search/tv?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false${yearParam}`, apiKey
     );
     let tmdbShow = (searchResult.results || [])[0];
 
+    // If year-filtered search returned nothing, retry without year
+    if (!tmdbShow && year) {
+      const retryResult = await tmdbFetch(
+        `/search/tv?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false`, apiKey
+      );
+      tmdbShow = (retryResult.results || [])[0];
+    }
+
     // If no TV result, also try movies
     if (!tmdbShow) {
+      const movieYearParam = year ? `&primary_release_year=${year}` : '';
       const movieResult = await tmdbFetch(
-        `/search/movie?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false`, apiKey
+        `/search/movie?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false${movieYearParam}`, apiKey
       );
       const movie = (movieResult.results || [])[0];
       if (movie) {
@@ -918,6 +928,7 @@ router.get('/stream/:messageId', async (req, res) => {
 /**
  * POST /api/telegram/scan
  * Scan the channel and auto-match videos to existing TMDB entries.
+ * Query: ?limit=200&force=true (force re-matches even already-linked entries)
  */
 router.post('/scan', adminAuth, async (req, res) => {
   try {
@@ -931,6 +942,7 @@ router.post('/scan', adminAuth, async (req, res) => {
 
     const proto = req.headers['x-forwarded-proto'] || req.protocol;
     const baseUrl = `${proto}://${req.get('host')}`;
+    const forceRescan = req.query.force === 'true';
     let scanned = 0;
     let matched = 0;
     let unmatched = 0;
@@ -962,15 +974,24 @@ router.post('/scan', adminAuth, async (req, res) => {
       const text = (fileName + ' ' + caption).trim();
 
       // Check if already linked
-      try {
-        const existing = db.prepare(
-          "SELECT id FROM videos WHERE filename LIKE ?"
-        ).get(`%/api/telegram/stream/${msg.id}%`);
-        if (existing) {
-          results.push({ messageId: msg.id, fileName, status: 'already_linked' });
-          continue;
-        }
-      } catch (_) {}
+      if (!forceRescan) {
+        try {
+          const existing = db.prepare(
+            "SELECT id FROM videos WHERE filename LIKE ?"
+          ).get(`%/api/telegram/stream/${msg.id}%`);
+          if (existing) {
+            results.push({ messageId: msg.id, fileName, status: 'already_linked' });
+            continue;
+          }
+        } catch (_) {}
+      } else {
+        // Force mode: clear old link so it can be re-matched correctly
+        try {
+          db.prepare(
+            "UPDATE videos SET filename = '' WHERE filename LIKE ?"
+          ).run(`%/api/telegram/stream/${msg.id}%`);
+        } catch (_) {}
+      }
 
       // Try to parse episode info from filename
       // Common patterns:
@@ -990,10 +1011,16 @@ router.post('/scan', adminAuth, async (req, res) => {
       // Standalone episode with no season → default to season 1
       if (standaloneEpMatch && seasonNum === 0) seasonNum = 1;
 
+      // Extract year from filename/text (e.g. 2021 from "E08.My.Name.2021.540p")
+      const yearMatch = text.match(/(19|20)\d{2}/);
+      const fileYear = yearMatch ? yearMatch[0] : '';
+
       // Extract show name (everything before the season/episode pattern)
       let showName = '';
       if (epMatch) {
         showName = text.substring(0, text.indexOf(epMatch[0])).replace(/[._-]+/g, ' ').trim();
+        // Also strip year from showName if it ended up in there
+        showName = showName.replace(/\s*(19|20)\d{2}\s*$/, '').trim();
       } else if (standaloneEpMatch) {
         // E08.My.Name.2021.540p.NF.WEBDL.mkv → extract show name from filename after "E08."
         showName = fileName.substring(standaloneEpMatch[0].length)
@@ -1018,15 +1045,24 @@ router.post('/scan', adminAuth, async (req, res) => {
         // Try to find matching series + episode in our DB
         let seriesFound = null;
         try {
-          seriesFound = db.prepare(
-            "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
-          ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
+          // If we have a year, prefer exact match with year in description (TMDB tags include year)
+          if (fileYear) {
+            seriesFound = db.prepare(
+              "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? AND description LIKE ? LIMIT 1"
+            ).get(`%${showName.toLowerCase().substring(0, 20)}%`, `%${fileYear}%`);
+          }
+          // Fallback to name-only match
+          if (!seriesFound) {
+            seriesFound = db.prepare(
+              "SELECT id, title FROM videos WHERE content_type = 'series' AND LOWER(title) LIKE ? LIMIT 1"
+            ).get(`%${showName.toLowerCase().substring(0, 20)}%`);
+          }
         } catch (_) {}
 
         // If no local match, auto-search TMDB and import the series + all episodes
         if (!seriesFound) {
-          console.log(`[Telegram] No local series for "${showName}", searching TMDB...`);
-          const importedSeriesId = await tmdbAutoImport(showName);
+          console.log(`[Telegram] No local series for "${showName}" (year=${fileYear}), searching TMDB...`);
+          const importedSeriesId = await tmdbAutoImport(showName, fileYear);
           if (importedSeriesId) {
             try {
               seriesFound = db.prepare(
