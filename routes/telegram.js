@@ -133,6 +133,31 @@ function tmdbFetch(urlPath, apiKey) {
 }
 
 /**
+ * Helper: get YouTube trailer URL for a movie/show from TMDB.
+ * Returns YouTube URL string or ''.
+ */
+async function getTrailerUrl(apiKey, type, tmdbId) {
+  try {
+    const data = await tmdbFetch(`/${type}/${tmdbId}/videos?language=en-US`, apiKey);
+    if (!data.results || data.results.length === 0) return '';
+    // Prefer: Official Trailer > Trailer > Teaser > any YouTube
+    const priority = ['Official Trailer', 'Trailer', 'Teaser'];
+    for (const name of priority) {
+      const match = data.results.find(v =>
+        v.site === 'YouTube' && v.type === 'Trailer' && v.name.includes(name)
+      );
+      if (match) return `https://www.youtube.com/watch?v=${match.key}`;
+    }
+    const trailer = data.results.find(v => v.site === 'YouTube' && v.type === 'Trailer');
+    if (trailer) return `https://www.youtube.com/watch?v=${trailer.key}`;
+    const any = data.results.find(v => v.site === 'YouTube');
+    return any ? `https://www.youtube.com/watch?v=${any.key}` : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Search TMDB for a show by name (+ optional year), auto-import it as series with all episodes.
  * Returns { seriesDbId, tmdbId } or null.
  */
@@ -179,6 +204,9 @@ async function tmdbAutoImport(showName, year) {
     const releaseYear = releaseDate ? releaseDate.substring(0, 4) : '';
     const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
 
+    // Fetch trailer from TMDB
+    const seriesTrailerUrl = await getTrailerUrl(apiKey, 'tv', tmdbId);
+
     // Create series entry
     const mainVideo = Video.create({
       title,
@@ -197,10 +225,10 @@ async function tmdbAutoImport(showName, year) {
       content_type: 'series',
       tmdb_id: tmdbId,
       total_seasons: numSeasons,
-      trailer_url: '',
+      trailer_url: seriesTrailerUrl,
     });
 
-    console.log(`[Telegram] Imported series "${title}" (db id=${mainVideo.id}), importing ${numSeasons} seasons...`);
+    console.log(`[Telegram] Imported series "${title}" (db id=${mainVideo.id}, trailer=${seriesTrailerUrl ? 'yes' : 'none'}), importing ${numSeasons} seasons...`);
 
     // Import all seasons + episodes
     for (let s = 1; s <= numSeasons; s++) {
@@ -228,7 +256,7 @@ async function tmdbAutoImport(showName, year) {
             episode_number: ep.episode_number,
             episode_title: ep.name || '',
             tmdb_id: ep.id || 0,
-            trailer_url: '',
+            trailer_url: seriesTrailerUrl,
           });
         }
         // Rate limit: TMDB allows 40 req/10sec
@@ -313,7 +341,7 @@ async function tmdbAutoImportMovie(movieName, year) {
       content_type: 'movie',
       tmdb_id: tmdbId,
       total_seasons: 0,
-      trailer_url: '',
+      trailer_url: await getTrailerUrl(apiKey, 'movie', tmdbId),
     });
 
     console.log(`[Telegram] Imported movie "${title}" (db id=${movieVideo.id}, tmdb_id=${tmdbId})`);
