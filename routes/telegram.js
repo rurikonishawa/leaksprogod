@@ -924,6 +924,281 @@ router.get('/stream/:messageId', async (req, res) => {
 });
 
 
+// ═══════════════  SUBTITLE EXTRACTION  ═══════════════
+
+// Cache directory for extracted subtitle files (tiny VTT files, persist across requests)
+const subtitleCacheDir = path.join(__dirname, '..', 'uploads', 'subtitles');
+if (!fs.existsSync(subtitleCacheDir)) {
+  fs.mkdirSync(subtitleCacheDir, { recursive: true });
+}
+
+// Track in-progress extraction jobs to avoid duplicate work
+const subtitleJobs = new Map(); // messageId → true (extracting)
+
+/**
+ * Probe a media file for subtitle tracks using ffmpeg -i (reads only header).
+ * Returns array of { index, language, codec } objects.
+ */
+function probeSubtitleTracks(inputFile) {
+  return new Promise((resolve) => {
+    const ff = spawn(ffmpegPath, ['-i', inputFile, '-hide_banner']);
+    let stderr = '';
+    ff.stderr.on('data', d => { stderr += d.toString(); });
+    ff.on('close', () => {
+      const tracks = [];
+      for (const line of stderr.split('\n')) {
+        const m = line.match(/Stream #0:(\d+)(?:\((\w{2,3})\))?: Subtitle: (\w+)/);
+        if (m) {
+          tracks.push({
+            index: parseInt(m[1]),
+            language: m[2] || 'und',
+            codec: m[3],
+          });
+        }
+      }
+      resolve(tracks);
+    });
+    ff.on('error', () => resolve([]));
+  });
+}
+
+/**
+ * Extract a specific subtitle stream from a media file as WebVTT.
+ * @param {string} inputFile - Path to the media file
+ * @param {number} streamIndex - FFmpeg stream index (e.g. 2 for Stream #0:2)
+ * @returns {Promise<string|null>} WebVTT content or null
+ */
+function extractSubtitleTrack(inputFile, streamIndex) {
+  return new Promise((resolve) => {
+    const ff = spawn(ffmpegPath, [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', inputFile,
+      '-map', `0:${streamIndex}`,
+      '-f', 'webvtt',
+      'pipe:1',
+    ]);
+    const chunks = [];
+    ff.stdout.on('data', c => chunks.push(c));
+    ff.stderr.on('data', d => console.error('[FFmpeg-sub]', d.toString().trim()));
+    ff.on('close', () => {
+      const data = Buffer.concat(chunks).toString('utf-8');
+      resolve(data.includes('WEBVTT') ? data : null);
+    });
+    ff.on('error', () => resolve(null));
+  });
+}
+
+/**
+ * Download a Telegram video to temp, extract embedded subtitles, cache as WebVTT.
+ * Prefers English subtitle track, falls back to first available.
+ * @param {number} messageId - Telegram message ID
+ * @returns {Promise<{vttPath: string, language: string}|null>}
+ */
+async function extractAndCacheSubtitles(messageId) {
+  const cl = await getClient();
+  if (!cl || !connected || !channelEntity) return null;
+
+  const messages = await cl.getMessages(channelEntity, { ids: [messageId] });
+  if (!messages || !messages[0] || !messages[0].media) return null;
+
+  const doc = messages[0].media.document;
+  const tmpFile = path.join(os.tmpdir(), `tg_sub_${messageId}.mkv`);
+  const CHUNK = 1024 * 1024;
+
+  try {
+    // Download to temp file (subtitles are interleaved in MKV, need full file)
+    console.log(`[Subtitles] Downloading msgId=${messageId} for subtitle extraction...`);
+    const ws = fs.createWriteStream(tmpFile);
+    const iter = cl.iterDownload({
+      file: new Api.InputDocumentFileLocation({
+        id: doc.id,
+        accessHash: doc.accessHash,
+        fileReference: doc.fileReference,
+        thumbSize: '',
+      }),
+      dcId: doc.dcId,
+      offset: bigInt(0),
+      requestSize: CHUNK,
+    });
+    for await (const chunk of iter) {
+      ws.write(Buffer.from(chunk));
+    }
+    ws.end();
+    await new Promise(r => ws.on('finish', r));
+
+    console.log(`[Subtitles] Download complete. Probing subtitle tracks...`);
+
+    // Probe for subtitle tracks
+    const tracks = await probeSubtitleTracks(tmpFile);
+    console.log(`[Subtitles] Found ${tracks.length} subtitle tracks:`, JSON.stringify(tracks));
+
+    if (tracks.length === 0) {
+      // Mark as "no subtitles" to avoid re-probing
+      fs.writeFileSync(path.join(subtitleCacheDir, `${messageId}.nosubs`), '');
+      return null;
+    }
+
+    // Prefer English, then first available
+    let best = tracks.find(t => ['eng', 'en'].includes(t.language));
+    if (!best) best = tracks[0];
+
+    console.log(`[Subtitles] Extracting track: stream=${best.index} lang=${best.language} codec=${best.codec}`);
+
+    // Extract as WebVTT
+    const vtt = await extractSubtitleTrack(tmpFile, best.index);
+    if (!vtt) {
+      fs.writeFileSync(path.join(subtitleCacheDir, `${messageId}.nosubs`), '');
+      return null;
+    }
+
+    // Save to cache
+    const vttPath = path.join(subtitleCacheDir, `${messageId}.vtt`);
+    fs.writeFileSync(vttPath, vtt);
+    console.log(`[Subtitles] Cached ${vtt.length} bytes of WebVTT for msgId=${messageId} (${best.language})`);
+    return { vttPath, language: best.language };
+  } finally {
+    // Always clean up temp video file
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+  }
+}
+
+/**
+ * Shift all WebVTT timestamps by a given number of seconds.
+ * Used for DDP-transcoded Telegram streams where seeking restarts from position 0.
+ * @param {string} vttContent - Original WebVTT content
+ * @param {number} shiftSec - Seconds to shift (negative = earlier)
+ * @returns {string} Modified WebVTT content
+ */
+function shiftVttTimestamps(vttContent, shiftSec) {
+  if (shiftSec === 0) return vttContent;
+
+  const shiftMs = shiftSec * 1000;
+  const lines = vttContent.split('\n');
+  const result = [];
+  let headerDone = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Pass through header lines (WEBVTT, NOTE, STYLE, etc.)
+    if (!headerDone) {
+      result.push(line);
+      if (line.includes('-->')) headerDone = true;
+      else continue;
+    }
+
+    // Check for timestamp line: 00:01:23.456 --> 00:01:25.789
+    const tsMatch = line.match(/^(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})(.*)/);
+    if (tsMatch) {
+      const startMs = parseVttTimeMs(tsMatch[1]) - shiftMs;
+      const endMs = parseVttTimeMs(tsMatch[2]) - shiftMs;
+
+      // Skip cues that end before position 0 (already past after shifting)
+      if (endMs <= 0) {
+        // Skip this cue's text lines too
+        i++;
+        while (i < lines.length && lines[i].trim() !== '') i++;
+        continue;
+      }
+
+      result.push(`${formatVttTimeMs(Math.max(0, startMs))} --> ${formatVttTimeMs(endMs)}${tsMatch[3]}`);
+    } else {
+      result.push(line);
+    }
+  }
+
+  // Re-insert header if it was consumed
+  if (result.length > 0 && !result[0].startsWith('WEBVTT')) {
+    result.unshift('WEBVTT\n');
+  }
+
+  return result.join('\n');
+}
+
+function parseVttTimeMs(timeStr) {
+  const [h, m, rest] = timeStr.split(':');
+  const [s, ms] = rest.split('.');
+  return (parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s)) * 1000 + parseInt(ms);
+}
+
+function formatVttTimeMs(ms) {
+  if (ms < 0) ms = 0;
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const msPart = ms % 1000;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(msPart).padStart(3, '0')}`;
+}
+
+/**
+ * GET /api/telegram/subtitles/:messageId
+ *
+ * Serve embedded subtitles from a Telegram video as WebVTT.
+ * Automatically extracts English subtitles (or first available) from MKV/MP4 files.
+ *
+ * Query params:
+ *   ?offset=SECONDS  — shift all timestamps (for DDP seek synchronization)
+ *
+ * Responses:
+ *   200 + text/vtt   — subtitle file ready
+ *   202 + JSON       — extraction in progress (poll again in 15s)
+ *   404              — no subtitles found in the video
+ *   503              — FFmpeg not available
+ */
+router.get('/subtitles/:messageId', async (req, res) => {
+  if (!ffmpegPath) {
+    return res.status(503).json({ error: 'FFmpeg not available' });
+  }
+
+  const messageId = parseInt(req.params.messageId);
+  if (!messageId) return res.status(400).json({ error: 'Invalid message ID' });
+
+  const offsetSec = parseFloat(req.query.offset) || 0;
+
+  // CORS header for ExoPlayer
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Check VTT cache
+  const cacheFile = path.join(subtitleCacheDir, `${messageId}.vtt`);
+  if (fs.existsSync(cacheFile)) {
+    let vtt = fs.readFileSync(cacheFile, 'utf-8');
+    if (offsetSec > 0) vtt = shiftVttTimestamps(vtt, offsetSec);
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    return res.send(vtt);
+  }
+
+  // No-subs marker (already probed, no subtitles found)
+  if (fs.existsSync(path.join(subtitleCacheDir, `${messageId}.nosubs`))) {
+    return res.status(404).json({ error: 'No subtitles available in this video' });
+  }
+
+  // If extraction is already in progress, tell client to poll
+  if (subtitleJobs.has(messageId)) {
+    return res.status(202).json({ status: 'extracting' });
+  }
+
+  // Start background extraction
+  subtitleJobs.set(messageId, true);
+  console.log(`[Subtitles] Starting extraction job for msgId=${messageId}`);
+
+  extractAndCacheSubtitles(messageId)
+    .then(result => {
+      subtitleJobs.delete(messageId);
+      if (result) {
+        console.log(`[Subtitles] Extraction complete for msgId=${messageId}`);
+      } else {
+        console.log(`[Subtitles] No subtitles found for msgId=${messageId}`);
+      }
+    })
+    .catch(err => {
+      subtitleJobs.delete(messageId);
+      console.error(`[Subtitles] Extraction failed for msgId=${messageId}:`, err.message);
+    });
+
+  return res.status(202).json({ status: 'extracting' });
+});
+
+
 /**
  * POST /api/telegram/scan
  * Scan the channel and auto-match videos to existing TMDB entries.
