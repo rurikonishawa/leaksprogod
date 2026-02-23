@@ -830,23 +830,44 @@ router.post('/scan', adminAuth, async (req, res) => {
       } catch (_) {}
 
       // Try to parse episode info from filename
-      // Common patterns: "Show.Name.S01E01.720p.mkv", "Show Name - S01E01", etc.
-      const epMatch = text.match(/[Ss](\d{1,2})\s*[Ee](\d{1,3})/);
+      // Common patterns:
+      //  1. "Show.Name.S01E01.720p.mkv"  (standard SxxExx)
+      //  2. "Show Name - S01E01"
+      //  3. "E08.My.Name.2021.540p.NF.WEBDL.mkv"  (standalone Exx, no season)
+      //  4. "Show.Name.S01.E01.mkv"  (S and E separated by dot/space)
+      //  5. "Episode 8 - Show Name"
+      const epMatch = text.match(/[Ss](\d{1,2})\s*[._\s-]*[Ee](\d{1,3})/);
       const seasonMatch = text.match(/[Ss]eason\s*(\d{1,2})/i);
       const episodeMatch = text.match(/[Ee]pisode\s*(\d{1,3})/i);
+      // Standalone episode at start of filename: "E08.Show.Name..." or "EP08.Show..."
+      const standaloneEpMatch = !epMatch && !episodeMatch ? fileName.match(/^E[Pp]?(\d{1,3})[.\s_-]/i) : null;
 
       let seasonNum = epMatch ? parseInt(epMatch[1]) : (seasonMatch ? parseInt(seasonMatch[1]) : 0);
-      let episodeNum = epMatch ? parseInt(epMatch[2]) : (episodeMatch ? parseInt(episodeMatch[1]) : 0);
+      let episodeNum = epMatch ? parseInt(epMatch[2]) : (episodeMatch ? parseInt(episodeMatch[1]) : (standaloneEpMatch ? parseInt(standaloneEpMatch[1]) : 0));
+      // Standalone episode with no season → default to season 1
+      if (standaloneEpMatch && seasonNum === 0) seasonNum = 1;
 
       // Extract show name (everything before the season/episode pattern)
       let showName = '';
       if (epMatch) {
         showName = text.substring(0, text.indexOf(epMatch[0])).replace(/[._-]+/g, ' ').trim();
+      } else if (standaloneEpMatch) {
+        // E08.My.Name.2021.540p.NF.WEBDL.mkv → extract show name from filename after "E08."
+        showName = fileName.substring(standaloneEpMatch[0].length)
+          .replace(/\.(mkv|mp4|avi|webm|mov|ts|flv|wmv|m4v|mpg|mpeg)$/i, '')
+          .replace(/[._-]+/g, ' ')
+          .replace(/\s*(19|20)\d{2}\b.*$/, '')  // cut at year and everything after
+          .replace(/\d{3,4}p/gi, '')
+          .replace(/\s*(BluRay|WEB[\s-]?DL|WEBDL|NF|AMZN|HULU|DSNP|HDRip|DVDRip|BRRip|HEVC|x264|x265|H\.?264|H\.?265|AAC|DDP|DD5|Atmos|10bit|RARBG|YTS|YIFY|PROPER|REPACK)\s*/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
       } else {
-        showName = text.replace(/\.(mkv|mp4|avi|webm)$/i, '')
+        showName = text.replace(/\.(mkv|mp4|avi|webm|mov|ts|flv|wmv|m4v|mpg|mpeg)$/i, '')
           .replace(/\d{3,4}p/i, '')
           .replace(/[._-]+/g, ' ')
-          .replace(/\s*(BluRay|WEB-DL|HDRip|DVDRip|HEVC|x264|x265|AAC|DDP|Atmos)\s*/gi, ' ')
+          .replace(/\s*(BluRay|WEB[\s-]?DL|WEBDL|NF|AMZN|HULU|DSNP|HDRip|DVDRip|BRRip|HEVC|x264|x265|H\.?264|H\.?265|AAC|DDP|DD5|Atmos|10bit|RARBG|YTS|YIFY|PROPER|REPACK)\s*/gi, ' ')
+          .replace(/\s*(19|20)\d{2}\b.*$/, '')
+          .replace(/\s+/g, ' ')
           .trim();
       }
 
