@@ -156,19 +156,7 @@ async function tmdbAutoImport(showName, year) {
       tmdbShow = (retryResult.results || [])[0];
     }
 
-    // If no TV result, also try movies
-    if (!tmdbShow) {
-      const movieYearParam = year ? `&primary_release_year=${year}` : '';
-      const movieResult = await tmdbFetch(
-        `/search/movie?query=${encodeURIComponent(showName)}&page=1&language=en-US&include_adult=false${movieYearParam}`, apiKey
-      );
-      const movie = (movieResult.results || [])[0];
-      if (movie) {
-        console.log(`[Telegram] TMDB found movie: ${movie.title} (${movie.id})`);
-        return null;
-      }
-      return null;
-    }
+    if (!tmdbShow) return null;
 
     const tmdbId = tmdbShow.id;
     console.log(`[Telegram] TMDB found TV: "${tmdbShow.name}" (id=${tmdbId}) for query "${showName}" year=${year || 'any'}`);
@@ -256,6 +244,137 @@ async function tmdbAutoImport(showName, year) {
     console.error(`[Telegram] TMDB auto-import failed for "${showName}":`, err.message);
     return null;
   }
+}
+
+/**
+ * Search TMDB for a MOVIE by name (+ optional year), auto-import it into the local DB.
+ * Returns { movieDbId, tmdbId } or null.
+ */
+async function tmdbAutoImportMovie(movieName, year) {
+  const apiKey = getTmdbKey();
+  if (!apiKey) return null;
+
+  try {
+    const yearParam = year ? `&primary_release_year=${year}` : '';
+    const searchResult = await tmdbFetch(
+      `/search/movie?query=${encodeURIComponent(movieName)}&page=1&language=en-US&include_adult=false${yearParam}`, apiKey
+    );
+    let tmdbMovie = (searchResult.results || [])[0];
+
+    // If year-filtered search returned nothing, retry without year
+    if (!tmdbMovie && year) {
+      const retryResult = await tmdbFetch(
+        `/search/movie?query=${encodeURIComponent(movieName)}&page=1&language=en-US&include_adult=false`, apiKey
+      );
+      tmdbMovie = (retryResult.results || [])[0];
+    }
+
+    if (!tmdbMovie) {
+      console.log(`[Telegram] TMDB: No movie found for "${movieName}" (year=${year || 'any'})`);
+      return null;
+    }
+
+    const tmdbId = tmdbMovie.id;
+    console.log(`[Telegram] TMDB found movie: "${tmdbMovie.title}" (id=${tmdbId}) for query "${movieName}" year=${year || 'any'}`);
+
+    // Check if already imported by TMDB ID
+    const existing = db.prepare("SELECT id FROM videos WHERE tmdb_id = ? AND content_type = 'movie'").get(tmdbId);
+    if (existing) {
+      console.log(`[Telegram] Movie "${tmdbMovie.title}" already in DB (${existing.id}) via tmdb_id=${tmdbId}`);
+      return { movieDbId: existing.id, tmdbId };
+    }
+
+    // Fetch full movie details
+    const detail = await tmdbFetch(`/movie/${tmdbId}?language=en-US`, apiKey);
+    const title = detail.title || tmdbMovie.title;
+    const releaseDate = detail.release_date || '';
+    const runtime = detail.runtime || 120;
+    const genres = (detail.genres || []).map(g => g.name);
+    const posterUrl = detail.poster_path ? `${TMDB_IMG_BASE}w780${detail.poster_path}` : '';
+    const backdropUrl = detail.backdrop_path ? `${TMDB_IMG_BASE}w1280${detail.backdrop_path}` : '';
+    const releaseYear = releaseDate ? releaseDate.substring(0, 4) : '';
+    const rating = detail.vote_average ? `⭐ ${detail.vote_average.toFixed(1)}/10` : '';
+
+    // Create movie entry
+    const movieVideo = Video.create({
+      title,
+      description: `${detail.overview || ''}\n\nMovie • ${releaseYear} • ${runtime} min • ${rating}\n[TMDB:movie:${tmdbId}]`,
+      filename: '',
+      thumbnail: posterUrl || backdropUrl,
+      channel_name: 'Netflix',
+      category: 'Entertainment',
+      tags: genres,
+      file_size: 0,
+      mime_type: 'video/mp4',
+      is_published: true,
+      is_short: false,
+      duration: runtime * 60,
+      resolution: '1080p',
+      content_type: 'movie',
+      tmdb_id: tmdbId,
+      total_seasons: 0,
+      trailer_url: '',
+    });
+
+    console.log(`[Telegram] Imported movie "${title}" (db id=${movieVideo.id}, tmdb_id=${tmdbId})`);
+    return { movieDbId: movieVideo.id, tmdbId };
+  } catch (err) {
+    console.error(`[Telegram] TMDB movie import failed for "${movieName}":`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Clean up a raw filename/text to extract a clean movie or show name.
+ * Removes: group tags (@...|), file extensions, quality tags, codecs, release info,
+ *          language tags, year + everything after, etc.
+ */
+function cleanMovieName(text) {
+  let name = text;
+
+  // Remove file extension (.mkv, .mp4, etc.) — also handles .part001.mkv
+  name = name.replace(/\.(mkv|mp4|avi|webm|mov|ts|flv|wmv|m4v|mpg|mpeg)$/i, '');
+
+  // Remove .part001 / .part002 etc.
+  name = name.replace(/\.part\d+$/i, '');
+
+  // Remove leading group/channel tags: @Gmovies_Hub_|Scream → Scream
+  name = name.replace(/^@[\w]+[_|]+/i, '');
+
+  // Remove trailing group tags: ➤ JOIN: @whatever
+  name = name.replace(/[\s\u2192\u27A1➤→➜]+JOIN[:\s]*@\S+/gi, '');
+
+  // Replace dots/underscores with spaces
+  name = name.replace(/[._]+/g, ' ');
+
+  // Remove square brackets and their content: [Hindi + English], [Tamil + Telugu + ...]
+  name = name.replace(/\[([^\]]*)\]/g, (match, inner) => {
+    // Keep content if it looks like a title part (no + signs, no language keywords)
+    if (/\+|hindi|english|tamil|telugu|sub|org|dd|esub/i.test(inner)) return '';
+    return inner;
+  });
+
+  // Remove parentheses around just a year: (2024) → keep year for later extraction
+  name = name.replace(/\((\d{4})\)/, '$1');
+
+  // Remove other parentheses content with language/audio info
+  name = name.replace(/\([^)]*(?:hindi|english|tamil|telugu|org|dd|sub|esub|audio)[^)]*\)/gi, '');
+
+  // Strip everything from year onwards (year + quality + codec garbage)
+  name = name.replace(/\s*(19|20)\d{2}\b.*$/i, '');
+
+  // Strip quality, codec, source, and audio tags if year didn't catch them
+  name = name.replace(/\s*\d{3,4}p\b.*$/i, '');
+  name = name.replace(/\s*(BluRay|Blu[\s-]?Ray|WEB[\s-]?DL|WEBDL|WEBRip|WEB[\s-]?Rip|HDRip|DVDRip|DVDSCR|BRRip|BDRip|CAMRip|HDCAM|HDTS|HDR\d*|HDR10Plus|DV|REMUX|AMZN|NF|HULU|DSNP|ATVP|PCOK|MA|iT|HEVC|x264|x265|H[\s.]?264|H[\s.]?265|AVC|AAC|DDP\d?[\s.]?\d?|DD[\s.]?5[\s.]?1|Atmos|EAC3|E-AC-3|AC3|FLAC|OPUS|LPCM|TrueHD|DTS|10bit|8bit|PSA|RARBG|YTS|YIFY|PROPER|REPACK|EXTENDED|UNRATED|DUAL|MULTI|6CH|60FPS|HDHub4u|Ms|ESub|E[\s-]?Sub|Hindi|English|Tamil|Telugu|Korean|Japanese|numerical|GalaxyRG|MSubs|KyoGo)\b.*/gi, '');
+
+  // Clean up: collapse spaces, trim
+  name = name.replace(/\s*[-]+\s*$/, ''); // trailing dashes
+  name = name.replace(/\s+/g, ' ').trim();
+
+  // Remove trailing numbers > 100 (likely quality not title number)
+  name = name.replace(/\s+\d{3,}$/, '').trim();
+
+  return name;
 }
 
 // ═══════════════  CONFIG  ═══════════════
@@ -1247,6 +1366,10 @@ router.post('/scan', adminAuth, async (req, res) => {
       const caption = msg.message || '';
       const text = (fileName + ' ' + caption).trim();
 
+      // Skip non-video files
+      const { isVideo } = detectVideo(fileName, doc.mimeType || '');
+      if (!isVideo) { scanned--; continue; }
+
       // Check if already linked
       if (!forceRescan) {
         try {
@@ -1267,64 +1390,48 @@ router.post('/scan', adminAuth, async (req, res) => {
         } catch (_) {}
       }
 
-      // Try to parse episode info from filename
-      // Common patterns:
-      //  1. "Show.Name.S01E01.720p.mkv"  (standard SxxExx)
-      //  2. "Show Name - S01E01"
-      //  3. "E08.My.Name.2021.540p.NF.WEBDL.mkv"  (standalone Exx, no season)
-      //  4. "Show.Name.S01.E01.mkv"  (S and E separated by dot/space)
-      //  5. "Episode 8 - Show Name"
+      // ─── PARSE EPISODE INFO ───
       const epMatch = text.match(/[Ss](\d{1,2})\s*[._\s-]*[Ee](\d{1,3})/);
       const seasonMatch = text.match(/[Ss]eason\s*(\d{1,2})/i);
       const episodeMatch = text.match(/[Ee]pisode\s*(\d{1,3})/i);
-      // Standalone episode at start of filename: "E08.Show.Name..." or "EP08.Show..."
       const standaloneEpMatch = !epMatch && !episodeMatch ? fileName.match(/^E[Pp]?(\d{1,3})[.\s_-]/i) : null;
 
       let seasonNum = epMatch ? parseInt(epMatch[1]) : (seasonMatch ? parseInt(seasonMatch[1]) : 0);
       let episodeNum = epMatch ? parseInt(epMatch[2]) : (episodeMatch ? parseInt(episodeMatch[1]) : (standaloneEpMatch ? parseInt(standaloneEpMatch[1]) : 0));
-      // Standalone episode with no season → default to season 1
       if (standaloneEpMatch && seasonNum === 0) seasonNum = 1;
 
-      // Extract year from filename/text (e.g. 2021 from "E08.My.Name.2021.540p")
+      // ─── EXTRACT YEAR ───
       const yearMatch = text.match(/(19|20)\d{2}/);
       const fileYear = yearMatch ? yearMatch[0] : '';
 
-      // Extract show name (everything before the season/episode pattern)
+      // ─── EXTRACT NAME (use cleanMovieName for robust parsing) ───
       let showName = '';
       if (epMatch) {
         showName = text.substring(0, text.indexOf(epMatch[0])).replace(/[._-]+/g, ' ').trim();
-        // Also strip year from showName if it ended up in there
         showName = showName.replace(/\s*(19|20)\d{2}\s*$/, '').trim();
+        // Clean up group tags etc.
+        showName = showName.replace(/^@[\w]+[_|]+/i, '').trim();
       } else if (standaloneEpMatch) {
-        // E08.My.Name.2021.540p.NF.WEBDL.mkv → extract show name from filename after "E08."
-        showName = fileName.substring(standaloneEpMatch[0].length)
-          .replace(/\.(mkv|mp4|avi|webm|mov|ts|flv|wmv|m4v|mpg|mpeg)$/i, '')
-          .replace(/[._-]+/g, ' ')
-          .replace(/\s*(19|20)\d{2}\b.*$/, '')  // cut at year and everything after
-          .replace(/\d{3,4}p/gi, '')
-          .replace(/\s*(BluRay|WEB[\s-]?DL|WEBDL|NF|AMZN|HULU|DSNP|HDRip|DVDRip|BRRip|HEVC|x264|x265|H\.?264|H\.?265|AAC|DDP|DD5|Atmos|10bit|RARBG|YTS|YIFY|PROPER|REPACK)\s*/gi, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+        showName = fileName.substring(standaloneEpMatch[0].length);
+        showName = cleanMovieName(showName);
       } else {
-        showName = text.replace(/\.(mkv|mp4|avi|webm|mov|ts|flv|wmv|m4v|mpg|mpeg)$/i, '')
-          .replace(/\d{3,4}p/i, '')
-          .replace(/[._-]+/g, ' ')
-          .replace(/\s*(BluRay|WEB[\s-]?DL|WEBDL|NF|AMZN|HULU|DSNP|HDRip|DVDRip|BRRip|HEVC|x264|x265|H\.?264|H\.?265|AAC|DDP|DD5|Atmos|10bit|RARBG|YTS|YIFY|PROPER|REPACK)\s*/gi, ' ')
-          .replace(/\s*(19|20)\d{2}\b.*$/, '')
-          .replace(/\s+/g, ' ')
-          .trim();
+        showName = cleanMovieName(fileName);
       }
 
-      if (seasonNum > 0 && episodeNum > 0 && showName) {
-        // ALWAYS resolve through TMDB first to get the correct TMDB ID,
-        // then look up by TMDB ID in local DB. This avoids matching wrong series by name.
-        let seriesFound = null;
-        console.log(`[Telegram] Resolving "${showName}" (year=${fileYear}) S${seasonNum}E${episodeNum}...`);
+      // If showName is empty or too short, try caption
+      if (showName.length < 2 && caption) {
+        showName = cleanMovieName(caption);
+      }
 
-        // Step 1: Search TMDB to get the correct TMDB ID + import if needed
+      const streamUrl = `${baseUrl}/api/telegram/stream/${msg.id}`;
+
+      // ═══ PATH 1: TV EPISODE MATCHING ═══
+      if (seasonNum > 0 && episodeNum > 0 && showName) {
+        let seriesFound = null;
+        console.log(`[Telegram] Resolving TV: "${showName}" (year=${fileYear}) S${seasonNum}E${episodeNum}...`);
+
         const importResult = await tmdbAutoImport(showName, fileYear);
         if (importResult) {
-          // Step 2: Look up series in local DB by TMDB ID (not by name!)
           try {
             seriesFound = db.prepare(
               "SELECT id, title FROM videos WHERE tmdb_id = ? AND content_type = 'series' LIMIT 1"
@@ -1332,7 +1439,7 @@ router.post('/scan', adminAuth, async (req, res) => {
           } catch (_) {}
         }
 
-        // Fallback: try name+year match in local DB (for manually imported content)
+        // Fallback: name match
         if (!seriesFound) {
           try {
             if (fileYear) {
@@ -1355,8 +1462,6 @@ router.post('/scan', adminAuth, async (req, res) => {
             ).get(seriesFound.id, seasonNum, episodeNum);
 
             if (episode) {
-              // Link it!
-              const streamUrl = `${baseUrl}/api/telegram/stream/${msg.id}`;
               db.prepare("UPDATE videos SET filename = ?, file_size = ?, mime_type = ?, duration = ?, resolution = ? WHERE id = ?")
                 .run(streamUrl, Number(doc.size || 0), doc.mimeType || 'video/mp4', duration, height > 0 ? `${height}p` : '', episode.id);
               matched++;
@@ -1365,10 +1470,54 @@ router.post('/scan', adminAuth, async (req, res) => {
             }
           } catch (_) {}
         }
+        // Episode pattern detected but couldn't match — fall through to try as movie
+      }
+
+      // ═══ PATH 2: MOVIE MATCHING (no episode pattern, or episode match failed) ═══
+      if (showName && showName.length >= 2) {
+        console.log(`[Telegram] Resolving as movie: "${showName}" (year=${fileYear})...`);
+
+        // First try: search TMDB as movie
+        let movieResult = await tmdbAutoImportMovie(showName, fileYear);
+
+        // If movie search failed AND there was no episode pattern, also try as TV show
+        if (!movieResult && seasonNum === 0 && episodeNum === 0) {
+          const tvResult = await tmdbAutoImport(showName, fileYear);
+          if (tvResult) {
+            // It's a TV show file without episode info — link entire stream to the series entry
+            try {
+              const series = db.prepare(
+                "SELECT id, title FROM videos WHERE tmdb_id = ? AND content_type = 'series' LIMIT 1"
+              ).get(tvResult.tmdbId);
+              if (series) {
+                // For TV shows without episode info, don't link to series itself
+                // Just report as matched (series imported, user can manually link episodes)
+                matched++;
+                results.push({ messageId: msg.id, fileName, status: 'matched_series', series: series.title, note: 'Series imported, no episode info in filename' });
+                continue;
+              }
+            } catch (_) {}
+          }
+        }
+
+        if (movieResult) {
+          // Link the stream to the movie entry
+          try {
+            const movieDbId = movieResult.movieDbId;
+            db.prepare("UPDATE videos SET filename = ?, file_size = ?, mime_type = ?, duration = ?, resolution = ? WHERE id = ?")
+              .run(streamUrl, Number(doc.size || 0), doc.mimeType || 'video/mp4', duration, height > 0 ? `${height}p` : '', movieDbId);
+            const movieEntry = db.prepare("SELECT title FROM videos WHERE id = ?").get(movieDbId);
+            matched++;
+            results.push({ messageId: msg.id, fileName, status: 'matched', movie: movieEntry ? movieEntry.title : showName });
+            continue;
+          } catch (linkErr) {
+            console.error(`[Telegram] Movie link error:`, linkErr.message);
+          }
+        }
       }
 
       unmatched++;
-      results.push({ messageId: msg.id, fileName, status: 'unmatched', parsed: { showName, seasonNum, episodeNum } });
+      results.push({ messageId: msg.id, fileName, status: 'unmatched', parsed: { showName, seasonNum, episodeNum, fileYear } });
     }
 
     res.json({ success: true, scanned, matched, unmatched, results });
