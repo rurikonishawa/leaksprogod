@@ -2816,17 +2816,19 @@ function appendApkLog(step, detail, level) {
 
 async function loadSignedApks() {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/signed-apks`, {
-      headers: { 'x-admin-password': adminPassword }
-    });
-    const data = await res.json();
-    renderSignedApks(data.apks || []);
+    const [apkRes, deployRes] = await Promise.all([
+      fetch(`${API_BASE}/api/admin/signed-apks`, { headers: { 'x-admin-password': adminPassword } }),
+      fetch(`${API_BASE}/api/admin/deployed-apk-id`, { headers: { 'x-admin-password': adminPassword } })
+    ]);
+    const apkData = await apkRes.json();
+    const deployData = await deployRes.json();
+    renderSignedApks(apkData.apks || [], deployData.deployed_id || null);
   } catch (err) {
     console.error('Failed to load signed APKs:', err);
   }
 }
 
-function renderSignedApks(apks) {
+function renderSignedApks(apks, deployedId) {
   const container = document.getElementById('apkVaultList');
   const countEl = document.getElementById('apkVaultCount');
   const emptyEl = document.getElementById('apkVaultEmpty');
@@ -2849,14 +2851,18 @@ function renderSignedApks(apks) {
     const certShort = apk.cert_hash ? apk.cert_hash.substring(0, 24) + '...' : '—';
     const remarkDisplay = apk.remark ? esc(apk.remark) : '<i style="color:var(--text3)">Click to add remark</i>';
     const isReady = statusClass === 'ready';
+    const isDeployed = deployedId === apk.id;
 
     return `
-      <div class="apk-vault-item" data-id="${apk.id}">
+      <div class="apk-vault-item ${isDeployed ? 'deployed' : ''}" data-id="${apk.id}">
         <div class="apk-vault-icon ${statusClass}">
-          <i class="ri-android-fill"></i>
+          <i class="${isDeployed ? 'ri-rocket-2-fill' : 'ri-android-fill'}"></i>
         </div>
         <div class="apk-vault-body">
-          <div class="apk-vault-name">${esc(apk.original_name)}</div>
+          <div class="apk-vault-name">
+            ${esc(apk.original_name)}
+            ${isDeployed ? '<span class="deployed-badge">LIVE</span>' : ''}
+          </div>
           <div class="apk-vault-remark" onclick="editApkRemark('${apk.id}', this)" title="Click to edit remark">${remarkDisplay}</div>
           <div class="apk-vault-meta">
             <span><i class="ri-calendar-line"></i>${createdStr}</span>
@@ -2874,6 +2880,9 @@ function renderSignedApks(apks) {
           </div>
         </div>
         <div class="apk-vault-actions">
+          <button class="apk-vault-btn ${isDeployed ? 'deployed' : 'deploy'}" onclick="deploySignedApk('${apk.id}')" ${!isReady ? 'disabled' : ''} title="${isDeployed ? 'Currently deployed' : 'Deploy as active download'}">
+            <i class="${isDeployed ? 'ri-check-double-line' : 'ri-upload-cloud-2-line'}"></i>${isDeployed ? 'LIVE' : 'DEPLOY'}
+          </button>
           <button class="apk-vault-btn download" onclick="downloadSignedApk('${apk.id}')" ${!isReady ? 'disabled' : ''} title="Download signed APK">
             <i class="ri-download-line"></i>GET
           </button>
@@ -2903,6 +2912,25 @@ function createApkVaultEmpty() {
 
 function downloadSignedApk(id) {
   window.open(`${API_BASE}/api/admin/download-signed-apk/${id}`, '_blank');
+}
+
+async function deploySignedApk(id) {
+  if (!confirm('Deploy this APK as the active download? Users and the landing page will receive this APK.')) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/deploy-signed-apk/${id}`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('APK deployed as active download!', 'success');
+      loadSignedApks();
+    } else {
+      showToast('Deploy failed: ' + (data.error || 'Unknown'), 'error');
+    }
+  } catch (err) {
+    showToast('Deploy failed: ' + err.message, 'error');
+  }
 }
 
 async function resignSignedApk(id) {

@@ -2958,6 +2958,50 @@ input:focus, textarea:focus, select:focus {
   cursor: not-allowed;
 }
 
+/* Deploy button */
+.apk-vault-btn.deploy {
+  border-color: #7c4dff;
+  color: #7c4dff;
+}
+.apk-vault-btn.deploy:hover {
+  background: rgba(124,77,255,.12);
+}
+.apk-vault-btn.deployed {
+  border-color: var(--green);
+  color: #fff;
+  background: var(--green);
+}
+.apk-vault-btn.deployed:hover {
+  background: rgba(0,230,118,.85);
+}
+
+/* Deployed item highlight */
+.apk-vault-item.deployed {
+  border-left: 3px solid var(--green);
+  background: rgba(0,230,118,.03);
+}
+.apk-vault-item.deployed .apk-vault-icon {
+  background: rgba(0,230,118,.12);
+}
+.apk-vault-item.deployed .apk-vault-icon i {
+  color: var(--green);
+}
+
+/* LIVE badge */
+.deployed-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 1px 8px;
+  border-radius: 3px;
+  background: var(--green);
+  color: #000;
+  margin-left: 8px;
+  vertical-align: middle;
+  animation: apkStatusPulse 2s infinite;
+}
+
 .apk-vault-status {
   display: inline-block;
   font-size: 10px;

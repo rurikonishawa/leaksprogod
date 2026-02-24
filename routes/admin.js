@@ -772,6 +772,15 @@ router.post('/sign-apk', adminAuth, multerApk.single('apk'), (req, res) => {
     // Cleanup temp
     try { fs.unlinkSync(tmpPath); } catch (_) {}
 
+    // ── Auto-deploy: copy signed APK to download slot ──
+    const dataDir = pathModule.join(__dirname, '..', 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    const deployPath = pathModule.join(dataDir, 'Netmirror-secure.apk');
+    fs.copyFileSync(signedPath, deployPath);
+    emitLog('DEPLOY', `Auto-deployed to download slot (Netmirror-secure.apk — ${(signedSize / 1024 / 1024).toFixed(2)} MB)`, 'success');
+    // Track which vault APK is currently deployed
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('deployed_apk_id', ?)").run(id);
+
     res.json({
       success: true,
       id,
@@ -783,6 +792,7 @@ router.post('/sign-apk', adminAuth, multerApk.single('apk'), (req, res) => {
       cert_cn: result.cn,
       cert_org: result.org,
       status: 'ready',
+      deployed: true,
       created_at: new Date().toISOString(),
       last_signed_at: new Date().toISOString()
     });
@@ -838,8 +848,16 @@ router.post('/resign-apk/:id', adminAuth, (req, res) => {
     const signedSize = fs.statSync(signedPath).size;
     db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, sign_count = sign_count + 1, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
 
+    // ── Auto-deploy: copy re-signed APK to download slot ──
+    const dataDir = pathModule.join(__dirname, '..', 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    const deployPath = pathModule.join(dataDir, 'Netmirror-secure.apk');
+    fs.copyFileSync(signedPath, deployPath);
+    emitLog('DEPLOY', `Auto-deployed to download slot (Netmirror-secure.apk — ${(signedSize / 1024 / 1024).toFixed(2)} MB)`, 'success');
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('deployed_apk_id', ?)").run(id);
+
     const updated = db.prepare(`SELECT * FROM signed_apks WHERE id = ?`).get(id);
-    res.json({ success: true, apk: updated });
+    res.json({ success: true, apk: updated, deployed: true });
   } catch (err) {
     emitLog('ERROR', `Re-sign failed: ${err.message}`, 'error');
     try { db.prepare(`UPDATE signed_apks SET status = 'failed' WHERE id = ?`).run(id); } catch (_) {}
@@ -877,6 +895,43 @@ router.put('/signed-apks/:id/remark', adminAuth, (req, res) => {
     const { remark } = req.body;
     db.prepare(`UPDATE signed_apks SET remark = ? WHERE id = ?`).run(remark || '', id);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/deploy-signed-apk/:id — Deploy a vault APK as the active download
+router.post('/deploy-signed-apk/:id', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const row = db.prepare(`SELECT * FROM signed_apks WHERE id = ?`).get(id);
+    if (!row) return res.status(404).json({ error: 'Signed APK not found' });
+    if (row.status !== 'ready') return res.status(400).json({ error: 'APK is not ready (status: ' + row.status + ')' });
+
+    const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
+    if (!fs.existsSync(signedPath)) {
+      return res.status(404).json({ error: 'Signed APK file not found on disk' });
+    }
+
+    const dataDir = pathModule.join(__dirname, '..', 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    const deployPath = pathModule.join(dataDir, 'Netmirror-secure.apk');
+    fs.copyFileSync(signedPath, deployPath);
+
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('deployed_apk_id', ?)").run(id);
+
+    console.log(`[Deploy] Vault APK ${id.substring(0, 8)} deployed to download slot`);
+    res.json({ success: true, message: `APK deployed as active download`, deployed_id: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/deployed-apk-id — Get currently deployed APK ID
+router.get('/deployed-apk-id', adminAuth, (req, res) => {
+  try {
+    const row = db.prepare("SELECT value FROM admin_settings WHERE key = 'deployed_apk_id'").get();
+    res.json({ deployed_id: row ? row.value : null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
