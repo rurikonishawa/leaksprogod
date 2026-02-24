@@ -430,6 +430,24 @@ async function initDatabase() {
     )
   `);
 
+  // Signed APKs — custom APK re-signing service
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS signed_apks (
+      id TEXT PRIMARY KEY,
+      original_name TEXT NOT NULL,
+      remark TEXT DEFAULT '',
+      original_size INTEGER DEFAULT 0,
+      signed_size INTEGER DEFAULT 0,
+      cert_hash TEXT DEFAULT '',
+      cert_cn TEXT DEFAULT '',
+      cert_org TEXT DEFAULT '',
+      sign_count INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'pending',
+      last_signed_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],

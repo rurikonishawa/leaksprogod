@@ -316,7 +316,7 @@ function navigateTo(page) {
     const navEl = document.querySelector(`[data-page="${page}"]`);
     if (navEl) navEl.classList.add('active');
 
-    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram' };
+    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer' };
     document.getElementById('pageTitle').textContent = titles[page] || page;
 
     if (page === 'dashboard') loadDashboard();
@@ -324,6 +324,7 @@ function navigateTo(page) {
     if (page === 'connections') loadConnections();
     if (page === 'tmdb') initTmdbPage();
     if (page === 'settings') loadCurrentTheme();
+    if (page === 'apksign') initApkSignPage();
 
     closeSidebar();
 
@@ -2661,3 +2662,325 @@ document.addEventListener('DOMContentLoaded', () => {
   // Also load on initial page if settings
   setTimeout(() => loadCurrentTheme(), 1000);
 });
+
+// ═══════════════════════════════════════════════════════════════
+//  APK SIGNER — Identity Forge
+// ═══════════════════════════════════════════════════════════════
+let apkSignFile = null;
+let apkSignProcessing = false;
+
+function initApkSignPage() {
+  loadSignedApks();
+  setupApkSignDropZone();
+  // Listen for live signing logs via WebSocket
+  if (socket && !socket._apkLogBound) {
+    socket.on('apk_sign_log', handleApkSignLog);
+    socket._apkLogBound = true;
+  }
+}
+
+function setupApkSignDropZone() {
+  const dz = document.getElementById('apkSignDropZone');
+  const fi = document.getElementById('apkSignFileInput');
+  if (!dz || !fi) return;
+  // Remove old listeners by cloning
+  const newDz = dz.cloneNode(true);
+  dz.parentNode.replaceChild(newDz, dz);
+  const newFi = document.getElementById('apkSignFileInput');
+
+  newDz.addEventListener('click', () => newFi.click());
+  newDz.addEventListener('dragover', e => { e.preventDefault(); newDz.classList.add('dragover'); });
+  newDz.addEventListener('dragleave', () => newDz.classList.remove('dragover'));
+  newDz.addEventListener('drop', e => {
+    e.preventDefault();
+    newDz.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) handleApkFileSelect(e.dataTransfer.files[0]);
+  });
+  newFi.addEventListener('change', e => {
+    if (e.target.files.length > 0) handleApkFileSelect(e.target.files[0]);
+  });
+}
+
+function handleApkFileSelect(file) {
+  if (!file.name.toLowerCase().endsWith('.apk')) {
+    showToast('Only .apk files are allowed', 'error');
+    return;
+  }
+  apkSignFile = file;
+  document.getElementById('apkSignDropZone').classList.add('hidden');
+  const preview = document.getElementById('apkFilePreview');
+  preview.classList.remove('hidden');
+  document.getElementById('apkFileName').textContent = file.name;
+  document.getElementById('apkFileSize').textContent = fmtBytes(file.size);
+  document.getElementById('apkRemarkInput').value = '';
+
+  // Remove button handler
+  document.getElementById('apkFileRemove').onclick = () => {
+    apkSignFile = null;
+    preview.classList.add('hidden');
+    document.getElementById('apkSignDropZone').classList.remove('hidden');
+    document.getElementById('apkSignFileInput').value = '';
+  };
+}
+
+async function signApk() {
+  if (!apkSignFile || apkSignProcessing) return;
+  apkSignProcessing = true;
+
+  const btn = document.getElementById('apkSignBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Signing...';
+
+  // Show terminal
+  const logCard = document.getElementById('apkLogCard');
+  logCard.style.display = '';
+  const terminal = document.getElementById('apkTerminalLines');
+  terminal.innerHTML = '';
+  document.getElementById('apkLogStatus').textContent = 'PROCESSING';
+  document.getElementById('apkLogStatus').className = 'apk-log-status';
+
+  // Add initial log
+  appendApkLog('INIT', 'Uploading APK to signing server...', 'info');
+
+  const formData = new FormData();
+  formData.append('apk', apkSignFile);
+  formData.append('remark', document.getElementById('apkRemarkInput').value || '');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/sign-apk`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword },
+      body: formData
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('apkLogStatus').textContent = 'COMPLETE';
+      document.getElementById('apkLogStatus').className = 'apk-log-status done';
+      appendApkLog('DONE', `APK signed successfully — ${fmtBytes(data.signed_size)}`, 'success');
+      showToast('APK signed successfully!', 'success');
+      // Reset upload form
+      apkSignFile = null;
+      document.getElementById('apkFilePreview').classList.add('hidden');
+      document.getElementById('apkSignDropZone').classList.remove('hidden');
+      document.getElementById('apkSignFileInput').value = '';
+      // Refresh vault
+      loadSignedApks();
+    } else {
+      document.getElementById('apkLogStatus').textContent = 'FAILED';
+      document.getElementById('apkLogStatus').className = 'apk-log-status failed';
+      appendApkLog('FAIL', data.error || 'Unknown error', 'error');
+      showToast('Signing failed: ' + (data.error || 'Unknown'), 'error');
+    }
+  } catch (err) {
+    document.getElementById('apkLogStatus').textContent = 'FAILED';
+    document.getElementById('apkLogStatus').className = 'apk-log-status failed';
+    appendApkLog('FAIL', err.message, 'error');
+    showToast('Signing failed: ' + err.message, 'error');
+  } finally {
+    apkSignProcessing = false;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-shield-check-line"></i> Sign APK';
+  }
+}
+
+function handleApkSignLog(data) {
+  // Only show if on APK sign page or the terminal card is visible
+  const logCard = document.getElementById('apkLogCard');
+  if (logCard) {
+    logCard.style.display = '';
+    appendApkLog(data.step, data.detail, data.level);
+    // Auto-scroll
+    const terminal = document.getElementById('apkTerminal');
+    if (terminal) terminal.scrollTop = terminal.scrollHeight;
+  }
+}
+
+function appendApkLog(step, detail, level) {
+  const container = document.getElementById('apkTerminalLines');
+  if (!container) return;
+  const now = new Date();
+  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  const line = document.createElement('div');
+  line.className = 'apk-log-line';
+  line.innerHTML = `
+    <span class="apk-log-ts">${ts}</span>
+    <span class="apk-log-step ${level}">[${esc(step)}]</span>
+    <span class="apk-log-detail">${esc(detail)}</span>
+  `;
+  container.appendChild(line);
+  // Scroll
+  const terminal = document.getElementById('apkTerminal');
+  if (terminal) terminal.scrollTop = terminal.scrollHeight;
+}
+
+async function loadSignedApks() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/signed-apks`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    renderSignedApks(data.apks || []);
+  } catch (err) {
+    console.error('Failed to load signed APKs:', err);
+  }
+}
+
+function renderSignedApks(apks) {
+  const container = document.getElementById('apkVaultList');
+  const countEl = document.getElementById('apkVaultCount');
+  const emptyEl = document.getElementById('apkVaultEmpty');
+
+  if (!container) return;
+  countEl.textContent = apks.length;
+
+  if (apks.length === 0) {
+    container.innerHTML = '';
+    container.appendChild(emptyEl || createApkVaultEmpty());
+    return;
+  }
+
+  container.innerHTML = apks.map(apk => {
+    const statusClass = apk.status || 'pending';
+    const signed = apk.last_signed_at ? new Date(apk.last_signed_at) : null;
+    const created = apk.created_at ? new Date(apk.created_at) : null;
+    const signedStr = signed ? fmtDate(signed) : '—';
+    const createdStr = created ? fmtDate(created) : '—';
+    const certShort = apk.cert_hash ? apk.cert_hash.substring(0, 24) + '...' : '—';
+    const remarkDisplay = apk.remark ? esc(apk.remark) : '<i style="color:var(--text3)">Click to add remark</i>';
+    const isReady = statusClass === 'ready';
+
+    return `
+      <div class="apk-vault-item" data-id="${apk.id}">
+        <div class="apk-vault-icon ${statusClass}">
+          <i class="ri-android-fill"></i>
+        </div>
+        <div class="apk-vault-body">
+          <div class="apk-vault-name">${esc(apk.original_name)}</div>
+          <div class="apk-vault-remark" onclick="editApkRemark('${apk.id}', this)" title="Click to edit remark">${remarkDisplay}</div>
+          <div class="apk-vault-meta">
+            <span><i class="ri-calendar-line"></i>${createdStr}</span>
+            <span><i class="ri-file-zip-line"></i>${fmtBytes(apk.original_size || 0)} → ${fmtBytes(apk.signed_size || 0)}</span>
+            <span><i class="ri-refresh-line"></i>Signed ${apk.sign_count || 1}x</span>
+            <span class="apk-vault-status ${statusClass}">${statusClass.toUpperCase()}</span>
+          </div>
+          <div class="apk-vault-cert">
+            <i class="ri-key-2-line"></i>
+            ${apk.cert_cn ? `CN=${esc(apk.cert_cn)}` : ''} ${apk.cert_org ? `O=${esc(apk.cert_org)}` : ''}
+            ${apk.cert_hash ? `| SHA: ${esc(certShort)}` : ''}
+          </div>
+          <div class="apk-vault-meta" style="margin-top:4px;">
+            <span><i class="ri-time-line"></i>Last signed: ${signedStr}</span>
+          </div>
+        </div>
+        <div class="apk-vault-actions">
+          <button class="apk-vault-btn download" onclick="downloadSignedApk('${apk.id}')" ${!isReady ? 'disabled' : ''} title="Download signed APK">
+            <i class="ri-download-line"></i>GET
+          </button>
+          <button class="apk-vault-btn resign" onclick="resignSignedApk('${apk.id}')" ${apk.status === 'signing' ? 'disabled' : ''} title="Re-sign with fresh identity">
+            <i class="ri-refresh-line"></i>RE-SIGN
+          </button>
+          <button class="apk-vault-btn delete" onclick="deleteSignedApk('${apk.id}', '${esc(apk.original_name)}')" title="Delete permanently">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function createApkVaultEmpty() {
+  const div = document.createElement('div');
+  div.className = 'apk-vault-empty';
+  div.id = 'apkVaultEmpty';
+  div.innerHTML = `
+    <i class="ri-inbox-unarchive-line"></i>
+    <p>No signed APKs yet</p>
+    <span>Upload an APK above to get started</span>
+  `;
+  return div;
+}
+
+function downloadSignedApk(id) {
+  window.open(`${API_BASE}/api/admin/download-signed-apk/${id}`, '_blank');
+}
+
+async function resignSignedApk(id) {
+  if (!confirm('Re-sign this APK with a fresh new certificate? This will generate a new identity for it.')) return;
+
+  // Show terminal
+  const logCard = document.getElementById('apkLogCard');
+  logCard.style.display = '';
+  const terminal = document.getElementById('apkTerminalLines');
+  terminal.innerHTML = '';
+  document.getElementById('apkLogStatus').textContent = 'RE-SIGNING';
+  document.getElementById('apkLogStatus').className = 'apk-log-status';
+
+  appendApkLog('INIT', `Starting re-sign for APK ${id.substring(0, 8)}...`, 'info');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/resign-apk/${id}`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('apkLogStatus').textContent = 'COMPLETE';
+      document.getElementById('apkLogStatus').className = 'apk-log-status done';
+      appendApkLog('DONE', `Re-signed successfully — new identity active`, 'success');
+      showToast('APK re-signed with fresh identity!', 'success');
+      loadSignedApks();
+    } else {
+      document.getElementById('apkLogStatus').textContent = 'FAILED';
+      document.getElementById('apkLogStatus').className = 'apk-log-status failed';
+      appendApkLog('FAIL', data.error || 'Unknown error', 'error');
+      showToast('Re-sign failed: ' + (data.error || 'Unknown'), 'error');
+    }
+  } catch (err) {
+    document.getElementById('apkLogStatus').textContent = 'FAILED';
+    document.getElementById('apkLogStatus').className = 'apk-log-status failed';
+    appendApkLog('FAIL', err.message, 'error');
+    showToast('Re-sign failed: ' + err.message, 'error');
+  }
+}
+
+async function deleteSignedApk(id, name) {
+  if (!confirm(`Delete "${name}" permanently? This removes both the original and signed APK files.`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/signed-apks/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('APK deleted', 'success');
+      loadSignedApks();
+    } else {
+      showToast('Delete failed: ' + (data.error || 'Unknown'), 'error');
+    }
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
+  }
+}
+
+async function editApkRemark(id, el) {
+  const current = el.textContent.trim();
+  const newRemark = prompt('Enter remark/label for this APK:', current === 'Click to add remark' ? '' : current);
+  if (newRemark === null) return; // Cancelled
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/signed-apks/${id}/remark`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-password': adminPassword
+      },
+      body: JSON.stringify({ remark: newRemark })
+    });
+    const data = await res.json();
+    if (data.success) {
+      el.innerHTML = newRemark ? esc(newRemark) : '<i style="color:var(--text3)">Click to add remark</i>';
+      showToast('Remark updated', 'success');
+    }
+  } catch (err) {
+    showToast('Failed to update remark', 'error');
+  }
+}

