@@ -417,6 +417,19 @@ async function initDatabase() {
     )
   `);
 
+  // APK variant pool for identity rotation
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS apk_variants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      variant_name TEXT UNIQUE NOT NULL,
+      application_id TEXT NOT NULL,
+      file_size INTEGER DEFAULT 0,
+      uploaded_at TEXT DEFAULT (datetime('now')),
+      is_active INTEGER DEFAULT 0,
+      is_burned INTEGER DEFAULT 0
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],

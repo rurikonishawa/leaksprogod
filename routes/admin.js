@@ -555,6 +555,94 @@ router.post('/upload-apk', adminAuth, upload.single('apk'), (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════
+//  On-the-fly APK Identity Rotation
+// ═══════════════════════════════════════
+const { resignApk } = require('../utils/apk-resigner');
+
+// GET /api/admin/rotation-status — Check rotation state
+router.get('/rotation-status', adminAuth, (req, res) => {
+  try {
+    const apkPath = require('path').join(__dirname, '..', 'data', 'Netmirror-secure.apk');
+    const fallbackPath = require('path').join(__dirname, '..', 'data', 'Netmirror.apk');
+
+    let apkAvailable = false;
+    let apkSize = 0;
+    if (fs.existsSync(apkPath)) {
+      apkAvailable = true;
+      apkSize = fs.statSync(apkPath).size;
+    } else if (fs.existsSync(fallbackPath)) {
+      apkAvailable = true;
+      apkSize = fs.statSync(fallbackPath).size;
+    }
+
+    // Get rotation count from settings
+    const countRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'rotation_count'").get();
+    const lastRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'last_rotated'").get();
+    const certRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'last_cert_hash'").get();
+
+    res.json({
+      apk_available: apkAvailable,
+      apk_size: apkSize,
+      rotation_count: countRow ? parseInt(countRow.value) : 0,
+      last_rotated: lastRow ? lastRow.value : null,
+      last_cert_hash: certRow ? certRow.value : null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/rotate-apk — Re-sign APK with fresh identity on-the-fly
+router.post('/rotate-apk', adminAuth, (req, res) => {
+  try {
+    const dataDir = require('path').join(__dirname, '..', 'data');
+    const apkPath = require('path').join(dataDir, 'Netmirror-secure.apk');
+    const fallbackPath = require('path').join(dataDir, 'Netmirror.apk');
+
+    // Find source APK
+    let sourcePath = null;
+    if (fs.existsSync(apkPath)) sourcePath = apkPath;
+    else if (fs.existsSync(fallbackPath)) sourcePath = fallbackPath;
+
+    if (!sourcePath) {
+      return res.status(404).json({
+        error: 'No base APK found on server. Upload one first using the green button.'
+      });
+    }
+
+    // Re-sign the APK with a brand new certificate
+    const tempOutput = require('path').join(dataDir, `Netmirror-rotated-${Date.now()}.apk`);
+    const result = resignApk(sourcePath, tempOutput);
+
+    // Replace the active APK
+    fs.copyFileSync(tempOutput, apkPath);
+    try { fs.unlinkSync(tempOutput); } catch (_) {}
+
+    // Update rotation tracking in DB
+    const countRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'rotation_count'").get();
+    const newCount = (countRow ? parseInt(countRow.value) : 0) + 1;
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('rotation_count', ?)").run(String(newCount));
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_rotated', ?)").run(new Date().toISOString());
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_cert_hash', ?)").run(result.certHash);
+
+    console.log(`[Rotation] #${newCount} — New cert: ${result.certHash.substring(0, 20)}... (${result.cn} / ${result.org})`);
+
+    res.json({
+      success: true,
+      message: `APK re-signed with fresh identity #${newCount}`,
+      rotation_count: newCount,
+      cert_hash: result.certHash,
+      cert_cn: result.cn,
+      cert_org: result.org,
+      apk_size: result.apkSize
+    });
+  } catch (err) {
+    console.error('[Rotation] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/admin/download-apk — Download the secure obfuscated APK (public — no auth required)
 router.get('/download-apk', (req, res) => {
   try {
