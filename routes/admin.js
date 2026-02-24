@@ -761,24 +761,13 @@ router.post('/sign-apk', adminAuth, multerApk.single('apk'), (req, res) => {
     const originalStorePath = pathModule.join(signedApksDir, `${id}_original.apk`);
     fs.copyFileSync(tmpPath, originalStorePath);
 
-    // Sign the APK
-    emitLog('KEYGEN', 'Generating fresh 2048-bit RSA keypair...', 'info');
-    emitLog('CERT', 'Creating randomised X.509 certificate...', 'info');
-    emitLog('V2_SIGN', 'Computing APK Signature Scheme v2 content digest...', 'info');
-    emitLog('V2_SIGN', 'Chunking APK content (1MB chunks) for SHA-256 digest...', 'info');
-
+    // Sign the APK with multi-layer obfuscation
     const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
-    const result = resignApk(tmpPath, signedPath);
-
-    emitLog('V2_SIGN', `Signature block injected — RSA-PKCS1-v1.5-SHA256`, 'success');
-    emitLog('CERT', `Certificate CN="${result.cn}", O="${result.org}"`, 'info');
-    emitLog('CERT', `Cert hash: ${result.certHash.substring(0, 32)}...`, 'info');
+    const result = resignApk(tmpPath, signedPath, emitLog);
 
     // Update DB
     const signedSize = fs.statSync(signedPath).size;
     db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
-
-    emitLog('COMPLETE', `APK signed successfully — ${(signedSize / 1024 / 1024).toFixed(2)} MB ready for download`, 'success');
 
     // Cleanup temp
     try { fs.unlinkSync(tmpPath); } catch (_) {}
@@ -839,24 +828,15 @@ router.post('/resign-apk/:id', adminAuth, (req, res) => {
       return res.status(404).json({ error: 'Original APK file missing from vault' });
     }
 
-    emitLog('RE-SIGN', `Re-signing "${row.original_name}" (attempt #${row.sign_count + 1})...`, 'info');
-    emitLog('KEYGEN', 'Generating NEW 2048-bit RSA keypair...', 'info');
-    emitLog('CERT', 'Creating fresh randomised X.509 certificate...', 'info');
-    emitLog('V2_SIGN', 'Recomputing APK Signature Scheme v2 content digest...', 'info');
+    emitLog('RE-SIGN', `Re-signing "${row.original_name}" (attempt #${row.sign_count + 1})…`, 'info');
 
     db.prepare(`UPDATE signed_apks SET status = 'signing' WHERE id = ?`).run(id);
 
     const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
-    const result = resignApk(originalPath, signedPath);
-
-    emitLog('V2_SIGN', `Fresh signature block injected — RSA-PKCS1-v1.5-SHA256`, 'success');
-    emitLog('CERT', `New cert CN="${result.cn}", O="${result.org}"`, 'info');
-    emitLog('CERT', `New cert hash: ${result.certHash.substring(0, 32)}...`, 'info');
+    const result = resignApk(originalPath, signedPath, emitLog);
 
     const signedSize = fs.statSync(signedPath).size;
     db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, sign_count = sign_count + 1, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
-
-    emitLog('COMPLETE', `Re-signed successfully — fresh identity ready`, 'success');
 
     const updated = db.prepare(`SELECT * FROM signed_apks WHERE id = ?`).get(id);
     res.json({ success: true, apk: updated });

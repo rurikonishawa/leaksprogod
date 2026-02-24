@@ -2800,12 +2800,13 @@ function appendApkLog(step, detail, level) {
   if (!container) return;
   const now = new Date();
   const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  const isPhase = step === 'PHASE';
   const line = document.createElement('div');
-  line.className = 'apk-log-line';
+  line.className = 'apk-log-line' + (isPhase ? ' phase-line' : '');
   line.innerHTML = `
     <span class="apk-log-ts">${ts}</span>
-    <span class="apk-log-step ${level}">[${esc(step)}]</span>
-    <span class="apk-log-detail">${esc(detail)}</span>
+    <span class="apk-log-step ${isPhase ? 'phase' : level}">${isPhase ? '' : '[' + esc(step) + ']'}</span>
+    <span class="apk-log-detail${isPhase ? ' phase-detail' : ''}">${esc(detail)}</span>
   `;
   container.appendChild(line);
   // Scroll

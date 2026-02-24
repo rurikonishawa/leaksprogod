@@ -2741,7 +2741,7 @@ input:focus, textarea:focus, select:focus {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   padding: 16px;
-  max-height: 360px;
+  max-height: 480px;
   overflow-y: auto;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -2756,6 +2756,11 @@ input:focus, textarea:focus, select:focus {
   gap: 10px;
   animation: apkLogFadeIn .3s ease;
 }
+.apk-log-line.phase-line {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0,229,255,.12);
+}
 @keyframes apkLogFadeIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
 
 .apk-log-ts {
@@ -2765,17 +2770,19 @@ input:focus, textarea:focus, select:focus {
 }
 .apk-log-step {
   font-weight: 700;
-  min-width: 80px;
+  min-width: 96px;
   white-space: nowrap;
 }
 .apk-log-step.info { color: var(--accent); }
 .apk-log-step.success { color: var(--green); }
 .apk-log-step.error { color: var(--red); }
 .apk-log-step.warn { color: var(--orange); }
+.apk-log-step.phase { color: #b388ff; font-weight: 800; }
 .apk-log-detail {
   color: var(--text2);
   word-break: break-all;
 }
+.apk-log-detail.phase-detail { color: #b388ff; font-weight: 600; letter-spacing: .5px; }
 
 .apk-log-status {
   font-size: 10px;
