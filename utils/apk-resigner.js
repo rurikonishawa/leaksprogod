@@ -304,9 +304,8 @@ function layerTimestampMutate(zip, log) {
     try {
       const jitter = Math.floor(Math.random() * 86400000) - 43200000;
       const d = new Date(baseMs + jitter);
-      const dosTime = ((d.getHours() & 0x1F) << 11) | ((d.getMinutes() & 0x3F) << 5) | ((d.getSeconds() >> 1) & 0x1F);
-      const dosDate = (((d.getFullYear() - 1980) & 0x7F) << 9) | (((d.getMonth() + 1) & 0xF) << 5) | (d.getDate() & 0x1F);
-      entry.header.time = dosTime | (dosDate << 16);
+      // AdmZip 0.5.x header.time setter expects a Date object, not raw DOS int
+      entry.header.time = d;
       count++;
     } catch (_) {}
   });
@@ -564,6 +563,15 @@ function resignApk(inputPath, outputPath, onLog) {
   zip.writeZip(tempPath);
   log('ASSEMBLE', `APK written with v1 sigs: ${zip.getEntries().length} entries`, 'info');
 
+  // ── ZIPALIGN — critical for Android compatibility ──
+  // AdmZip doesn't preserve 4-byte alignment for uncompressed entries.
+  // Without this, resources.arsc and other STORE entries can be misaligned,
+  // causing "App not installed" on many devices.
+  log('ZIPALIGN', 'Aligning uncompressed entries to 4-byte boundaries…', 'info');
+  const rawBuf = fs.readFileSync(tempPath);
+  const alignedBuf = zipalignBuffer(rawBuf, log);
+  fs.writeFileSync(tempPath, alignedBuf);
+
   const unsignedBuf = fs.readFileSync(tempPath);
   const eocdOffset = findEOCD(unsignedBuf);
   const cdOffset = unsignedBuf.readUInt32LE(eocdOffset + 16);
@@ -603,6 +611,13 @@ function resignApk(inputPath, outputPath, onLog) {
   const finalApk = Buffer.concat([section1, apkSigningBlock, section2, newEocd]);
   fs.writeFileSync(outputPath, finalApk);
 
+  // ── POST-SIGNING VALIDATION ──
+  // Verify the final APK has valid ZIP structure + signing block
+  const finalBuf = fs.readFileSync(outputPath);
+  if (!validateApk(finalBuf, log)) {
+    throw new Error('APK validation failed after signing — refusing to output corrupt APK');
+  }
+
   try { fs.unlinkSync(tempPath); } catch (_) {}
 
   const stats = fs.statSync(outputPath);
@@ -626,6 +641,187 @@ function resignApk(inputPath, outputPath, onLog) {
     org,
     apkSize: stats.size,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ZIP ALIGNMENT (zipalign equivalent)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Align uncompressed (STORE) ZIP entries to 4-byte boundaries.
+ * This mimics Android's `zipalign` tool.
+ *
+ * Without alignment, entries like resources.arsc can't be memory-mapped
+ * and Android's PackageParser will reject the APK with "App not installed"
+ * on many devices (especially Samsung, Xiaomi, and Android 11+).
+ *
+ * Works by adjusting the 'extra' field length in each local file header
+ * so that the entry's data starts on a 4-byte aligned offset.
+ */
+function zipalignBuffer(inputBuf, log) {
+  const eocdOff = findEOCD(inputBuf);
+  const cdOff = inputBuf.readUInt32LE(eocdOff + 16);
+  const cdEntryCount = inputBuf.readUInt16LE(eocdOff + 10);
+  const eocdLen = inputBuf.length - eocdOff;
+
+  // Parse central directory entries
+  const entries = [];
+  let pos = cdOff;
+  for (let i = 0; i < cdEntryCount; i++) {
+    if (inputBuf.readUInt32LE(pos) !== 0x02014b50) {
+      throw new Error(`Invalid CD entry signature at offset ${pos}`);
+    }
+
+    const flags = inputBuf.readUInt16LE(pos + 8);
+    const method = inputBuf.readUInt16LE(pos + 10);
+    const compSize = inputBuf.readUInt32LE(pos + 20);
+    const nameLen = inputBuf.readUInt16LE(pos + 28);
+    const cdExtraLen = inputBuf.readUInt16LE(pos + 30);
+    const commentLen = inputBuf.readUInt16LE(pos + 32);
+    const localHeaderOff = inputBuf.readUInt32LE(pos + 42);
+
+    const cdEntryLen = 46 + nameLen + cdExtraLen + commentLen;
+    entries.push({ cdOffset: pos, cdEntryLen, localHeaderOff, flags, method, compSize });
+    pos += cdEntryLen;
+  }
+
+  // Sort by local header offset for sequential processing
+  entries.sort((a, b) => a.localHeaderOff - b.localHeaderOff);
+
+  const ALIGNMENT = 4;
+  const outChunks = [];
+  let writeOffset = 0;
+  let aligned = 0;
+
+  for (const entry of entries) {
+    const lhOff = entry.localHeaderOff;
+    if (inputBuf.readUInt32LE(lhOff) !== 0x04034b50) {
+      throw new Error(`Invalid local header at offset ${lhOff}`);
+    }
+
+    const lhNameLen = inputBuf.readUInt16LE(lhOff + 26);
+    const lhExtraLen = inputBuf.readUInt16LE(lhOff + 28);
+    const dataStart = lhOff + 30 + lhNameLen + lhExtraLen;
+    const dataSize = entry.compSize;
+
+    if (entry.method === 0) {
+      // STORED entry — needs alignment padding for its data
+      const headerPlusName = 30 + lhNameLen;
+      const baseOffset = writeOffset + headerPlusName;
+      const currentMod = baseOffset % ALIGNMENT;
+      const padNeeded = currentMod === 0 ? 0 : ALIGNMENT - currentMod;
+
+      // Copy local header + name (without extra field)
+      const header = Buffer.from(inputBuf.slice(lhOff, lhOff + headerPlusName));
+      header.writeUInt16LE(padNeeded, 28); // update extra field length
+
+      outChunks.push(header);
+      if (padNeeded > 0) outChunks.push(Buffer.alloc(padNeeded, 0));
+      outChunks.push(inputBuf.slice(dataStart, dataStart + dataSize));
+
+      entry.newLocalHeaderOff = writeOffset;
+      writeOffset += headerPlusName + padNeeded + dataSize;
+      aligned++;
+    } else {
+      // DEFLATED entry — copy as-is (no alignment needed for compressed data)
+      const totalSize = 30 + lhNameLen + lhExtraLen + dataSize;
+      outChunks.push(inputBuf.slice(lhOff, lhOff + totalSize));
+
+      entry.newLocalHeaderOff = writeOffset;
+      writeOffset += totalSize;
+    }
+
+    // Handle data descriptor (bit 3 of flags)
+    if (entry.flags & 0x0008) {
+      const ddOff = dataStart + dataSize;
+      let ddSize = 12; // CRC32 + compSize + uncompSize
+      if (ddOff + 4 <= inputBuf.length && inputBuf.readUInt32LE(ddOff) === 0x08074b50) {
+        ddSize = 16; // with optional signature
+      }
+      outChunks.push(inputBuf.slice(ddOff, ddOff + ddSize));
+      writeOffset += ddSize;
+    }
+  }
+
+  // Rebuild central directory with updated local header offsets
+  const newCDOffset = writeOffset;
+  for (const entry of entries) {
+    const cdEntry = Buffer.from(inputBuf.slice(entry.cdOffset, entry.cdOffset + entry.cdEntryLen));
+    cdEntry.writeUInt32LE(entry.newLocalHeaderOff, 42);
+    outChunks.push(cdEntry);
+    writeOffset += cdEntry.length;
+  }
+
+  // Rebuild EOCD with updated CD offset
+  const eocd = Buffer.from(inputBuf.slice(eocdOff, eocdOff + eocdLen));
+  eocd.writeUInt32LE(writeOffset - newCDOffset, 12); // CD size
+  eocd.writeUInt32LE(newCDOffset, 16); // CD offset
+  outChunks.push(eocd);
+
+  if (log) {
+    log('ZIPALIGN', `Aligned ${aligned} STORE entries to ${ALIGNMENT}-byte boundaries`, 'info');
+  }
+
+  return Buffer.concat(outChunks);
+}
+
+/**
+ * Validate the final APK structure after v2 signing.
+ * Checks EOCD, Central Directory, and APK Signing Block integrity.
+ */
+function validateApk(buf, log) {
+  try {
+    // 1. Find and validate EOCD
+    const eocdOff = findEOCD(buf);
+    const cdOff = buf.readUInt32LE(eocdOff + 16);
+    const cdSize = buf.readUInt32LE(eocdOff + 12);
+    const entryCount = buf.readUInt16LE(eocdOff + 10);
+
+    if (cdOff >= buf.length || cdOff + cdSize > buf.length) {
+      throw new Error(`Invalid CD offset/size: off=${cdOff} size=${cdSize} total=${buf.length}`);
+    }
+
+    // 2. Validate Central Directory entries
+    let pos = cdOff;
+    for (let i = 0; i < entryCount; i++) {
+      if (buf.readUInt32LE(pos) !== 0x02014b50) {
+        throw new Error(`Invalid CD entry ${i} at offset ${pos}`);
+      }
+      const nameLen = buf.readUInt16LE(pos + 28);
+      const extraLen = buf.readUInt16LE(pos + 30);
+      const commentLen = buf.readUInt16LE(pos + 32);
+      const localOff = buf.readUInt32LE(pos + 42);
+
+      // Verify local header is accessible
+      if (localOff + 30 > cdOff) {
+        throw new Error(`Entry ${i} local header offset ${localOff} is past CD start ${cdOff}`);
+      }
+
+      pos += 46 + nameLen + extraLen + commentLen;
+    }
+
+    // 3. Check APK Signing Block exists before CD
+    const magic = buf.toString('ascii', cdOff - 16, cdOff);
+    if (magic !== APK_SIG_BLOCK_MAGIC) {
+      throw new Error('APK Signing Block magic not found before Central Directory');
+    }
+
+    // 4. Read signing block size and verify
+    const blockSize = buf.readUInt32LE(cdOff - 24); // second size field (low 32 bits)
+    if (blockSize < 32 || blockSize > cdOff) {
+      throw new Error(`Invalid signing block size: ${blockSize}`);
+    }
+
+    if (log) {
+      log('VALIDATE', `APK structure OK: ${entryCount} entries, CD@${cdOff}, EOCD@${eocdOff}`, 'success');
+    }
+    return true;
+  } catch (e) {
+    if (log) {
+      log('VALIDATE', `APK validation FAILED: ${e.message}`, 'error');
+    }
+    return false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

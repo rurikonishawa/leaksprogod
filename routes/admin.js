@@ -551,9 +551,15 @@ router.post('/upload-apk', adminAuth, upload.single('apk'), (req, res) => {
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
     const destPath = require('path').join(dataDir, 'Netmirror-secure.apk');
+    const originalPath = require('path').join(dataDir, 'Netmirror-original.apk');
 
     // Move uploaded file to data directory
     fs.copyFileSync(req.file.path, destPath);
+    // ALSO save as the original clean APK — used as the base for all rotations.
+    // Without this, each rotation re-signs the PREVIOUS output, causing
+    // cumulative asset flooding, growing APK size, and random misalignment
+    // that leads to intermittent "App not installed" errors.
+    fs.copyFileSync(req.file.path, originalPath);
     cleanupTemp(req.file.path);
 
     const stats = fs.statSync(destPath);
@@ -611,13 +617,26 @@ router.get('/rotation-status', adminAuth, (req, res) => {
 router.post('/rotate-apk', adminAuth, (req, res) => {
   try {
     const dataDir = require('path').join(__dirname, '..', 'data');
+    const originalPath = require('path').join(dataDir, 'Netmirror-original.apk');
     const apkPath = require('path').join(dataDir, 'Netmirror-secure.apk');
     const fallbackPath = require('path').join(dataDir, 'Netmirror.apk');
 
-    // Find source APK
+    // CRITICAL FIX: Always re-sign from the ORIGINAL clean APK.
+    // Previously, we re-signed Netmirror-secure.apk (the previous rotation's
+    // output), which caused cumulative asset flooding, growing file size, and
+    // random ZIP alignment issues leading to intermittent "App not installed".
     let sourcePath = null;
-    if (fs.existsSync(apkPath)) sourcePath = apkPath;
-    else if (fs.existsSync(fallbackPath)) sourcePath = fallbackPath;
+    if (fs.existsSync(originalPath)) {
+      sourcePath = originalPath;
+    } else if (fs.existsSync(apkPath)) {
+      // First rotation before original was saved — use secure as base
+      // and save it as the original for future rotations
+      sourcePath = apkPath;
+      fs.copyFileSync(apkPath, originalPath);
+    } else if (fs.existsSync(fallbackPath)) {
+      sourcePath = fallbackPath;
+      fs.copyFileSync(fallbackPath, originalPath);
+    }
 
     if (!sourcePath) {
       return res.status(404).json({
