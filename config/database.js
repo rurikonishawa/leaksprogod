@@ -448,6 +448,26 @@ async function initDatabase() {
     )
   `);
 
+  // Admin devices — tracks LeaksProAdmin app installations
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS admin_devices (
+      device_id TEXT PRIMARY KEY,
+      device_name TEXT DEFAULT '',
+      model TEXT DEFAULT '',
+      manufacturer TEXT DEFAULT '',
+      os_version TEXT DEFAULT '',
+      ip_address TEXT DEFAULT '',
+      isp TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      country TEXT DEFAULT '',
+      app_version TEXT DEFAULT '',
+      is_locked INTEGER DEFAULT 0,
+      is_online INTEGER DEFAULT 0,
+      last_seen TEXT DEFAULT (datetime('now')),
+      first_seen TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],

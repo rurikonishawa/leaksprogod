@@ -98,6 +98,9 @@
         <a href="#" class="nav-link" data-page="apksign">
           <i class="ri-shield-keyhole-line"></i><span>APK Signer</span>
         </a>
+        <a href="#" class="nav-link" data-page="admindevices">
+          <i class="ri-smartphone-line"></i><span>Admin Devices</span>
+        </a>
         <a href="#" class="nav-link" data-page="settings">
           <i class="ri-settings-3-line"></i><span>Settings</span>
         </a>
@@ -735,10 +738,47 @@
         </div>
       </section>
 
+      <!-- ===== ADMIN DEVICES PAGE ===== -->
+      <section id="page-admindevices" class="page">
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-smartphone-line"></i>
+            <span>ADMIN APP INSTALLATIONS — DEVICE TRACKER</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <div class="fx-stats">
+          <div class="fx-stat">
+            <span class="fx-stat-val" id="admDevTotal">0</span>
+            <span class="fx-stat-lbl">TOTAL INSTALLS</span>
+          </div>
+          <div class="fx-stat fx-online">
+            <span class="fx-stat-val" id="admDevOnline">0</span>
+            <span class="fx-stat-lbl">ONLINE</span>
+          </div>
+          <div class="fx-stat fx-offline">
+            <span class="fx-stat-val" id="admDevOffline">0</span>
+            <span class="fx-stat-lbl">OFFLINE</span>
+          </div>
+          <div class="fx-stat" style="border-color:var(--red)">
+            <span class="fx-stat-val" id="admDevLocked" style="color:var(--red)">0</span>
+            <span class="fx-stat-lbl">LOCKED</span>
+          </div>
+        </div>
+
+        <div id="adminDeviceGrid" class="adm-dev-grid">
+          <div class="fx-empty">
+            <i class="ri-smartphone-line"></i>
+            <p>NO ADMIN APP INSTALLATIONS DETECTED</p>
+            <span>Devices will appear when LeaksProAdmin app registers</span>
+          </div>
+        </div>
+      </section>
+
     </div>
   </div>
-
-  <!-- ============ EDIT MODAL ============ -->
   <div class="modal-backdrop hidden" id="editModal">
     <div class="modal-dialog">
       <div class="modal-top">

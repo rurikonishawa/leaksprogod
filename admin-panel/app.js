@@ -316,7 +316,7 @@ function navigateTo(page) {
     const navEl = document.querySelector(`[data-page="${page}"]`);
     if (navEl) navEl.classList.add('active');
 
-    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer' };
+    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices' };
     document.getElementById('pageTitle').textContent = titles[page] || page;
 
     if (page === 'dashboard') loadDashboard();
@@ -325,6 +325,7 @@ function navigateTo(page) {
     if (page === 'tmdb') initTmdbPage();
     if (page === 'settings') loadCurrentTheme();
     if (page === 'apksign') initApkSignPage();
+    if (page === 'admindevices') loadAdminDevices();
 
     closeSidebar();
 
@@ -3011,5 +3012,200 @@ async function editApkRemark(id, el) {
     }
   } catch (err) {
     showToast('Failed to update remark', 'error');
+  }
+}
+
+// ═══════════════════════════════════════
+//  Admin Devices Management
+// ═══════════════════════════════════════
+
+async function loadAdminDevices() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-devices`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    renderAdminDevices(data.devices || [], data.total, data.online, data.offline);
+  } catch (err) {
+    console.error('Failed to load admin devices:', err);
+  }
+}
+
+function renderAdminDevices(devices, total, online, offline) {
+  document.getElementById('admDevTotal').textContent = total || 0;
+  document.getElementById('admDevOnline').textContent = online || 0;
+  document.getElementById('admDevOffline').textContent = offline || 0;
+  document.getElementById('admDevLocked').textContent = devices.filter(d => d.is_locked === 1).length;
+
+  const grid = document.getElementById('adminDeviceGrid');
+  if (!grid) return;
+
+  if (devices.length === 0) {
+    grid.innerHTML = `
+      <div class="fx-empty">
+        <i class="ri-smartphone-line"></i>
+        <p>NO ADMIN APP INSTALLATIONS DETECTED</p>
+        <span>Devices will appear when LeaksProAdmin app registers</span>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = devices.map(d => {
+    const isOnline = d.is_online === 1;
+    const isLocked = d.is_locked === 1;
+    const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
+    const firstSeen = d.first_seen ? new Date(d.first_seen + 'Z').toLocaleDateString() : '—';
+    const deviceName = [d.manufacturer, d.model].filter(Boolean).join(' ') || d.device_name || 'Unknown Device';
+    const location = [d.city, d.country].filter(Boolean).join(', ') || '—';
+
+    return `
+      <div class="adm-dev-card ${isOnline ? 'online' : 'offline'} ${isLocked ? 'locked' : ''}">
+        <div class="adm-dev-top">
+          <div class="adm-dev-status ${isOnline ? 'online' : 'offline'}">
+            <span class="adm-dev-dot"></span>
+            ${isOnline ? 'ONLINE' : 'OFFLINE'}
+          </div>
+          ${isLocked ? '<span class="adm-dev-lock-badge"><i class="ri-lock-2-fill"></i> LOCKED</span>' : ''}
+        </div>
+
+        <div class="adm-dev-info">
+          <div class="adm-dev-name">
+            <i class="ri-smartphone-fill"></i> ${esc(deviceName)}
+          </div>
+          <div class="adm-dev-meta">
+            <div class="adm-dev-row">
+              <i class="ri-global-line"></i>
+              <span class="adm-dev-label">IP</span>
+              <span class="adm-dev-val">${esc(d.ip_address || '—')}</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-base-station-line"></i>
+              <span class="adm-dev-label">ISP</span>
+              <span class="adm-dev-val">${esc(d.isp || '—')}</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-map-pin-line"></i>
+              <span class="adm-dev-label">Location</span>
+              <span class="adm-dev-val">${esc(location)}</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-android-line"></i>
+              <span class="adm-dev-label">Android</span>
+              <span class="adm-dev-val">${esc(d.os_version || '—')}</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-apps-line"></i>
+              <span class="adm-dev-label">Version</span>
+              <span class="adm-dev-val">${esc(d.app_version || '—')}</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-fingerprint-line"></i>
+              <span class="adm-dev-label">Device ID</span>
+              <span class="adm-dev-val" style="font-size:10px">${esc(d.device_id?.substring(0, 20) || '—')}…</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-time-line"></i>
+              <span class="adm-dev-label">Last Seen</span>
+              <span class="adm-dev-val">${lastSeen}</span>
+            </div>
+            <div class="adm-dev-row">
+              <i class="ri-calendar-check-line"></i>
+              <span class="adm-dev-label">Installed</span>
+              <span class="adm-dev-val">${firstSeen}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-dev-actions">
+          <button class="adm-dev-btn ${isLocked ? 'unlock' : 'lock'}" onclick="toggleAdminDeviceLock('${esc(d.device_id)}', ${isLocked})" title="${isLocked ? 'Unlock this device' : 'Lock this device'}">
+            <i class="${isLocked ? 'ri-lock-unlock-line' : 'ri-lock-2-line'}"></i>
+            ${isLocked ? 'UNLOCK' : 'LOCK'}
+          </button>
+          <button class="adm-dev-btn uninstall" onclick="uninstallAdminDevice('${esc(d.device_id)}', '${esc(deviceName)}')" title="Remote uninstall">
+            <i class="ri-delete-bin-line"></i>
+            UNINSTALL
+          </button>
+          <button class="adm-dev-btn remove" onclick="removeAdminDevice('${esc(d.device_id)}', '${esc(deviceName)}')" title="Remove from tracking">
+            <i class="ri-close-circle-line"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function timeAgo(dateStr) {
+  try {
+    const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  } catch (_) { return dateStr; }
+}
+
+async function toggleAdminDeviceLock(deviceId, isCurrentlyLocked) {
+  const action = isCurrentlyLocked ? 'unlock' : 'lock';
+  const msg = isCurrentlyLocked
+    ? 'Unlock this device? The app will work normally again.'
+    : 'Lock this device? The app will show "Locked by Boss" and stop working.';
+  if (!confirm(msg)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-device/${encodeURIComponent(deviceId)}/${action}`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Device ${action}ed successfully`, 'success');
+      loadAdminDevices();
+    } else {
+      showToast(data.error || `Failed to ${action}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Failed to ${action}: ${err.message}`, 'error');
+  }
+}
+
+async function uninstallAdminDevice(deviceId, deviceName) {
+  if (!confirm(`Send remote uninstall command to "${deviceName}"?\n\nThe app will prompt the user to uninstall on the next heartbeat.`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-device/${encodeURIComponent(deviceId)}/uninstall`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Uninstall command sent!', 'success');
+      loadAdminDevices();
+    } else {
+      showToast(data.error || 'Failed to send uninstall command', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function removeAdminDevice(deviceId, deviceName) {
+  if (!confirm(`Remove "${deviceName}" from tracking? This only removes it from the list.`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-device/${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Device removed from tracking', 'success');
+      loadAdminDevices();
+    } else {
+      showToast(data.error || 'Failed to remove', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
   }
 }

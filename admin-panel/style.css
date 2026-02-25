@@ -3028,3 +3028,216 @@ input:focus, textarea:focus, select:focus {
     justify-content: flex-start;
   }
 }
+
+/* ═══════════════════════════════════════
+   Admin Devices Section
+   ═══════════════════════════════════════ */
+
+.adm-dev-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.adm-dev-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px;
+  transition: all var(--ease);
+  position: relative;
+  overflow: hidden;
+}
+.adm-dev-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--text3);
+  transition: background var(--ease);
+}
+.adm-dev-card.online::before { background: var(--green); }
+.adm-dev-card.offline::before { background: var(--text3); }
+.adm-dev-card.locked::before { background: var(--red); }
+.adm-dev-card.locked { border-color: rgba(255,23,68,.25); }
+
+.adm-dev-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0,0,0,.3);
+}
+
+.adm-dev-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.adm-dev-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.adm-dev-status.online { color: var(--green); }
+.adm-dev-status.offline { color: var(--text3); }
+
+.adm-dev-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text3);
+}
+.adm-dev-status.online .adm-dev-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: apkStatusPulse 2s infinite;
+}
+
+.adm-dev-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  border-radius: 3px;
+  background: rgba(255,23,68,.15);
+  color: var(--red);
+  animation: apkStatusPulse 1.5s infinite;
+}
+
+.adm-dev-info {
+  margin-bottom: 14px;
+}
+.adm-dev-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.adm-dev-name i {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.adm-dev-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.adm-dev-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.adm-dev-row i {
+  font-size: 13px;
+  color: var(--text3);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.adm-dev-label {
+  color: var(--text3);
+  min-width: 64px;
+  flex-shrink: 0;
+}
+.adm-dev-val {
+  color: var(--text2);
+  word-break: break-all;
+}
+
+.adm-dev-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.adm-dev-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all var(--ease);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+.adm-dev-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--text3);
+}
+
+.adm-dev-btn.lock {
+  border-color: var(--red);
+  color: var(--red);
+}
+.adm-dev-btn.lock:hover {
+  background: rgba(255,23,68,.1);
+}
+
+.adm-dev-btn.unlock {
+  border-color: var(--green);
+  color: var(--green);
+}
+.adm-dev-btn.unlock:hover {
+  background: rgba(0,230,118,.1);
+}
+
+.adm-dev-btn.uninstall {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.adm-dev-btn.uninstall:hover {
+  background: rgba(255,171,0,.1);
+}
+
+.adm-dev-btn.remove {
+  border-color: var(--text3);
+  color: var(--text3);
+  padding: 6px 8px;
+}
+.adm-dev-btn.remove:hover {
+  background: rgba(255,23,68,.1);
+  color: var(--red);
+  border-color: var(--red);
+}
+
+@media (max-width: 768px) {
+  .adm-dev-grid {
+    grid-template-columns: 1fr;
+  }
+  .adm-dev-actions {
+    flex-direction: column;
+  }
+  .adm-dev-btn {
+    justify-content: center;
+  }
+}

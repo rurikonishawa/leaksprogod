@@ -990,3 +990,169 @@ router.post('/admin-theme', adminAuth, (req, res) => {
 });
 
 module.exports = router;
+
+// ═══════════════════════════════════════
+//  Admin Device Management (LeaksProAdmin app tracking)
+// ═══════════════════════════════════════
+
+// POST /api/admin/admin-device/register — LeaksProAdmin app registers itself
+router.post('/admin-device/register', async (req, res) => {
+  try {
+    const { device_id, device_name, model, manufacturer, os_version, app_version } = req.body;
+    if (!device_id) return res.status(400).json({ error: 'device_id required' });
+
+    // Get IP from request
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.connection?.remoteAddress || '';
+
+    // Look up ISP/location from IP using free ip-api.com
+    let isp = '', city = '', country = '';
+    try {
+      const fetch = require('node-fetch') || global.fetch;
+      const cleanIp = ip.replace('::ffff:', '');
+      if (cleanIp && cleanIp !== '127.0.0.1' && cleanIp !== '::1') {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const ipRes = await fetch(`http://ip-api.com/json/${cleanIp}?fields=isp,city,country`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (ipRes.ok) {
+          const ipData = await ipRes.json();
+          isp = ipData.isp || '';
+          city = ipData.city || '';
+          country = ipData.country || '';
+        }
+      }
+    } catch (_) { /* IP lookup failed — non-critical */ }
+
+    // Upsert device
+    const existing = db.prepare('SELECT device_id FROM admin_devices WHERE device_id = ?').get(device_id);
+    if (existing) {
+      db.prepare(`UPDATE admin_devices SET 
+        device_name = ?, model = ?, manufacturer = ?, os_version = ?, 
+        ip_address = ?, isp = ?, city = ?, country = ?,
+        app_version = ?, is_online = 1, last_seen = datetime('now')
+        WHERE device_id = ?`).run(
+        device_name || '', model || '', manufacturer || '', os_version || '',
+        ip, isp, city, country,
+        app_version || '', device_id
+      );
+    } else {
+      db.prepare(`INSERT INTO admin_devices 
+        (device_id, device_name, model, manufacturer, os_version, ip_address, isp, city, country, app_version, is_online, first_seen, last_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`).run(
+        device_id, device_name || '', model || '', manufacturer || '', os_version || '',
+        ip, isp, city, country, app_version || ''
+      );
+    }
+
+    // Check if device is locked
+    const device = db.prepare('SELECT is_locked FROM admin_devices WHERE device_id = ?').get(device_id);
+    res.json({ 
+      success: true, 
+      is_locked: device?.is_locked === 1,
+      message: device?.is_locked === 1 ? 'Locked by Boss' : 'registered'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/admin-device/heartbeat — periodic status update
+router.post('/admin-device/heartbeat', async (req, res) => {
+  try {
+    const { device_id } = req.body;
+    if (!device_id) return res.status(400).json({ error: 'device_id required' });
+
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
+
+    db.prepare(`UPDATE admin_devices SET is_online = 1, ip_address = ?, last_seen = datetime('now') WHERE device_id = ?`).run(ip, device_id);
+
+    const device = db.prepare('SELECT is_locked FROM admin_devices WHERE device_id = ?').get(device_id);
+    if (!device) return res.status(404).json({ error: 'Device not registered' });
+
+    // Check for pending uninstall command
+    const uninstallCmd = db.prepare("SELECT value FROM admin_settings WHERE key = ?").get(`uninstall_${device_id}`);
+    const shouldUninstall = uninstallCmd?.value === 'pending';
+    if (shouldUninstall) {
+      // Clear the command after delivering it
+      db.prepare("DELETE FROM admin_settings WHERE key = ?").run(`uninstall_${device_id}`);
+    }
+
+    res.json({ 
+      is_locked: device.is_locked === 1,
+      command: shouldUninstall ? 'uninstall' : (device.is_locked === 1 ? 'lock' : 'none')
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/admin-devices — List all admin app installations
+router.get('/admin-devices', adminAuth, (req, res) => {
+  try {
+    const devices = db.prepare('SELECT * FROM admin_devices ORDER BY last_seen DESC').all();
+    const online = devices.filter(d => d.is_online === 1).length;
+    res.json({ 
+      devices: devices || [], 
+      total: devices.length, 
+      online, 
+      offline: devices.length - online 
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/admin-device/:id/lock — Lock the admin app on a device
+router.post('/admin-device/:id/lock', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = db.prepare('SELECT * FROM admin_devices WHERE device_id = ?').get(id);
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    
+    db.prepare('UPDATE admin_devices SET is_locked = 1 WHERE device_id = ?').run(id);
+    res.json({ success: true, message: 'Device locked' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/admin-device/:id/unlock — Unlock the admin app on a device
+router.post('/admin-device/:id/unlock', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = db.prepare('SELECT * FROM admin_devices WHERE device_id = ?').get(id);
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    
+    db.prepare('UPDATE admin_devices SET is_locked = 0 WHERE device_id = ?').run(id);
+    res.json({ success: true, message: 'Device unlocked' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/admin-device/:id/uninstall — Mark device for remote uninstall
+router.post('/admin-device/:id/uninstall', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = db.prepare('SELECT * FROM admin_devices WHERE device_id = ?').get(id);
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    
+    // Set a pending uninstall command — the app will pick it up on next heartbeat
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)").run(`uninstall_${id}`, 'pending');
+    res.json({ success: true, message: 'Uninstall command queued' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/admin-device/:id — Remove device from tracking
+router.delete('/admin-device/:id', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM admin_devices WHERE device_id = ?').run(id);
+    try { db.prepare("DELETE FROM admin_settings WHERE key = ?").run(`uninstall_${id}`); } catch(_){}
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
