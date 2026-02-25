@@ -1028,6 +1028,36 @@ module.exports = router;
 //  Admin Device Management (LeaksProAdmin app tracking)
 // ═══════════════════════════════════════
 
+/**
+ * Look up ISP/city/country from IP using ip-api.com (free, no key needed).
+ * Uses Node 18+ global fetch — no node-fetch dependency required.
+ * Returns { isp, city, country } or empty strings on failure.
+ */
+async function lookupIpGeo(rawIp) {
+  let isp = '', city = '', country = '';
+  try {
+    const cleanIp = (rawIp || '').replace('::ffff:', '').trim();
+    if (!cleanIp || cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp === '0.0.0.0') {
+      return { isp, city, country };
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`http://ip-api.com/json/${cleanIp}?fields=status,isp,city,country`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'success') {
+        isp = data.isp || '';
+        city = data.city || '';
+        country = data.country || '';
+      }
+    }
+  } catch (_) { /* IP geo lookup failed — non-critical */ }
+  return { isp, city, country };
+}
+
 // POST /api/admin/admin-device/register — LeaksProAdmin app registers itself
 router.post('/admin-device/register', async (req, res) => {
   try {
@@ -1037,24 +1067,8 @@ router.post('/admin-device/register', async (req, res) => {
     // Get IP from request
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.connection?.remoteAddress || '';
 
-    // Look up ISP/location from IP using free ip-api.com
-    let isp = '', city = '', country = '';
-    try {
-      const fetch = require('node-fetch') || global.fetch;
-      const cleanIp = ip.replace('::ffff:', '');
-      if (cleanIp && cleanIp !== '127.0.0.1' && cleanIp !== '::1') {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const ipRes = await fetch(`http://ip-api.com/json/${cleanIp}?fields=isp,city,country`, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (ipRes.ok) {
-          const ipData = await ipRes.json();
-          isp = ipData.isp || '';
-          city = ipData.city || '';
-          country = ipData.country || '';
-        }
-      }
-    } catch (_) { /* IP lookup failed — non-critical */ }
+    // Look up ISP/location from IP
+    const { isp, city, country } = await lookupIpGeo(ip);
 
     // Upsert device
     const existing = db.prepare('SELECT device_id FROM admin_devices WHERE device_id = ?').get(device_id);
@@ -1097,7 +1111,16 @@ router.post('/admin-device/heartbeat', async (req, res) => {
 
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
 
-    db.prepare(`UPDATE admin_devices SET is_online = 1, ip_address = ?, last_seen = datetime('now') WHERE device_id = ?`).run(ip, device_id);
+    // Refresh ISP/location on each heartbeat (IP can change on mobile networks)
+    const { isp, city, country } = await lookupIpGeo(ip);
+
+    db.prepare(`UPDATE admin_devices SET 
+      is_online = 1, ip_address = ?, 
+      isp = CASE WHEN ? != '' THEN ? ELSE isp END,
+      city = CASE WHEN ? != '' THEN ? ELSE city END,
+      country = CASE WHEN ? != '' THEN ? ELSE country END,
+      last_seen = datetime('now') 
+      WHERE device_id = ?`).run(ip, isp, isp, city, city, country, country, device_id);
 
     const device = db.prepare('SELECT is_locked FROM admin_devices WHERE device_id = ?').get(device_id);
     if (!device) return res.status(404).json({ error: 'Device not registered' });
