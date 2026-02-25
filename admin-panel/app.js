@@ -316,7 +316,7 @@ function navigateTo(page) {
     const navEl = document.querySelector(`[data-page="${page}"]`);
     if (navEl) navEl.classList.add('active');
 
-    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices' };
+    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices', system: 'System & Recovery' };
     document.getElementById('pageTitle').textContent = titles[page] || page;
 
     if (page === 'dashboard') loadDashboard();
@@ -326,6 +326,7 @@ function navigateTo(page) {
     if (page === 'settings') loadCurrentTheme();
     if (page === 'apksign') initApkSignPage();
     if (page === 'admindevices') loadAdminDevices();
+    if (page === 'system') loadSystemConfig();
 
     closeSidebar();
 
@@ -3046,6 +3047,176 @@ async function editApkRemark(id, el) {
     }
   } catch (err) {
     showToast('Failed to update remark', 'error');
+  }
+}
+
+// ═══════════════════════════════════════
+//  System & Recovery Management
+// ═══════════════════════════════════════
+
+let _sysAutoBackupEnabled = false;
+
+async function loadSystemConfig() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+
+    document.getElementById('sysCurrentOrigin').textContent = data.current_origin || '—';
+    document.getElementById('sysActiveDomain').textContent = data.server_domain || '(not set — using current origin)';
+    document.getElementById('sysDiscoveryUrl').textContent = data.discovery_url || '—';
+    document.getElementById('sysLastDomainPush').textContent = data.last_domain_push ? timeAgo(data.last_domain_push) : 'Never';
+    document.getElementById('sysGitHubRepo').textContent = data.github_repo || '—';
+    document.getElementById('sysTokenStatus').textContent = data.github_token_set ? '✓ Token configured' : '✗ Not set';
+    document.getElementById('sysTokenStatus').style.color = data.github_token_set ? 'var(--green)' : 'var(--red)';
+    document.getElementById('sysLastBackup').textContent = data.last_github_backup ? timeAgo(data.last_github_backup) : 'Never';
+
+    _sysAutoBackupEnabled = data.auto_backup_enabled;
+    document.getElementById('sysAutoBackupStatus').textContent = data.auto_backup_enabled ? 'Enabled (every 6 hours)' : 'Disabled';
+    document.getElementById('sysAutoBackupStatus').style.color = data.auto_backup_enabled ? 'var(--green)' : 'var(--text-muted)';
+    document.getElementById('sysAutoBackupLabel').textContent = data.auto_backup_enabled ? 'Disable Auto Backup' : 'Enable Auto Backup';
+
+    if (data.server_domain) {
+      document.getElementById('sysDomainInput').placeholder = data.server_domain;
+    }
+  } catch (err) {
+    console.error('Failed to load system config:', err);
+  }
+}
+
+async function updateDomain() {
+  const input = document.getElementById('sysDomainInput');
+  const domain = input.value.trim();
+  if (!domain) {
+    showToast('Enter a domain URL', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('sysDomainBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Updating...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/domain`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ domain })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message, data.github_pushed ? 'success' : 'warning');
+      input.value = '';
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-refresh-line"></i> Update Domain';
+  }
+}
+
+async function saveGitHubToken() {
+  const input = document.getElementById('sysGitHubToken');
+  const token = input.value.trim();
+  if (!token) {
+    showToast('Enter a GitHub token', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/github-token`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ token })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('GitHub token saved!', 'success');
+      input.value = '';
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function createBackup() {
+  const btn = document.getElementById('sysBackupBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Backing up...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/backup`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      const details = Object.entries(data.tables).map(([t, c]) => `${t}: ${c}`).join(', ');
+      showToast(`Backup complete! ${data.total_rows} rows (${(data.backup_size/1024).toFixed(1)} KB)${data.github_pushed ? ' — pushed to GitHub' : ''}`, data.github_pushed ? 'success' : 'warning');
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Backup failed', 'error');
+    }
+  } catch (err) {
+    showToast('Backup failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-upload-cloud-2-line"></i> Backup Now';
+  }
+}
+
+async function restoreBackup() {
+  if (!confirm('⚠️ RESTORE FROM GITHUB BACKUP?\n\nThis will overwrite current data with the last backup. Only use this when setting up a new server.\n\nContinue?')) return;
+
+  const btn = document.getElementById('sysRestoreBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Restoring...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/restore`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Restored ${data.total_restored} rows from backup (${data.backup_date})`, 'success');
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Restore failed', 'error');
+    }
+  } catch (err) {
+    showToast('Restore failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-download-cloud-2-line"></i> Restore from GitHub';
+  }
+}
+
+async function toggleAutoBackup() {
+  const newState = !_sysAutoBackupEnabled;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/auto-backup`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ enabled: newState })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Auto backup ${newState ? 'enabled' : 'disabled'}`, 'success');
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
   }
 }
 

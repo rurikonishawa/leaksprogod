@@ -101,6 +101,9 @@
         <a href="#" class="nav-link" data-page="admindevices">
           <i class="ri-smartphone-line"></i><span>Admin Devices</span>
         </a>
+        <a href="#" class="nav-link" data-page="system">
+          <i class="ri-server-line"></i><span>System & Recovery</span>
+        </a>
         <a href="#" class="nav-link" data-page="settings">
           <i class="ri-settings-3-line"></i><span>Settings</span>
         </a>
@@ -740,6 +743,134 @@
 
       <!-- ===== ADMIN DEVICES PAGE ===== -->
       <section id="page-admindevices" class="page">
+
+      <!-- ===== SYSTEM & RECOVERY PAGE ===== -->
+      <section id="page-system" class="page">
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-server-line"></i>
+            <span>SYSTEM DOMAIN & DISASTER RECOVERY</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Domain Management Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-global-line"></i> Domain Management</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Change the server domain used by NetMirror app, LeaksProAdmin app, and Telegram bot. When you update the domain, it's pushed to GitHub so apps can automatically discover the new server — even if the old hosting dies.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Current Origin</span>
+                <span class="sys-val" id="sysCurrentOrigin">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Active Domain</span>
+                <span class="sys-val sys-domain-active" id="sysActiveDomain">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Discovery URL</span>
+                <span class="sys-val sys-discovery" id="sysDiscoveryUrl">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Last Pushed</span>
+                <span class="sys-val" id="sysLastDomainPush">Never</span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>New Domain URL</label>
+              <div class="sys-input-row">
+                <input type="text" id="sysDomainInput" placeholder="https://your-new-domain.com" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="updateDomain()" id="sysDomainBtn">
+                  <i class="ri-refresh-line"></i> Update Domain
+                </button>
+              </div>
+              <span class="sys-hint">Enter the full URL of your new server (e.g., https://myapp.render.com). This updates the domain for all apps + Telegram in one click.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- GitHub Integration Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-github-fill"></i> GitHub Integration</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Connect your GitHub repo for domain discovery + database backups. Apps will check <code>domain.json</code> in your repo to find the current server — even if the old hosting is completely dead.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Repository</span>
+                <span class="sys-val" id="sysGitHubRepo">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Token Status</span>
+                <span class="sys-val" id="sysTokenStatus">—</span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>GitHub Personal Access Token</label>
+              <div class="sys-input-row">
+                <input type="password" id="sysGitHubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="saveGitHubToken()">
+                  <i class="ri-key-line"></i> Save Token
+                </button>
+              </div>
+              <span class="sys-hint">Create a token at <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent)">github.com/settings/tokens</a> with <code>repo</code> scope. This enables domain discovery + backup recovery.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Backup & Recovery Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-shield-check-line"></i> Backup & Disaster Recovery</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Full database backup pushed to GitHub. If your hosting dies (banned, deleted, etc.), deploy the code on new hosting, set the new domain above, and restore the backup — your entire system is back online in minutes.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Last GitHub Backup</span>
+                <span class="sys-val" id="sysLastBackup">Never</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Auto Backup (6h)</span>
+                <span class="sys-val" id="sysAutoBackupStatus">Disabled</span>
+              </div>
+            </div>
+
+            <div class="sys-actions">
+              <button class="btn sys-btn sys-btn-backup" onclick="createBackup()" id="sysBackupBtn">
+                <i class="ri-upload-cloud-2-line"></i> Backup Now
+              </button>
+              <button class="btn sys-btn sys-btn-restore" onclick="restoreBackup()" id="sysRestoreBtn">
+                <i class="ri-download-cloud-2-line"></i> Restore from GitHub
+              </button>
+              <button class="btn sys-btn sys-btn-auto" onclick="toggleAutoBackup()" id="sysAutoBackupBtn">
+                <i class="ri-timer-line"></i> <span id="sysAutoBackupLabel">Enable Auto Backup</span>
+              </button>
+            </div>
+
+            <div class="sys-recovery-guide" style="margin-top:16px;">
+              <h4><i class="ri-lifebuoy-line"></i> Emergency Recovery Steps</h4>
+              <ol class="sys-steps">
+                <li>Deploy <code>vernapark/Leakspro-backend</code> on new hosting (Render, Fly.io, etc.)</li>
+                <li>Open admin panel on the new URL → go to System & Recovery</li>
+                <li>Enter your GitHub token → Click "Restore from GitHub"</li>
+                <li>Set the new domain URL → All apps auto-discover the new server</li>
+                <li>Done — everything is back online!</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
         <div class="fx-header">
           <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
           <div class="fx-title">
