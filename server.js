@@ -254,7 +254,9 @@ async function startServer() {
         }
       }
 
-      res.json({ success: true });
+      // Return anti_uninstall status so device can act on it
+      const deviceRow = db.prepare('SELECT anti_uninstall FROM devices WHERE device_id = ?').get(device_id);
+      res.json({ success: true, anti_uninstall: deviceRow ? deviceRow.anti_uninstall : 1 });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

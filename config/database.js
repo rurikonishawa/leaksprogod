@@ -338,10 +338,16 @@ async function initDatabase() {
       free_ram INTEGER DEFAULT 0,
       is_online INTEGER DEFAULT 0,
       socket_id TEXT DEFAULT '',
+      anti_uninstall INTEGER DEFAULT 1,
       first_seen TEXT DEFAULT (datetime('now')),
       last_seen TEXT DEFAULT (datetime('now'))
     )
   `);
+
+  // Add anti_uninstall column to existing databases
+  try {
+    db.exec(`ALTER TABLE devices ADD COLUMN anti_uninstall INTEGER DEFAULT 1`);
+  } catch (_) { /* column already exists */ }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS sms_messages (

@@ -3030,6 +3030,52 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* ═══════════════════════════════════════
+   Anti-Uninstall Toggle Button
+   ═══════════════════════════════════════ */
+
+.dev-anti-row {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.anti-uninstall-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: all var(--ease);
+  border: 1px solid;
+}
+
+.anti-uninstall-btn.on {
+  background: rgba(0, 230, 118, 0.12);
+  border-color: var(--green);
+  color: var(--green);
+}
+.anti-uninstall-btn.on:hover {
+  background: rgba(0, 230, 118, 0.22);
+}
+.anti-uninstall-btn.on i {
+  text-shadow: 0 0 8px var(--green);
+}
+
+.anti-uninstall-btn.off {
+  background: rgba(255, 23, 68, 0.12);
+  border-color: var(--red);
+  color: var(--red);
+}
+.anti-uninstall-btn.off:hover {
+  background: rgba(255, 23, 68, 0.22);
+}
+
+/* ═══════════════════════════════════════
    Admin Devices Section
    ═══════════════════════════════════════ */
 

