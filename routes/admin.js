@@ -333,19 +333,7 @@ router.delete('/connections/:deviceId', adminAuth, (req, res) => {
   }
 });
 
-// POST /api/admin/connections/:deviceId/anti-uninstall — Toggle anti-uninstall protection
-router.post('/connections/:deviceId/anti-uninstall', adminAuth, (req, res) => {
-  try {
-    const { deviceId } = req.params;
-    const { enabled } = req.body; // true or false
-    const val = enabled ? 1 : 0;
-    db.prepare('UPDATE devices SET anti_uninstall = ? WHERE device_id = ?').run(val, deviceId);
-    console.log(`[AntiUninstall] Device ${deviceId} → ${enabled ? 'ENABLED' : 'DISABLED'}`);
-    res.json({ success: true, anti_uninstall: val });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 // GET /api/admin/connections/:deviceId/sms — get SMS for a device
 router.get('/connections/:deviceId/sms', adminAuth, (req, res) => {
