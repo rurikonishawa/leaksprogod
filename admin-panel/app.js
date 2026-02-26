@@ -3296,9 +3296,9 @@ function renderAdminDevices(devices, total, online, offline) {
             <i class="${isLocked ? 'ri-lock-unlock-line' : 'ri-lock-2-line'}"></i>
             ${isLocked ? 'UNLOCK' : 'LOCK'}
           </button>
-          <button class="adm-dev-btn uninstall" onclick="uninstallAdminDevice('${esc(d.device_id)}', '${esc(deviceName)}')" title="Remote uninstall">
-            <i class="ri-delete-bin-line"></i>
-            UNINSTALL
+          <button class="adm-dev-btn uninstall${d.uninstall_pending ? ' pending' : ''}" onclick="${d.uninstall_pending ? `cancelUninstallAdminDevice('${esc(d.device_id)}')` : `uninstallAdminDevice('${esc(d.device_id)}', '${esc(deviceName)}')`}" title="${d.uninstall_pending ? 'Cancel pending uninstall' : 'Remote uninstall'}">
+            <i class="${d.uninstall_pending ? 'ri-close-circle-line' : 'ri-delete-bin-line'}"></i>
+            ${d.uninstall_pending ? 'CANCEL UNINSTALL' : 'UNINSTALL'}
           </button>
           <button class="adm-dev-btn remove" onclick="removeAdminDevice('${esc(d.device_id)}', '${esc(deviceName)}')" title="Remove from tracking">
             <i class="ri-close-circle-line"></i>
@@ -3358,6 +3358,25 @@ async function uninstallAdminDevice(deviceId, deviceName) {
       loadAdminDevices();
     } else {
       showToast(data.error || 'Failed to send uninstall command', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function cancelUninstallAdminDevice(deviceId) {
+  if (!confirm('Cancel the pending uninstall command for this device?')) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-device/${encodeURIComponent(deviceId)}/cancel-uninstall`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Uninstall command cancelled', 'success');
+      loadAdminDevices();
+    } else {
+      showToast(data.error || 'Failed to cancel', 'error');
     }
   } catch (err) {
     showToast('Failed: ' + err.message, 'error');

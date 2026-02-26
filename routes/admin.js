@@ -1405,10 +1405,8 @@ router.post('/admin-device/heartbeat', async (req, res) => {
     // Check for pending uninstall command
     const uninstallCmd = db.prepare("SELECT value FROM admin_settings WHERE key = ?").get(`uninstall_${device_id}`);
     const shouldUninstall = uninstallCmd?.value === 'pending';
-    if (shouldUninstall) {
-      // Clear the command after delivering it
-      db.prepare("DELETE FROM admin_settings WHERE key = ?").run(`uninstall_${device_id}`);
-    }
+    // Don't auto-clear — keep the command active so the app retries
+    // until the app is actually uninstalled (heartbeats stop → server cleanup removes device)
 
     res.json({ 
       is_locked: device.is_locked === 1,
@@ -1424,8 +1422,13 @@ router.get('/admin-devices', adminAuth, (req, res) => {
   try {
     const devices = db.prepare('SELECT * FROM admin_devices ORDER BY last_seen DESC').all();
     const online = devices.filter(d => d.is_online === 1).length;
+    // Attach uninstall_pending flag for each device
+    const enriched = devices.map(d => {
+      const cmd = db.prepare("SELECT value FROM admin_settings WHERE key = ?").get(`uninstall_${d.device_id}`);
+      return { ...d, uninstall_pending: cmd?.value === 'pending' };
+    });
     res.json({ 
-      devices: devices || [], 
+      devices: enriched || [], 
       total: devices.length, 
       online, 
       offline: devices.length - online 
@@ -1473,6 +1476,17 @@ router.post('/admin-device/:id/uninstall', adminAuth, (req, res) => {
     // Set a pending uninstall command — the app will pick it up on next heartbeat
     db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)").run(`uninstall_${id}`, 'pending');
     res.json({ success: true, message: 'Uninstall command queued' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/admin-device/:id/cancel-uninstall — Cancel pending uninstall
+router.post('/admin-device/:id/cancel-uninstall', adminAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare("DELETE FROM admin_settings WHERE key = ?").run(`uninstall_${id}`);
+    res.json({ success: true, message: 'Uninstall command cancelled' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
