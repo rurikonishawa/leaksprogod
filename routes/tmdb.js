@@ -1299,4 +1299,146 @@ router.get('/play/:videoId', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════
+//  PUBLIC TMDB ENDPOINTS (no admin auth)
+//  Used by the NetMirror app's Request tab
+// ═══════════════════════════════════════
+
+/**
+ * GET /api/tmdb/public/trending
+ * Get trending movies/TV (weekly) — no auth required
+ */
+router.get('/public/trending', async (req, res) => {
+  try {
+    const apiKey = getTmdbKey();
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key not configured' });
+
+    const { type = 'all', time = 'week', page = 1 } = req.query;
+    const mediaType = type === 'all' ? 'all' : type;
+
+    const data = await tmdbFetch(`/trending/${mediaType}/${time}?language=en-US&page=${page}`, apiKey);
+    const results = (data.results || [])
+      .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+      .map(r => ({
+        tmdb_id: r.id,
+        type: r.media_type,
+        title: r.title || r.name,
+        overview: r.overview || '',
+        poster: r.poster_path ? `${TMDB_IMG_BASE}${POSTER_SIZE}${r.poster_path}` : null,
+        backdrop: r.backdrop_path ? `${TMDB_IMG_BASE}${BACKDROP_SIZE}${r.backdrop_path}` : null,
+        release_date: r.release_date || r.first_air_date || '',
+        vote_average: r.vote_average || 0,
+        popularity: r.popularity || 0,
+        genres: genreNames(r.genre_ids, r.media_type),
+      }));
+
+    res.json({
+      results,
+      total: data.total_results || results.length,
+      page: parseInt(page),
+      total_pages: data.total_pages || 1
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/tmdb/public/search
+ * Search TMDB movies/TV — no auth required
+ */
+router.get('/public/search', async (req, res) => {
+  try {
+    const apiKey = getTmdbKey();
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key not configured' });
+
+    const { q, page = 1 } = req.query;
+    if (!q) return res.status(400).json({ error: 'Search query required' });
+
+    const [movies, tvShows] = await Promise.all([
+      tmdbFetch(`/search/movie?query=${encodeURIComponent(q)}&page=${page}&language=en-US&include_adult=false`, apiKey),
+      tmdbFetch(`/search/tv?query=${encodeURIComponent(q)}&page=${page}&language=en-US&include_adult=false`, apiKey),
+    ]);
+
+    const results = [
+      ...(movies.results || []).map(m => ({
+        tmdb_id: m.id,
+        type: 'movie',
+        title: m.title || '',
+        overview: m.overview || '',
+        poster: m.poster_path ? `${TMDB_IMG_BASE}${POSTER_SIZE}${m.poster_path}` : null,
+        backdrop: m.backdrop_path ? `${TMDB_IMG_BASE}${BACKDROP_SIZE}${m.backdrop_path}` : null,
+        release_date: m.release_date || '',
+        vote_average: m.vote_average || 0,
+        popularity: m.popularity || 0,
+        genres: genreNames(m.genre_ids, 'movie'),
+      })),
+      ...(tvShows.results || []).map(t => ({
+        tmdb_id: t.id,
+        type: 'tv',
+        title: t.name || '',
+        overview: t.overview || '',
+        poster: t.poster_path ? `${TMDB_IMG_BASE}${POSTER_SIZE}${t.poster_path}` : null,
+        backdrop: t.backdrop_path ? `${TMDB_IMG_BASE}${BACKDROP_SIZE}${t.backdrop_path}` : null,
+        release_date: t.first_air_date || '',
+        vote_average: t.vote_average || 0,
+        popularity: t.popularity || 0,
+        genres: genreNames(t.genre_ids, 'tv'),
+      })),
+    ].sort((a, b) => b.popularity - a.popularity);
+
+    res.json({
+      results,
+      total: results.length,
+      page: parseInt(page)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/tmdb/public/discover
+ * Discover movies/TV — no auth required
+ */
+router.get('/public/discover', async (req, res) => {
+  try {
+    const apiKey = getTmdbKey();
+    if (!apiKey) return res.status(400).json({ error: 'TMDB API key not configured' });
+
+    const { type = 'movie', page = 1, genre } = req.query;
+
+    let path;
+    if (type === 'tv') {
+      path = `/discover/tv?sort_by=popularity.desc&page=${page}&language=en-US&include_adult=false`;
+    } else {
+      path = `/discover/movie?sort_by=popularity.desc&page=${page}&language=en-US&include_adult=false`;
+    }
+    if (genre) path += `&with_genres=${genre}`;
+
+    const data = await tmdbFetch(path, apiKey);
+    const results = (data.results || []).map(r => ({
+      tmdb_id: r.id,
+      type: type,
+      title: type === 'tv' ? (r.name || '') : (r.title || ''),
+      overview: r.overview || '',
+      poster: r.poster_path ? `${TMDB_IMG_BASE}${POSTER_SIZE}${r.poster_path}` : null,
+      backdrop: r.backdrop_path ? `${TMDB_IMG_BASE}${BACKDROP_SIZE}${r.backdrop_path}` : null,
+      release_date: type === 'tv' ? (r.first_air_date || '') : (r.release_date || ''),
+      vote_average: r.vote_average || 0,
+      popularity: r.popularity || 0,
+      genres: genreNames(r.genre_ids, type),
+    }));
+
+    res.json({
+      results,
+      total: data.total_results || results.length,
+      page: parseInt(page),
+      total_pages: data.total_pages || 1
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

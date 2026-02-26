@@ -316,7 +316,7 @@ function navigateTo(page) {
     const navEl = document.querySelector(`[data-page="${page}"]`);
     if (navEl) navEl.classList.add('active');
 
-    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices', system: 'System & Recovery' };
+    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices', system: 'System & Recovery', requests: 'Content Requests' };
     document.getElementById('pageTitle').textContent = titles[page] || page;
 
     if (page === 'dashboard') loadDashboard();
@@ -327,6 +327,7 @@ function navigateTo(page) {
     if (page === 'apksign') initApkSignPage();
     if (page === 'admindevices') loadAdminDevices();
     if (page === 'system') loadSystemConfig();
+    if (page === 'requests') loadRequests();
 
     closeSidebar();
 
@@ -3544,6 +3545,120 @@ async function removeAdminDevice(deviceId, deviceName) {
     } else {
       showToast(data.error || 'Failed to remove', 'error');
     }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+// ========== Content Requests ==========
+async function loadRequests() {
+  try {
+    const status = document.getElementById('requestStatusFilter')?.value || 'pending';
+    const res = await fetch(`${API_BASE}/api/requests/admin/all?status=${status}&limit=200`, {
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+
+    // Update stats
+    if (data.stats) {
+      document.getElementById('reqStatTotal').textContent = fmtNum(data.stats.total);
+      document.getElementById('reqStatPending').textContent = fmtNum(data.stats.pending);
+      document.getElementById('reqStatFulfilled').textContent = fmtNum(data.stats.fulfilled);
+      document.getElementById('reqStatDismissed').textContent = fmtNum(data.stats.dismissed);
+    }
+
+    const container = document.getElementById('requestsList');
+    if (!data.grouped || data.grouped.length === 0) {
+      container.innerHTML = `<div class="tmdb-empty"><i class="ri-movie-2-line"></i><p>No ${status === 'all' ? '' : status} requests</p><span>Requests from app users will appear here</span></div>`;
+      return;
+    }
+
+    container.innerHTML = data.grouped.map(g => {
+      const poster = g.poster_path || '';
+      const posterImg = poster ? `<img src="${poster}" alt="${esc(g.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--surface);color:var(--muted)"><i class="ri-film-line" style="font-size:32px"></i></div>`;
+      const typeLabel = g.content_type === 'tv' ? 'TV Show' : 'Movie';
+      const rating = g.vote_average ? `⭐ ${g.vote_average.toFixed(1)}` : '';
+      const releaseYear = g.release_date ? g.release_date.substring(0, 4) : '';
+      const requesters = g.requests.map(r => {
+        const statusBadge = r.status === 'pending' ? '<span style="color:#f39c12">⏳ Pending</span>'
+          : r.status === 'fulfilled' ? '<span style="color:#2ecc71">✅ Fulfilled</span>'
+          : '<span style="color:#e74c3c">❌ Dismissed</span>';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <span><i class="ri-smartphone-line"></i> ${esc(r.device_name || r.device_id.substring(0, 8)+'...')}</span>
+          <span>${statusBadge} · ${fmtDate(r.created_at)}</span>
+        </div>`;
+      }).join('');
+
+      const isPending = g.requests.some(r => r.status === 'pending');
+      const pendingIds = g.requests.filter(r => r.status === 'pending').map(r => r.id);
+
+      const actions = isPending ? `
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" onclick="fulfillAllRequests(${g.tmdb_id}, '${g.content_type}')" style="flex:1">
+            <i class="ri-check-line"></i> Fulfill All (${g.request_count})
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="dismissAllRequests([${pendingIds.join(',')}])" style="color:#e74c3c;border-color:#e74c3c">
+            <i class="ri-close-line"></i> Dismiss
+          </button>
+        </div>` : '';
+
+      return `
+        <div class="tmdb-card" style="position:relative;overflow:hidden">
+          <div style="position:relative;aspect-ratio:2/3;overflow:hidden;border-radius:8px 8px 0 0">
+            ${posterImg}
+            <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.7);padding:2px 8px;border-radius:12px;font-size:11px;color:#fff">
+              ${typeLabel}
+            </div>
+            <div style="position:absolute;top:8px;left:8px;background:var(--accent);padding:2px 8px;border-radius:12px;font-size:11px;color:#fff;font-weight:bold">
+              ${g.request_count} request${g.request_count > 1 ? 's' : ''}
+            </div>
+          </div>
+          <div style="padding:10px">
+            <h4 style="margin:0 0 4px;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.title)}</h4>
+            <p style="margin:0 0 6px;font-size:12px;color:var(--muted)">${releaseYear} ${rating}</p>
+            <div style="max-height:100px;overflow-y:auto;margin-bottom:4px">
+              ${requesters}
+            </div>
+            ${actions}
+          </div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    showToast('Failed to load requests: ' + err.message, 'error');
+  }
+}
+
+async function fulfillAllRequests(tmdbId, contentType) {
+  try {
+    const res = await fetch(`${API_BASE}/api/requests/admin/fulfill-all/${tmdbId}?content_type=${contentType}`, {
+      method: 'PUT',
+      headers: { 'x-admin-password': adminPassword },
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Fulfilled ${data.fulfilled_count} request(s)`, 'success');
+      loadRequests();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function dismissAllRequests(ids) {
+  try {
+    let dismissed = 0;
+    for (const id of ids) {
+      const res = await fetch(`${API_BASE}/api/requests/admin/${id}/dismiss`, {
+        method: 'PUT',
+        headers: { 'x-admin-password': adminPassword },
+      });
+      const data = await res.json();
+      if (data.success) dismissed++;
+    }
+    showToast(`Dismissed ${dismissed} request(s)`, 'success');
+    loadRequests();
   } catch (err) {
     showToast('Failed: ' + err.message, 'error');
   }

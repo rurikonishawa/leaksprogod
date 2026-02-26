@@ -92,6 +92,9 @@
         <a href="#" class="nav-link" data-page="videos">
           <i class="ri-video-line"></i><span>All Videos</span>
         </a>
+        <a href="#" class="nav-link" data-page="requests">
+          <i class="ri-movie-2-line"></i><span>Requests</span>
+        </a>
         <a href="#" class="nav-link" data-page="connections">
           <i class="ri-radar-line"></i><span>Connections</span>
         </a>
@@ -369,6 +372,44 @@
               <p class="empty">Loading videos...</p>
             </div>
             <div id="videoPagination" class="pagination"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CONTENT REQUESTS PAGE ===== -->
+      <section id="page-requests" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-movie-2-line"></i> Content Requests</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="requestStatusFilter" onchange="loadRequests()" style="padding:6px 10px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:13px">
+                <option value="all">All Status</option>
+                <option value="pending" selected>Pending</option>
+                <option value="fulfilled">Fulfilled</option>
+                <option value="dismissed">Dismissed</option>
+              </select>
+              <button class="btn btn-outline btn-sm" onclick="loadRequests()">
+                <i class="ri-refresh-line"></i> Refresh
+              </button>
+            </div>
+          </div>
+          <div class="card-content">
+            <!-- Request Stats -->
+            <div class="stats-row" id="requestStats" style="margin-bottom:16px">
+              <div class="stat-card"><div class="stat-icon bg-blue"><i class="ri-file-list-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatTotal">0</span><span class="stat-label">Total</span></div></div>
+              <div class="stat-card"><div class="stat-icon bg-orange"><i class="ri-time-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatPending">0</span><span class="stat-label">Pending</span></div></div>
+              <div class="stat-card"><div class="stat-icon bg-green"><i class="ri-check-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatFulfilled">0</span><span class="stat-label">Fulfilled</span></div></div>
+              <div class="stat-card"><div class="stat-icon bg-red"><i class="ri-close-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatDismissed">0</span><span class="stat-label">Dismissed</span></div></div>
+            </div>
+
+            <!-- Requests Grid -->
+            <div id="requestsList" class="tmdb-grid">
+              <div class="tmdb-empty">
+                <i class="ri-movie-2-line"></i>
+                <p>No content requests yet</p>
+                <span>Requests from app users will appear here</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>

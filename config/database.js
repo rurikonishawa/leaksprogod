@@ -474,6 +474,27 @@ async function initDatabase() {
     )
   `);
 
+  // Content requests — users request movies/shows from the app
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS content_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tmdb_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      poster_path TEXT DEFAULT '',
+      backdrop_path TEXT DEFAULT '',
+      content_type TEXT DEFAULT 'movie',
+      overview TEXT DEFAULT '',
+      vote_average REAL DEFAULT 0,
+      release_date TEXT DEFAULT '',
+      device_id TEXT NOT NULL,
+      device_name TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      fulfilled_at TEXT,
+      notified INTEGER DEFAULT 0
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],
@@ -512,6 +533,9 @@ async function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_call_logs_date ON call_logs(date DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_contacts_device ON contacts(device_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_apps_device ON installed_apps(device_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_requests_device ON content_requests(device_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_requests_status ON content_requests(status)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_requests_tmdb ON content_requests(tmdb_id)');
 
   // Clear stale socket references on server start (devices stay registered & online)
   db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now')").run();
