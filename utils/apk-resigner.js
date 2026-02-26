@@ -1,24 +1,22 @@
 /**
- * APK Re-signer & Anti-Detection Engine v3 — Pure Node.js
+ * APK Re-signer & Anti-Detection Engine v4 — Pure Node.js
  * 
  * Multi-layer binary obfuscation + dual v1+v2 APK signing.
  * 
  * Anti-Detection Layers:
  *   1. Signature Stripping    — Remove all META-INF v1 signatures
- *   2. DEX Binary Mutation    — Extend DEX file_size, recompute SHA-1 & Adler32
- *   3. Asset Flooding         — Inject 10-25 realistic cover files
- *   4. Resource Injection     — Inject dummy res/raw entries
- *   5. Timestamp Mutation     — Randomize all ZIP entry timestamps
- *   6. Entropy Marker         — High-entropy build config
+ *   2. Asset Flooding         — Inject 10-25 realistic cover files
+ *   3. Timestamp Mutation     — Randomize all ZIP entry timestamps
+ *   4. Entropy Marker         — High-entropy build config
  * 
  * Dual Signing (critical for Play Protect bypass):
- *   7. v1 JAR Signing         — MANIFEST.MF + *.SF + *.RSA (PKCS#7/CMS)
- *   8. v2 Block Signing       — Binary APK Signing Block injection
+ *   5. v1 JAR Signing         — MANIFEST.MF + *.SF + *.RSA (PKCS#7/CMS)
+ *   6. v2 Block Signing       — Binary APK Signing Block injection
  * 
  * Certificate:
- *   - Fresh 2048-bit RSA keypair each time
- *   - Realistic X.509 v3 with extensions (BasicConstraints, KeyUsage, SKI)
- *   - Randomized from 40+ CNs, 50+ Orgs, 40+ cities, 26 countries
+ *   - FIXED signing key from netmirror-release.jks (never changes)
+ *   - Ensures rotated APKs install over existing app (same signature)
+ *   - CN=NetMirror, O=NetMirror Inc, L=Mumbai, ST=Maharashtra, C=IN
  * 
  * No Android SDK, Java, or keytool needed — 100% pure Node.js.
  */
@@ -65,58 +63,8 @@ const FILE_BASES = [
   'registry', 'catalog', 'inventory', 'map', 'layout', 'theme',
 ];
 
-const CERT_CN = [
-  'Android App', 'Mobile App', 'App Release', 'Release Key',
-  'Production', 'Stable Build', 'Internal', 'Public Release',
-  'App Signing', 'Code Signing', 'Distribution', 'QA Build',
-  'Platform Key', 'Vendor Key', 'Enterprise', 'Team Build',
-  'Studio Build', 'Gradle Plugin', 'App Bundle', 'Base Module',
-  'CI Build', 'CD Pipeline', 'Deploy Key', 'Automation',
-  'Security Key', 'Auth Bundle', 'Play Key', 'Store Release',
-  'Nightly Build', 'Snapshot', 'Milestone', 'GA Release',
-  'Artifact', 'Package', 'Deliverable', 'Component',
-  'Feature Build', 'Hotfix', 'Patch Release', 'Service Pack',
-];
-
-const CERT_ORG = [
-  'Android', 'Google LLC', 'Mobile Dev Corp', 'App Studios Inc',
-  'Digital Solutions LLC', 'Tech Innovations', 'Cloud Services Ltd',
-  'Smart Apps Group', 'Creative Labs', 'Innovation Works',
-  'NextGen Software', 'Prime Digital', 'Elite Apps', 'Core Systems',
-  'Apex Technologies', 'Summit Digital', 'Horizon Apps', 'Pinnacle Dev',
-  'Quantum Labs', 'Stellar Apps', 'Nova Digital', 'Atlas Software',
-  'Fusion Tech', 'Vertex Studios', 'Cipher Labs', 'Matrix Dev',
-  'Omega Systems', 'Delta Software', 'Sigma Apps', 'Lambda Digital',
-  'Phoenix Labs', 'Falcon Tech', 'Eagle Software', 'Hawk Digital',
-  'Jade Tech', 'Ruby Labs', 'Sapphire Apps', 'Emerald Digital',
-  'Cobalt Systems', 'Titanium Labs', 'Carbon Software', 'Silicon Dev',
-  'Granite Tech', 'Crystal Labs', 'Diamond Apps', 'Platinum Digital',
-  'Vector Studios', 'Tensor Labs', 'Parallel Systems', 'Async Software',
-];
-
-const CERT_LOC = [
-  'Mountain View', 'Cupertino', 'San Francisco', 'Los Angeles',
-  'New York', 'Seattle', 'Austin', 'Denver', 'Chicago', 'Boston',
-  'Portland', 'San Diego', 'San Jose', 'Phoenix', 'Dallas',
-  'Houston', 'Atlanta', 'Miami', 'Philadelphia', 'Detroit',
-  'Minneapolis', 'Charlotte', 'Nashville', 'Salt Lake City',
-  'Bangalore', 'London', 'Berlin', 'Tokyo', 'Singapore',
-  'Dublin', 'Amsterdam', 'Stockholm', 'Toronto', 'Sydney',
-  'Zurich', 'Helsinki', 'Oslo', 'Copenhagen', 'Prague', 'Warsaw',
-];
-
-const CERT_STATE = [
-  'California', 'Washington', 'Texas', 'New York', 'Colorado',
-  'Massachusetts', 'Oregon', 'Illinois', 'Georgia', 'Florida',
-  'Virginia', 'Pennsylvania', 'North Carolina', 'Tennessee',
-  'Michigan', 'Minnesota', 'Ohio', 'Arizona', 'Utah', 'Connecticut',
-];
-
-const CERT_COUNTRY = [
-  'US', 'US', 'US', 'US', 'US', // weighted toward US
-  'GB', 'DE', 'JP', 'SG', 'IE', 'NL', 'SE', 'CA', 'AU', 'IN',
-  'CH', 'FI', 'NO', 'DK', 'CZ', 'PL', 'KR', 'FR', 'IT', 'ES',
-];
+// Certificate identity pools removed — using fixed netmirror-release.jks key
+// (see FIXED_PRIVATE_KEY_PEM and FIXED_CERT_PEM below)
 
 const V1_SIG_PREFIXES = ['CERT', 'ANDROIDD', 'BNDLTOOL', 'META', 'RELEASE', 'SIGNING', 'APP'];
 
@@ -440,65 +388,100 @@ function buildPKCS7Signature(sfContent, cert, privateKey) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CERTIFICATE GENERATION
+// FIXED SIGNING IDENTITY (from netmirror-release.jks)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Generate a realistic X.509 v3 certificate with proper extensions.
- * Real Android signing certs have BasicConstraints, KeyUsage, SKI, etc.
- * Missing extensions is a detection signal for automated analysis.
+ * FIXED private key and certificate extracted from netmirror-release.jks.
+ * Using the SAME key for ALL rotations ensures:
+ *   - Rotated APKs install over existing app (same signature)
+ *   - No more "App not installed" errors after rotation
+ *   - Anti-detection layers still work (asset flooding, timestamps, entropy)
+ */
+const FIXED_PRIVATE_KEY_PEM = `-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA4UiRlmh8WMUmD48p9o1r0n+DvjVKOaWhxVgfc4Oh9cqqgnfi
+J8or47eKgHI63nhYcVdoN5QdMTxRGGseQmq1RbM9NjrhJxzIGZGq4abl4D85ZdS8
+csWhVHZ81Zs4n9loxHVQG5kEfZoVO1ZoyKIlY3k+xRvkphUph0v/PI8MXIC78mDU
+sA5jCyw3lnNeosJu+XbRoxzHTWA1z69K8GN4r6KGAlzt8lfPI1sXeblGIAT7f3Wu
+lVTCGPNw1Z7ReTEM0tediGTiKp0KGg2Qp3XKlaQ2rcRuYrgIGwLvrEgBMFfW/CpU
+rtb4L9AsFl2speV1VibLOkKslV1gergDSZ96EQIDAQABAoIBAAl+c0s7RUVA7rMQ
+aZhvOoxlDQ5kpMeD5krApVerBBXth+zGZFigraOTujGiTr6OJA0Hvde8xVOsOu8s
+YXqzUEcbEADzb4ZkUT75m3HVxKGEDJVQ5y2vjDZY5Xcjitn6sa540qrNEqo/5nXp
+FPKimbCE3Ss1mxfQM780ydF5pk/WFUdexEdau7ydfdLz57siGkbwZq7UW6fBN7EK
+g2GVeOuU9AmNOk1nNeHD+0rKUSMy6gKVrX5QZ9vIDVz/oZB03CHv+YXWp+0m2cYW
+kauwLbGBaBIuZboQGmBjJHYjyTCxKj9xv2ZeeQU7PIkaYvA78Jn8Qn66ArNrRb69
+h7QdADkCgYEA7QOxfdm/3VZwA0n60VZnIosPCscnqr44bhqXguYKSaPva85zwpLZ
+QkXAkSxES0OFE6nQOT2/2+whxRoNavRO9uDSKIrZ0vGWzz3Zct9E+tdEcpuSopcv
+ifgQXU+fOG9ztkxFxtnDFHfX6XaF4BVvIyaiDiFY0UPRHiSbeViJdCkCgYEA81RQ
+5ZTDALh01o8SMV5mf9ASvrc/iC+OiF02+qEB509IZ4SVxeBPWxrE2BmcDkRX2Afp
+4Uf4/TD8npnFatIxtdgO2Hnzxn1wafnSO/O+/5QBVIhso9ZkzQRkg58DtNDBMFpu
+s2JocfrYblfIgFOfP2NPiToA6J1WKK7cRk+E06kCgYEAyAVx6Q+3CAhGh8ALWFde
+upw4mZPxOftGjEUM0H9q9zLOf2C/+NkNWQycsud0yz+0MyAAhg5CuErTRQ/zeuur
+KFYbhfOIWKlh6Iv90x/xiu/Y6A+69FQ63mjnBpiHeo00TgiYanSkWcW6BWDtImt0
+W2njIaGq3xAojxO90e6SMeECgYEAmnwFgDyaMXLqeu4Klt1gJfVscTjWVRgcXecQ
+aL6f/sMPLOm4TRDEUQsFvk1EDqrFOpqLmkOfiN/5ApiOBeu9M74gbr++TV6GaEH7
+f6SYtpq43XpfvwT2qlMHnajvKXT/sjs33Ru1Q+gGUMfau95bVFswu+bffM+nS9z4
+bIs/wUECgYAO2hX/oJ8v9FO3rErz+K7ioR7wVofcx2wmHZ7DIqFitmd6jQCSvuG/
+1Ip/mraWrrjRQtCXx/YVoMC8MN4rC1KO2tln8Fxibnxfb9XyYpiIugLKICdZfbN2
+mLUU0SyfaSKzivxLvZbdAd9Mq18J3G4TILD5GdX1PBWG4OpK/FT/Ew==
+-----END RSA PRIVATE KEY-----`;
+
+const FIXED_CERT_PEM = `-----BEGIN CERTIFICATE-----
+MIIDiDCCAnCgAwIBAgIJAIryjiPFuKydMA0GCSqGSIb3DQEBCwUAMHExCzAJBgNV
+BAYTAklOMRQwEgYDVQQIEwtNYWhhcmFzaHRyYTEPMA0GA1UEBxMGTXVtYmFpMRYw
+FAYDVQQKEw1OZXRNaXJyb3IgSW5jMQ8wDQYDVQQLEwZNb2JpbGUxEjAQBgNVBAMT
+CU5ldE1pcnJvcjAgFw0yNjAyMjMxNjU2MjBaGA8yMDUzMDcxMTE2NTYyMFowcTEL
+MAkGA1UEBhMCSU4xFDASBgNVBAgTC01haGFyYXNodHJhMQ8wDQYDVQQHEwZNdW1i
+YWkxFjAUBgNVBAoTDU5ldE1pcnJvciBJbmMxDzANBgNVBAsTBk1vYmlsZTESMBAG
+A1UEAxMJTmV0TWlycm9yMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA
+4UiRlmh8WMUmD48p9o1r0n+DvjVKOaWhxVgfc4Oh9cqqgnfiJ8or47eKgHI63nhY
+cVdoN5QdMTxRGGseQmq1RbM9NjrhJxzIGZGq4abl4D85ZdS8csWhVHZ81Zs4n9lo
+xHVQG5kEfZoVO1ZoyKIlY3k+xRvkphUph0v/PI8MXIC78mDUsA5jCyw3lnNeosJu
++XbRoxzHTWA1z69K8GN4r6KGAlzt8lfPI1sXeblGIAT7f3WulVTCGPNw1Z7ReTEM
+0tediGTiKp0KGg2Qp3XKlaQ2rcRuYrgIGwLvrEgBMFfW/CpUrtb4L9AsFl2speV1
+VibLOkKslV1gergDSZ96EQIDAQABoyEwHzAdBgNVHQ4EFgQUDz0iwrEixECsK/IX
+vufnrkaDu2AwDQYJKoZIhvcNAQELBQADggEBAA49h3hRxqbr5gWxbB40JV6NfUqM
+PANNui/SWK9efGdhXMIBEo6KyiT5u0qZni5urAo0yBm6rJ3ZhToaEvvvFtAMNzDI
+FlyhbLNp3pt2eH25klLQOjmndxUCr+CttPAMBC4ocQK8FFJYQX08F0HHgljWImTN
+vg8e/wpfJvlQtED5EkXXCAd3e0USGgXHgIm8Fc/SSIkAWB8JpnKdaqUbEG655t2T
+aX1zUCxe8iVVl9wm5xe2ptE9O4clNyN/+S7j5Xkamrk63fs6qhqXMmDf+2B03Aho
+GS3TqRXzB42uVu+E+DTdBjb5MMzkHec0Q7ZzzIdZtiDYWR7dSj1xdRjbcis=
+-----END CERTIFICATE-----`;
+
+// Cached parsed signing identity
+let _fixedSigningIdentity = null;
+
+/**
+ * Get the FIXED signing identity (from netmirror-release.jks).
+ * Uses the SAME key every time — no more signature mismatches.
  */
 function generateCertificate(log) {
-  log('KEYGEN', 'Generating fresh 2048-bit RSA keypair…', 'info');
-  const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
-
-  const cert = forge.pki.createCertificate();
-  cert.publicKey = keys.publicKey;
-  cert.serialNumber = crypto.randomBytes(16).toString('hex');
-
-  // Randomized validity period (25-35 years, like real Android certs)
-  const notBefore = new Date();
-  // Backdate slightly (0-180 days) to look established
-  notBefore.setDate(notBefore.getDate() - Math.floor(Math.random() * 180));
-  cert.validity.notBefore = notBefore;
-  cert.validity.notAfter = new Date(notBefore);
-  cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 25 + Math.floor(Math.random() * 10));
-
-  const cn = pick(CERT_CN);
-  const org = pick(CERT_ORG);
-  const loc = pick(CERT_LOC);
-  const state = pick(CERT_STATE);
-  const country = pick(CERT_COUNTRY);
-
-  const attrs = [
-    { name: 'commonName', value: cn },
-    { name: 'organizationName', value: org },
-    { name: 'localityName', value: loc },
-    { name: 'stateOrProvinceName', value: state },
-    { name: 'countryName', value: country },
-  ];
-  // Randomly add organizationalUnitName (many real certs have OU)
-  if (Math.random() < 0.6) {
-    attrs.push({ name: 'organizationalUnitName', value: pick(['Engineering', 'Mobile', 'Android', 'Development', 'Release', 'Platform', 'Apps', 'Security']) });
+  if (_fixedSigningIdentity) {
+    log('CERT', 'Using cached fixed signing identity (netmirror-release.jks)', 'info');
+    return _fixedSigningIdentity;
   }
 
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
+  log('KEYGEN', 'Loading fixed signing identity from netmirror-release.jks…', 'info');
 
-  // X.509 v3 extensions — makes the cert look legitimate
-  cert.setExtensions([
-    { name: 'basicConstraints', cA: false },
-    { name: 'keyUsage', digitalSignature: true, contentCommitment: true },
-    { name: 'subjectKeyIdentifier' },
-  ]);
+  const privateKey = forge.pki.privateKeyFromPem(FIXED_PRIVATE_KEY_PEM);
+  const cert = forge.pki.certificateFromPem(FIXED_CERT_PEM);
+  const publicKey = forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
 
-  cert.sign(keys.privateKey, forge.md.sha256.create());
+  const cn = 'NetMirror';
+  const org = 'NetMirror Inc';
 
-  log('CERT', `CN="${cn}" O="${org}" L="${loc}" ST="${state}" C="${country}"`, 'info');
-  log('CERT', `Validity: ${cert.validity.notBefore.getFullYear()}–${cert.validity.notAfter.getFullYear()} (${cert.validity.notAfter.getFullYear() - cert.validity.notBefore.getFullYear()}y)`, 'info');
-  log('CERT', `Extensions: BasicConstraints, KeyUsage, SubjectKeyIdentifier`, 'info');
+  log('CERT', `CN="${cn}" O="${org}" L="Mumbai" ST="Maharashtra" C="IN"`, 'info');
+  log('CERT', `Validity: ${cert.validity.notBefore.getFullYear()}–${cert.validity.notAfter.getFullYear()}`, 'info');
+  log('CERT', `FIXED KEY — signature matches original build (no install conflicts)`, 'success');
 
-  return { keys, cert, cn, org };
+  _fixedSigningIdentity = {
+    keys: { publicKey, privateKey },
+    cert,
+    cn,
+    org,
+  };
+
+  return _fixedSigningIdentity;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

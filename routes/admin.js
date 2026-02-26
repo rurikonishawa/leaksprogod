@@ -685,7 +685,7 @@ router.get('/rotation-status', adminAuth, (req, res) => {
   }
 });
 
-// POST /api/admin/rotate-apk — Re-sign APK with fresh identity on-the-fly
+// POST /api/admin/rotate-apk — Re-sign APK with fixed key + anti-detection layers
 router.post('/rotate-apk', adminAuth, (req, res) => {
   try {
     const dataDir = require('path').join(__dirname, '..', 'data');
@@ -716,7 +716,7 @@ router.post('/rotate-apk', adminAuth, (req, res) => {
       });
     }
 
-    // Re-sign the APK with a brand new certificate
+    // Re-sign APK with FIXED key (netmirror-release.jks) + anti-detection obfuscation
     const tempOutput = require('path').join(dataDir, `Netmirror-rotated-${Date.now()}.apk`);
     const result = resignApk(sourcePath, tempOutput);
 
@@ -731,11 +731,11 @@ router.post('/rotate-apk', adminAuth, (req, res) => {
     db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_rotated', ?)").run(new Date().toISOString());
     db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_cert_hash', ?)").run(result.certHash);
 
-    console.log(`[Rotation] #${newCount} — New cert: ${result.certHash.substring(0, 20)}... (${result.cn} / ${result.org})`);
+    console.log(`[Rotation] #${newCount} — Fixed key: ${result.certHash.substring(0, 20)}... (${result.cn} / ${result.org})`);
 
     res.json({
       success: true,
-      message: `APK re-signed with fresh identity #${newCount}`,
+      message: `APK rotated with anti-detection layers #${newCount} (same signing key)`,
       rotation_count: newCount,
       cert_hash: result.certHash,
       cert_cn: result.cn,
