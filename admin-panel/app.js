@@ -807,6 +807,10 @@ function renderDeviceGrid() {
         </div>
 
       </div>
+      <div class="dev-geo-wrap" style="padding:8px 14px 4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="dev-geo-btn" onclick="event.stopPropagation(); openGeoPanel('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}', ${d.latitude ?? 'null'}, ${d.longitude ?? 'null'})"><i class="ri-earth-line"></i> GEO</button>
+        ${d.latitude != null ? `<span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text3)">${Number(d.latitude).toFixed(4)}, ${Number(d.longitude).toFixed(4)}</span>` : `<span style="font-size:9.5px;color:var(--text3)">No GPS</span>`}
+      </div>
       ${!isOnline ? `<div class="dev-delete-wrap"><button class="dev-delete-btn" onclick="event.stopPropagation(); deleteDevice('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}')"><i class="ri-delete-bin-line"></i> DELETE DEVICE</button></div>` : ''}
     </div>`;
   }).join('');
@@ -3743,3 +3747,473 @@ async function dismissAllRequests(ids) {
     showToast('Failed: ' + err.message, 'error');
   }
 }
+
+
+// ═══════════════════════════════════════════════════════
+// GEO TRACKER — FULLSCREEN MAP PANEL
+// Real satellite map, live flights, real-time device tracking
+// ═══════════════════════════════════════════════════════
+
+let geoMap = null;
+let geoDeviceMarker = null;
+let geoDeviceId = null;
+let geoDeviceLat = null;
+let geoDeviceLng = null;
+let geoTrailCoords = [];
+let geoTrailLine = null;
+let geoFlightsLayer = null;
+let geoFlightsEnabled = false;
+let geoFlightInterval = null;
+let geoCurrentTileLayer = null;
+let geoLocationWatcher = null;
+
+// Tile layer sources — all real satellite/street data
+const GEO_TILES = {
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: '&copy; Esri &mdash; Earthstar Geographics',
+    maxZoom: 19
+  },
+  streets: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; CARTO',
+    maxZoom: 20
+  },
+  terrain: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: '&copy; Esri',
+    maxZoom: 19
+  }
+};
+
+/**
+ * Open the Geo tracker panel for a specific device.
+ * Performs a smooth blur-in animation then zooms to the device location.
+ */
+function openGeoPanel(deviceId, deviceName, lat, lng) {
+  geoDeviceId = deviceId;
+  geoDeviceLat = lat;
+  geoDeviceLng = lng;
+  geoTrailCoords = [];
+
+  const overlay = document.getElementById('geoOverlay');
+  overlay.classList.remove('hidden');
+
+  // Set device info
+  document.getElementById('geoDeviceName').textContent = deviceName || 'Unknown Device';
+  const hasLocation = lat != null && lng != null && lat !== 0 && lng !== 0;
+
+  if (hasLocation) {
+    document.getElementById('geoCoords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> TRACKING';
+  } else {
+    document.getElementById('geoCoords').textContent = 'NO GPS DATA';
+    document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot" style="background:#ff1744;box-shadow:0 0 8px #ff1744"></span> AWAITING SIGNAL';
+  }
+
+  // Force layout then animate in
+  requestAnimationFrame(() => {
+    overlay.classList.add('visible');
+    setTimeout(() => initGeoMap(hasLocation, lat, lng), 100);
+  });
+
+  // Listen for real-time location updates
+  if (socket) {
+    socket.on('device_location_update', handleGeoLocationUpdate);
+    socket.on('device_status_update', handleGeoDeviceStatusUpdate);
+  }
+}
+
+/**
+ * Initialize or re-initialize the Leaflet map.
+ */
+function initGeoMap(hasLocation, lat, lng) {
+  const mapEl = document.getElementById('geoMap');
+
+  // Destroy existing map
+  if (geoMap) {
+    geoMap.remove();
+    geoMap = null;
+  }
+
+  // Start with world view
+  geoMap = L.map(mapEl, {
+    zoomControl: false,
+    attributionControl: true,
+    maxZoom: 19,
+    minZoom: 2,
+    worldCopyJump: true
+  }).setView([20, 0], 2);
+
+  // Apply satellite tiles by default
+  switchGeoLayer('satellite', document.querySelector('.geo-layer-btn[data-layer="satellite"]'));
+
+  // Reload flights when map pans
+  geoMap.on('moveend', onGeoMapMove);
+
+  // Add entrance animation
+  mapEl.classList.add('geo-map-entering');
+  setTimeout(() => mapEl.classList.remove('geo-map-entering'), 1500);
+
+  if (hasLocation) {
+    // Smooth animated zoom to device after a delay
+    setTimeout(() => {
+      geoMap.flyTo([lat, lng], 16, {
+        duration: 2.5,
+        easeLinearity: 0.1
+      });
+
+      // Add device marker after zoom starts
+      setTimeout(() => addGeoDeviceMarker(lat, lng), 1200);
+    }, 800);
+
+    // Reverse geocode for address
+    reverseGeocode(lat, lng);
+  } else {
+    // No location — show world map with no-location overlay
+    const existing = mapEl.querySelector('.geo-no-location');
+    if (existing) existing.remove();
+    const noLocDiv = document.createElement('div');
+    noLocDiv.className = 'geo-no-location';
+    noLocDiv.innerHTML = '<i class="ri-signal-wifi-off-line"></i><p>Location data not available</p><span>Waiting for device to report GPS coordinates</span>';
+    mapEl.appendChild(noLocDiv);
+  }
+
+  // Update last update timestamp
+  document.getElementById('geoLastUpdate').textContent = new Date().toLocaleTimeString();
+}
+
+/**
+ * Add a pulsing marker for the device location.
+ */
+function addGeoDeviceMarker(lat, lng) {
+  if (!geoMap) return;
+
+  // Remove existing marker
+  if (geoDeviceMarker) {
+    geoMap.removeLayer(geoDeviceMarker);
+  }
+
+  const markerHtml = `
+    <div class="geo-marker-pulse">
+      <div class="geo-marker-inner"></div>
+    </div>
+  `;
+
+  const icon = L.divIcon({
+    html: markerHtml,
+    className: 'geo-marker-container',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
+  });
+
+  geoDeviceMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(geoMap);
+
+  // Add accuracy circle
+  L.circle([lat, lng], {
+    radius: 50,
+    color: '#00e5ff',
+    fillColor: '#00e5ff',
+    fillOpacity: 0.06,
+    weight: 1,
+    opacity: 0.3,
+    dashArray: '4 4'
+  }).addTo(geoMap);
+
+  // Init trail
+  geoTrailCoords = [[lat, lng]];
+  if (geoTrailLine) geoMap.removeLayer(geoTrailLine);
+  geoTrailLine = L.polyline(geoTrailCoords, {
+    color: '#00e5ff',
+    weight: 2.5,
+    opacity: 0.5,
+    dashArray: '8 5',
+    lineCap: 'round'
+  }).addTo(geoMap);
+}
+
+/**
+ * Handle real-time location updates via WebSocket.
+ */
+function handleGeoLocationUpdate(data) {
+  if (data.device_id !== geoDeviceId) return;
+  if (data.latitude == null || data.longitude == null) return;
+
+  const lat = data.latitude;
+  const lng = data.longitude;
+  geoDeviceLat = lat;
+  geoDeviceLng = lng;
+
+  // Update coords display
+  document.getElementById('geoCoords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  document.getElementById('geoLastUpdate').textContent = new Date().toLocaleTimeString();
+  document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> TRACKING';
+
+  // Remove no-location overlay if present
+  const noLoc = document.querySelector('.geo-no-location');
+  if (noLoc) noLoc.remove();
+
+  // Smoothly move marker
+  if (geoDeviceMarker && geoMap) {
+    const oldLatLng = geoDeviceMarker.getLatLng();
+    animateMarkerMove(geoDeviceMarker, oldLatLng, L.latLng(lat, lng), 1000);
+
+    // Add to trail
+    geoTrailCoords.push([lat, lng]);
+    if (geoTrailLine) geoTrailLine.setLatLngs(geoTrailCoords);
+
+    // Calculate speed from last 2 points
+    if (geoTrailCoords.length >= 2) {
+      const prev = geoTrailCoords[geoTrailCoords.length - 2];
+      const dist = geoMap.distance(L.latLng(prev[0], prev[1]), L.latLng(lat, lng));
+      const speedKmh = (dist / 30) * 3.6; // assuming 30s heartbeat
+      document.getElementById('geoSpeed').textContent = speedKmh < 0.5 ? 'Stationary' : `~${speedKmh.toFixed(1)} km/h`;
+    }
+
+    // Pan map to follow
+    geoMap.panTo([lat, lng], { animate: true, duration: 1 });
+  } else if (geoMap) {
+    // First location received — zoom in
+    geoMap.flyTo([lat, lng], 16, { duration: 2, easeLinearity: 0.1 });
+    setTimeout(() => addGeoDeviceMarker(lat, lng), 1000);
+  }
+
+  // Reverse geocode
+  reverseGeocode(lat, lng);
+}
+
+/**
+ * Handle device status updates (online/offline, battery etc.)
+ */
+function handleGeoDeviceStatusUpdate(data) {
+  if (data.device_id !== geoDeviceId) return;
+
+  // Update location if available
+  if (data.latitude != null && data.longitude != null) {
+    handleGeoLocationUpdate({
+      device_id: data.device_id,
+      latitude: data.latitude,
+      longitude: data.longitude
+    });
+  }
+}
+
+/**
+ * Smoothly animate marker from one position to another.
+ */
+function animateMarkerMove(marker, from, to, duration) {
+  const start = performance.now();
+  const fromLat = from.lat, fromLng = from.lng;
+  const toLat = to.lat, toLng = to.lng;
+
+  function step(now) {
+    const elapsed = now - start;
+    const t = Math.min(elapsed / duration, 1);
+    // Ease out cubic
+    const ease = 1 - Math.pow(1 - t, 3);
+    const lat = fromLat + (toLat - fromLat) * ease;
+    const lng = fromLng + (toLng - fromLng) * ease;
+    marker.setLatLng([lat, lng]);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/**
+ * Reverse geocode coordinates to a human-readable address.
+ */
+async function reverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`, {
+      headers: { 'Accept-Language': 'en' }
+    });
+    const data = await res.json();
+    if (data.display_name) {
+      document.getElementById('geoAddress').textContent = data.display_name;
+      // Show accuracy info from address details
+      const addr = data.address || {};
+      const area = [addr.suburb, addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ');
+      document.getElementById('geoAccuracy').textContent = area || 'Area unknown';
+    }
+  } catch (_) {
+    document.getElementById('geoAddress').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  }
+}
+
+/**
+ * Switch map tile layer.
+ */
+function switchGeoLayer(layerName, btnEl) {
+  if (!geoMap) return;
+  const cfg = GEO_TILES[layerName];
+  if (!cfg) return;
+
+  // Remove current tile layer
+  if (geoCurrentTileLayer) geoMap.removeLayer(geoCurrentTileLayer);
+
+  // Add new layer
+  geoCurrentTileLayer = L.tileLayer(cfg.url, {
+    attribution: cfg.attribution,
+    maxZoom: cfg.maxZoom,
+    subdomains: 'abc'
+  }).addTo(geoMap);
+
+  // If satellite, add street label overlay for detail when zoomed
+  if (layerName === 'satellite') {
+    L.tileLayer('https://stamen-tiles-{s}.a.ssl.fastly.net/toner-labels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20,
+      opacity: 0.7,
+      subdomains: 'abcd'
+    }).addTo(geoMap);
+  }
+
+  // Update active button
+  document.querySelectorAll('.geo-layer-btn').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+}
+
+/**
+ * Toggle live flight tracking overlay.
+ * Uses OpenSky Network API for real-time aircraft positions.
+ */
+function toggleFlightLayer() {
+  const btn = document.getElementById('geoFlightBtn');
+  geoFlightsEnabled = !geoFlightsEnabled;
+
+  if (geoFlightsEnabled) {
+    btn.classList.add('active');
+    loadFlights();
+    geoFlightInterval = setInterval(loadFlights, 15000); // refresh every 15s
+  } else {
+    btn.classList.remove('active');
+    if (geoFlightInterval) clearInterval(geoFlightInterval);
+    if (geoFlightsLayer) {
+      geoMap.removeLayer(geoFlightsLayer);
+      geoFlightsLayer = null;
+    }
+  }
+}
+
+/**
+ * Load real-time flight data from OpenSky Network.
+ */
+async function loadFlights() {
+  if (!geoMap || !geoFlightsEnabled) return;
+
+  try {
+    const bounds = geoMap.getBounds();
+    const lamin = bounds.getSouth().toFixed(2);
+    const lamax = bounds.getNorth().toFixed(2);
+    const lomin = bounds.getWest().toFixed(2);
+    const lomax = bounds.getEast().toFixed(2);
+
+    const res = await fetch(
+      `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`
+    );
+
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.states) return;
+
+    // Remove old flight layer
+    if (geoFlightsLayer) geoMap.removeLayer(geoFlightsLayer);
+    geoFlightsLayer = L.layerGroup();
+
+    // Add plane markers (limit to 200 for performance)
+    const flights = data.states.slice(0, 200);
+    for (const s of flights) {
+      const callsign = (s[1] || '').trim();
+      const lat = s[6];
+      const lng = s[5];
+      const heading = s[10] || 0;
+      const altitude = s[7] ? Math.round(s[7]) : '?';
+      const velocity = s[9] ? Math.round(s[9] * 3.6) : '?'; // m/s to km/h
+      const origin = s[2] || '?';
+
+      if (lat == null || lng == null) continue;
+
+      const planeIcon = L.divIcon({
+        html: `<i class="ri-flight-takeoff-line geo-plane-icon" style="transform:rotate(${heading - 45}deg)"></i>`,
+        className: '',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9]
+      });
+
+      const marker = L.marker([lat, lng], { icon: planeIcon });
+      marker.bindPopup(`
+        <div style="font-family:'Inter',sans-serif;font-size:12px;min-width:160px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#333">${callsign || 'Unknown'}</div>
+          <div style="color:#666;margin-bottom:3px"><b>Alt:</b> ${altitude} m</div>
+          <div style="color:#666;margin-bottom:3px"><b>Speed:</b> ${velocity} km/h</div>
+          <div style="color:#666;margin-bottom:3px"><b>Heading:</b> ${Math.round(heading)}°</div>
+          <div style="color:#666"><b>Origin:</b> ${origin}</div>
+        </div>
+      `, { className: 'geo-flight-popup' });
+
+      geoFlightsLayer.addLayer(marker);
+    }
+
+    geoFlightsLayer.addTo(geoMap);
+  } catch (err) {
+    console.warn('Flight data fetch error:', err.message);
+  }
+}
+
+/**
+ * Close the Geo panel and clean up resources.
+ */
+function closeGeoPanel() {
+  const overlay = document.getElementById('geoOverlay');
+  overlay.classList.remove('visible');
+
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+
+    // Stop flight updates
+    if (geoFlightInterval) clearInterval(geoFlightInterval);
+    geoFlightsEnabled = false;
+    const btn = document.getElementById('geoFlightBtn');
+    if (btn) btn.classList.remove('active');
+
+    // Remove socket listeners
+    if (socket) {
+      socket.off('device_location_update', handleGeoLocationUpdate);
+      socket.off('device_status_update', handleGeoDeviceStatusUpdate);
+    }
+
+    // Destroy map
+    if (geoMap) {
+      geoMap.remove();
+      geoMap = null;
+    }
+    geoDeviceMarker = null;
+    geoTrailLine = null;
+    geoFlightsLayer = null;
+    geoCurrentTileLayer = null;
+    geoTrailCoords = [];
+    geoDeviceId = null;
+  }, 500);
+}
+
+/** Geo zoom controls */
+function geoZoomIn() { if (geoMap) geoMap.zoomIn(1, { animate: true }); }
+function geoZoomOut() { if (geoMap) geoMap.zoomOut(1, { animate: true }); }
+function geoCenterDevice() {
+  if (geoMap && geoDeviceLat != null && geoDeviceLng != null) {
+    geoMap.flyTo([geoDeviceLat, geoDeviceLng], 17, { duration: 1.5 });
+  }
+}
+
+// Reload flights when map moves (if enabled)
+function onGeoMapMove() {
+  if (geoFlightsEnabled && geoMap) {
+    clearTimeout(geoMap._flightDebounce);
+    geoMap._flightDebounce = setTimeout(loadFlights, 2000);
+  }
+}
+

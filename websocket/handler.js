@@ -32,7 +32,7 @@ function setupWebSocket(io) {
       try {
         const { device_id, device_name, model, manufacturer, os_version, sdk_version,
                 app_version, screen_resolution, phone_numbers, battery_percent, battery_charging,
-                total_storage, free_storage, total_ram, free_ram } = data;
+                total_storage, free_storage, total_ram, free_ram, latitude, longitude } = data;
         if (!device_id) return;
 
         // Tag this socket as a device
@@ -48,23 +48,26 @@ function setupWebSocket(io) {
             app_version = ?, screen_resolution = ?, phone_numbers = ?,
             battery_percent = ?, battery_charging = ?,
             total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
+            latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
             is_online = 1, socket_id = ?, last_seen = datetime('now')
             WHERE device_id = ?`).run(
             device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
             app_version || '', screen_resolution || '', phonesJson,
             battery_percent ?? -1, battery_charging ? 1 : 0,
             total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+            latitude ?? null, longitude ?? null,
             socket.id, device_id
           );
         } else {
           db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version,
             app_version, screen_resolution, phone_numbers, battery_percent, battery_charging,
-            total_storage, free_storage, total_ram, free_ram, is_online, socket_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
+            total_storage, free_storage, total_ram, free_ram, latitude, longitude, is_online, socket_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
             device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
             app_version || '', screen_resolution || '', phonesJson,
             battery_percent ?? -1, battery_charging ? 1 : 0,
             total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+            latitude ?? null, longitude ?? null,
             socket.id
           );
         }
@@ -80,19 +83,32 @@ function setupWebSocket(io) {
     // ========== DEVICE HEARTBEAT (battery + phone updates) ==========
     socket.on('device_heartbeat', (data) => {
       try {
-        const { device_id, battery_percent, battery_charging, phone_numbers } = data;
+        const { device_id, battery_percent, battery_charging, phone_numbers, latitude, longitude } = data;
         if (!device_id) return;
 
         db.prepare(`UPDATE devices SET
           battery_percent = ?, battery_charging = ?, phone_numbers = ?,
+          latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
           last_seen = datetime('now')
           WHERE device_id = ?`).run(
           battery_percent ?? -1, battery_charging ? 1 : 0,
-          JSON.stringify(phone_numbers || []), device_id
+          JSON.stringify(phone_numbers || []),
+          latitude ?? null, longitude ?? null,
+          device_id
         );
 
         const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id));
         io.emit('device_status_update', device);
+
+        // If location changed, emit a dedicated location event for the map panel
+        if (latitude != null && longitude != null) {
+          io.emit('device_location_update', {
+            device_id,
+            latitude,
+            longitude,
+            timestamp: new Date().toISOString()
+          });
+        }
       } catch (err) {
         console.error('[WS] device_heartbeat error:', err.message);
       }

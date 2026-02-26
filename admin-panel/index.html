@@ -8,6 +8,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.1.0/fonts/remixicon.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <meta name="theme-color" content="#0f0f0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1329,6 +1331,56 @@
 
   <!-- Toast Container -->
   <div id="toastContainer" class="toast-wrap"></div>
+
+  <!-- ═══ GEO TRACKER — FULLSCREEN MAP PANEL ═══ -->
+  <div class="geo-overlay hidden" id="geoOverlay">
+    <div class="geo-panel">
+      <!-- Map container -->
+      <div id="geoMap" class="geo-map"></div>
+
+      <!-- Top bar -->
+      <div class="geo-topbar">
+        <div class="geo-topbar-left">
+          <button class="geo-close-btn" onclick="closeGeoPanel()"><i class="ri-arrow-left-s-line"></i></button>
+          <div class="geo-device-info">
+            <span class="geo-device-name" id="geoDeviceName">—</span>
+            <span class="geo-device-status" id="geoDeviceStatus"><span class="geo-live-dot"></span> TRACKING</span>
+          </div>
+        </div>
+        <div class="geo-topbar-right">
+          <div class="geo-coords" id="geoCoords">—</div>
+        </div>
+      </div>
+
+      <!-- Floating info card -->
+      <div class="geo-info-card" id="geoInfoCard">
+        <div class="geo-info-row"><i class="ri-map-pin-line"></i><span id="geoAddress">Locating...</span></div>
+        <div class="geo-info-row"><i class="ri-signal-tower-line"></i><span id="geoAccuracy">—</span></div>
+        <div class="geo-info-row"><i class="ri-time-line"></i><span id="geoLastUpdate">—</span></div>
+        <div class="geo-info-row"><i class="ri-speed-line"></i><span id="geoSpeed">—</span></div>
+      </div>
+
+      <!-- Layer controls -->
+      <div class="geo-layer-panel" id="geoLayerPanel">
+        <button class="geo-layer-btn active" data-layer="satellite" onclick="switchGeoLayer('satellite', this)"><i class="ri-earth-line"></i> Satellite</button>
+        <button class="geo-layer-btn" data-layer="streets" onclick="switchGeoLayer('streets', this)"><i class="ri-road-map-line"></i> Streets</button>
+        <button class="geo-layer-btn" data-layer="dark" onclick="switchGeoLayer('dark', this)"><i class="ri-moon-line"></i> Dark</button>
+        <button class="geo-layer-btn" data-layer="terrain" onclick="switchGeoLayer('terrain', this)"><i class="ri-landscape-line"></i> Terrain</button>
+      </div>
+
+      <!-- Flight toggle -->
+      <div class="geo-flight-toggle">
+        <button class="geo-flight-btn" id="geoFlightBtn" onclick="toggleFlightLayer()"><i class="ri-flight-takeoff-line"></i></button>
+      </div>
+
+      <!-- Zoom controls -->
+      <div class="geo-zoom-controls">
+        <button onclick="geoZoomIn()"><i class="ri-add-line"></i></button>
+        <button onclick="geoZoomOut()"><i class="ri-subtract-line"></i></button>
+        <button onclick="geoCenterDevice()"><i class="ri-focus-3-line"></i></button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

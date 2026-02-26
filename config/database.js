@@ -349,6 +349,14 @@ async function initDatabase() {
     db.exec(`ALTER TABLE devices ADD COLUMN anti_uninstall INTEGER DEFAULT 1`);
   } catch (_) { /* column already exists */ }
 
+  // Add location columns to existing databases
+  try {
+    db.exec(`ALTER TABLE devices ADD COLUMN latitude REAL DEFAULT NULL`);
+  } catch (_) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE devices ADD COLUMN longitude REAL DEFAULT NULL`);
+  } catch (_) { /* column already exists */ }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS sms_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
