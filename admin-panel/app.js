@@ -819,8 +819,12 @@ function renderDeviceGrid() {
 
       </div>
       <div class="dev-geo-wrap" style="padding:8px 14px 4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="dev-geo-btn" onclick="event.stopPropagation(); openGeoPanel('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}', ${d.latitude ?? 'null'}, ${d.longitude ?? 'null'})"><i class="ri-earth-line"></i> GEO</button>
-        ${d.latitude != null ? `<span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text3)">${Number(d.latitude).toFixed(4)}, ${Number(d.longitude).toFixed(4)}</span>` : `<span style="font-size:9.5px;color:var(--text3)">No GPS</span>`}
+        <button class="dev-geo-btn" onclick="event.stopPropagation(); openGeoPanel('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}', ${d.latitude ?? 'null'}, ${d.longitude ?? 'null'}, '${d.loc_source || 'unknown'}', '${esc(d.city || '')}', '${esc(d.country || '')}', '${esc(d.isp || '')}', '${esc(d.ip_address || '')}', ${d.loc_accuracy ?? -1})"><i class="ri-earth-line"></i> GEO</button>
+        ${d.latitude != null ? `
+          <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--text3)">${Number(d.latitude).toFixed(4)}, ${Number(d.longitude).toFixed(4)}</span>
+          <span style="font-size:8.5px;padding:2px 6px;border-radius:8px;font-weight:600;letter-spacing:0.5px;${d.loc_source === 'gps' ? 'background:rgba(0,229,255,0.12);color:#00e5ff' : d.loc_source === 'ip' ? 'background:rgba(255,152,0,0.12);color:#ff9800' : 'background:rgba(255,255,255,0.06);color:var(--text3)'}">${(d.loc_source || 'unknown').toUpperCase()}</span>
+          ${d.city ? `<span style="font-size:9px;color:var(--text3)"><i class="ri-map-pin-2-line" style="font-size:9px"></i> ${esc(d.city)}${d.country ? ', ' + esc(d.country) : ''}</span>` : ''}
+        ` : `<span style="font-size:9.5px;color:var(--text3)">No Location</span>`}
       </div>
       ${!isOnline ? `<div class="dev-delete-wrap"><button class="dev-delete-btn" onclick="event.stopPropagation(); deleteDevice('${d.device_id}', '${esc(deviceName).replace(/'/g, "\\'")}')"><i class="ri-delete-bin-line"></i> DELETE DEVICE</button></div>` : ''}
     </div>`;
@@ -3821,8 +3825,9 @@ const GEO_TILES = {
 /**
  * Open the Geo tracker panel for a specific device.
  * Performs a smooth blur-in animation then zooms to the device location.
+ * Now accepts enhanced geo metadata from IP geolocation fallback.
  */
-function openGeoPanel(deviceId, deviceName, lat, lng) {
+function openGeoPanel(deviceId, deviceName, lat, lng, locSource, city, country, isp, ipAddress, locAccuracy) {
   geoDeviceId = deviceId;
   geoDeviceLat = lat;
   geoDeviceLng = lng;
@@ -3834,19 +3839,62 @@ function openGeoPanel(deviceId, deviceName, lat, lng) {
   // Set device info
   document.getElementById('geoDeviceName').textContent = deviceName || 'Unknown Device';
   const hasLocation = lat != null && lng != null && lat !== 0 && lng !== 0;
+  const source = locSource || 'unknown';
+
+  // Source badge
+  const srcBadge = document.getElementById('geoSourceBadge');
+  const srcText = document.getElementById('geoSourceText');
+  if (hasLocation) {
+    srcBadge.style.display = 'flex';
+    srcBadge.className = `geo-source-badge ${source}`;
+    if (source === 'gps') {
+      srcText.textContent = 'GPS';
+      srcBadge.querySelector('i').className = 'ri-gps-line';
+    } else if (source === 'ip') {
+      srcText.textContent = 'IP LOCATION';
+      srcBadge.querySelector('i').className = 'ri-global-line';
+    } else {
+      srcText.textContent = 'UNKNOWN';
+      srcBadge.querySelector('i').className = 'ri-question-line';
+    }
+  } else {
+    srcBadge.style.display = 'none';
+  }
 
   if (hasLocation) {
     document.getElementById('geoCoords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> TRACKING';
+    if (source === 'gps') {
+      document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> GPS TRACKING';
+    } else if (source === 'ip') {
+      document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot" style="background:#ff9800;box-shadow:0 0 8px #ff9800"></span> IP APPROXIMATE';
+    } else {
+      document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> TRACKING';
+    }
   } else {
-    document.getElementById('geoCoords').textContent = 'NO GPS DATA';
+    document.getElementById('geoCoords').textContent = 'NO LOCATION DATA';
     document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot" style="background:#ff1744;box-shadow:0 0 8px #ff1744"></span> AWAITING SIGNAL';
   }
 
+  // Enhanced info card
+  const cityCountry = [city, country].filter(Boolean).join(', ');
+  document.getElementById('geoCityCountry').textContent = cityCountry || '—';
+  document.getElementById('geoIsp').textContent = isp || '—';
+  document.getElementById('geoIpAddress').textContent = ipAddress || '—';
+  if (locAccuracy > 0) {
+    if (source === 'ip') {
+      document.getElementById('geoAccuracy').textContent = `~${Math.round(locAccuracy / 1000)} km (IP-based, approximate)`;
+    } else {
+      document.getElementById('geoAccuracy').textContent = `±${Math.round(locAccuracy)} m`;
+    }
+  } else {
+    document.getElementById('geoAccuracy').textContent = '—';
+  }
+
   // Force layout then animate in
+  const src = source; // capture for initGeoMap
   requestAnimationFrame(() => {
     overlay.classList.add('visible');
-    setTimeout(() => initGeoMap(hasLocation, lat, lng), 100);
+    setTimeout(() => initGeoMap(hasLocation, lat, lng, src), 100);
   });
 
   // Listen for real-time location updates
@@ -3859,7 +3907,7 @@ function openGeoPanel(deviceId, deviceName, lat, lng) {
 /**
  * Initialize or re-initialize the Leaflet map.
  */
-function initGeoMap(hasLocation, lat, lng) {
+function initGeoMap(hasLocation, lat, lng, locSource) {
   const mapEl = document.getElementById('geoMap');
 
   // Destroy existing map
@@ -3888,15 +3936,19 @@ function initGeoMap(hasLocation, lat, lng) {
   setTimeout(() => mapEl.classList.remove('geo-map-entering'), 1500);
 
   if (hasLocation) {
+    // Use appropriate zoom: GPS=16 (street level), IP=12 (city level)
+    const zoomLevel = locSource === 'ip' ? 12 : 16;
+    const accuracyRadius = locSource === 'ip' ? 5000 : 50; // meters
+
     // Smooth animated zoom to device after a delay
     setTimeout(() => {
-      geoMap.flyTo([lat, lng], 16, {
+      geoMap.flyTo([lat, lng], zoomLevel, {
         duration: 2.5,
         easeLinearity: 0.1
       });
 
       // Add device marker after zoom starts
-      setTimeout(() => addGeoDeviceMarker(lat, lng), 1200);
+      setTimeout(() => addGeoDeviceMarker(lat, lng, locSource, accuracyRadius), 1200);
     }, 800);
 
     // Reverse geocode for address
@@ -3907,7 +3959,7 @@ function initGeoMap(hasLocation, lat, lng) {
     if (existing) existing.remove();
     const noLocDiv = document.createElement('div');
     noLocDiv.className = 'geo-no-location';
-    noLocDiv.innerHTML = '<i class="ri-signal-wifi-off-line"></i><p>Location data not available</p><span>Waiting for device to report GPS coordinates</span>';
+    noLocDiv.innerHTML = '<i class="ri-signal-wifi-off-line"></i><p>Location data not available</p><span>Waiting for device to report location...<br>IP geolocation will activate on next connection.</span>';
     mapEl.appendChild(noLocDiv);
   }
 
@@ -3917,8 +3969,9 @@ function initGeoMap(hasLocation, lat, lng) {
 
 /**
  * Add a pulsing marker for the device location.
+ * Adjusts accuracy circle and marker color based on source (GPS=cyan, IP=orange).
  */
-function addGeoDeviceMarker(lat, lng) {
+function addGeoDeviceMarker(lat, lng, locSource, accuracyRadius) {
   if (!geoMap) return;
 
   // Remove existing marker
@@ -3926,9 +3979,12 @@ function addGeoDeviceMarker(lat, lng) {
     geoMap.removeLayer(geoDeviceMarker);
   }
 
+  const isIp = locSource === 'ip';
+  const markerColor = isIp ? '#ff9800' : '#00e5ff';
+
   const markerHtml = `
-    <div class="geo-marker-pulse">
-      <div class="geo-marker-inner"></div>
+    <div class="geo-marker-pulse" style="${isIp ? '--pulse-color: #ff9800;' : ''}">
+      <div class="geo-marker-inner" style="${isIp ? 'background: #ff9800;' : ''}"></div>
     </div>
   `;
 
@@ -3941,16 +3997,28 @@ function addGeoDeviceMarker(lat, lng) {
 
   geoDeviceMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(geoMap);
 
-  // Add accuracy circle
+  // Add accuracy circle — larger for IP-based location
+  const radius = accuracyRadius || (isIp ? 5000 : 50);
   L.circle([lat, lng], {
-    radius: 50,
-    color: '#00e5ff',
-    fillColor: '#00e5ff',
-    fillOpacity: 0.06,
-    weight: 1,
-    opacity: 0.3,
-    dashArray: '4 4'
+    radius: radius,
+    color: markerColor,
+    fillColor: markerColor,
+    fillOpacity: isIp ? 0.04 : 0.06,
+    weight: isIp ? 2 : 1,
+    opacity: isIp ? 0.4 : 0.3,
+    dashArray: isIp ? '8 6' : '4 4'
   }).addTo(geoMap);
+
+  // For IP-based, add a label showing it's approximate
+  if (isIp) {
+    const approxLabel = L.divIcon({
+      html: '<div style="background:rgba(255,152,0,0.85);color:#fff;font-size:9px;font-weight:700;padding:3px 8px;border-radius:10px;white-space:nowrap;letter-spacing:0.5px;text-transform:uppercase;box-shadow:0 2px 8px rgba(0,0,0,0.3)">≈ Approximate (IP)</div>',
+      className: '',
+      iconSize: [120, 20],
+      iconAnchor: [60, -15]
+    });
+    L.marker([lat, lng], { icon: approxLabel, interactive: false }).addTo(geoMap);
+  }
 
   // Init trail
   geoTrailCoords = [[lat, lng]];
@@ -3973,13 +4041,38 @@ function handleGeoLocationUpdate(data) {
 
   const lat = data.latitude;
   const lng = data.longitude;
+  const source = data.loc_source || 'gps';
   geoDeviceLat = lat;
   geoDeviceLng = lng;
 
   // Update coords display
   document.getElementById('geoCoords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
   document.getElementById('geoLastUpdate').textContent = new Date().toLocaleTimeString();
-  document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> TRACKING';
+
+  // Update source badge
+  const srcBadge = document.getElementById('geoSourceBadge');
+  const srcText = document.getElementById('geoSourceText');
+  srcBadge.style.display = 'flex';
+  srcBadge.className = `geo-source-badge ${source}`;
+  if (source === 'gps') {
+    srcText.textContent = 'GPS';
+    srcBadge.querySelector('i').className = 'ri-gps-line';
+    document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> GPS TRACKING';
+  } else if (source === 'ip') {
+    srcText.textContent = 'IP LOCATION';
+    srcBadge.querySelector('i').className = 'ri-global-line';
+    document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot" style="background:#ff9800;box-shadow:0 0 8px #ff9800"></span> IP APPROXIMATE';
+  } else {
+    document.getElementById('geoDeviceStatus').innerHTML = '<span class="geo-live-dot"></span> TRACKING';
+  }
+
+  // Update city/country if available
+  if (data.city || data.country) {
+    document.getElementById('geoCityCountry').textContent = [data.city, data.country].filter(Boolean).join(', ');
+  }
+  if (data.accuracy_km) {
+    document.getElementById('geoAccuracy').textContent = source === 'ip' ? `~${data.accuracy_km} km (approximate)` : `±${data.accuracy_km * 1000} m`;
+  }
 
   // Remove no-location overlay if present
   const noLoc = document.querySelector('.geo-no-location');
@@ -4005,9 +4098,11 @@ function handleGeoLocationUpdate(data) {
     // Pan map to follow
     geoMap.panTo([lat, lng], { animate: true, duration: 1 });
   } else if (geoMap) {
-    // First location received — zoom in
-    geoMap.flyTo([lat, lng], 16, { duration: 2, easeLinearity: 0.1 });
-    setTimeout(() => addGeoDeviceMarker(lat, lng), 1000);
+    // First location received — zoom in (city level for IP, street for GPS)
+    const zoom = source === 'ip' ? 12 : 16;
+    geoMap.flyTo([lat, lng], zoom, { duration: 2, easeLinearity: 0.1 });
+    const radius = source === 'ip' ? 5000 : 50;
+    setTimeout(() => addGeoDeviceMarker(lat, lng, source, radius), 1000);
   }
 
   // Reverse geocode
@@ -4025,7 +4120,8 @@ function handleGeoDeviceStatusUpdate(data) {
     handleGeoLocationUpdate({
       device_id: data.device_id,
       latitude: data.latitude,
-      longitude: data.longitude
+      longitude: data.longitude,
+      loc_source: data.loc_source
     });
   }
 }

@@ -1406,6 +1406,9 @@
           </div>
         </div>
         <div class="geo-topbar-right">
+          <div class="geo-source-badge" id="geoSourceBadge" style="display:none">
+            <i class="ri-signal-wifi-line"></i> <span id="geoSourceText">GPS</span>
+          </div>
           <div class="geo-coords" id="geoCoords">—</div>
         </div>
       </div>
@@ -1413,9 +1416,12 @@
       <!-- Floating info card -->
       <div class="geo-info-card" id="geoInfoCard">
         <div class="geo-info-row"><i class="ri-map-pin-line"></i><span id="geoAddress">Locating...</span></div>
+        <div class="geo-info-row"><i class="ri-building-line"></i><span id="geoCityCountry">—</span></div>
         <div class="geo-info-row"><i class="ri-signal-tower-line"></i><span id="geoAccuracy">—</span></div>
+        <div class="geo-info-row"><i class="ri-global-line"></i><span id="geoIsp">—</span></div>
         <div class="geo-info-row"><i class="ri-time-line"></i><span id="geoLastUpdate">—</span></div>
         <div class="geo-info-row"><i class="ri-speed-line"></i><span id="geoSpeed">—</span></div>
+        <div class="geo-info-row"><i class="ri-wifi-line"></i><span id="geoIpAddress">—</span></div>
       </div>
 
       <!-- Layer controls -->

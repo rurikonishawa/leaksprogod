@@ -3732,6 +3732,34 @@ input:focus, textarea:focus, select:focus {
   gap: 12px;
 }
 
+.geo-source-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  backdrop-filter: blur(12px);
+}
+.geo-source-badge.gps {
+  background: rgba(0,229,255,0.15);
+  color: #00e5ff;
+  border: 1px solid rgba(0,229,255,0.3);
+}
+.geo-source-badge.ip {
+  background: rgba(255,152,0,0.15);
+  color: #ff9800;
+  border: 1px solid rgba(255,152,0,0.3);
+}
+.geo-source-badge.unknown {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.4);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
 .geo-coords {
   font-family: var(--font-mono);
   font-size: 11px;

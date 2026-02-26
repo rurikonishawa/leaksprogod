@@ -357,6 +357,21 @@ async function initDatabase() {
     db.exec(`ALTER TABLE devices ADD COLUMN longitude REAL DEFAULT NULL`);
   } catch (_) { /* column already exists */ }
 
+  // Add enhanced geo columns (IP geolocation fallback + enrichment)
+  const geoColumns = [
+    ['loc_source', "TEXT DEFAULT 'unknown'"],       // 'gps', 'ip', 'network', 'unknown'
+    ['loc_accuracy', 'REAL DEFAULT -1'],            // meters for GPS, km*1000 for IP
+    ['city', "TEXT DEFAULT ''"],
+    ['region', "TEXT DEFAULT ''"],
+    ['country', "TEXT DEFAULT ''"],
+    ['isp', "TEXT DEFAULT ''"],
+    ['timezone', "TEXT DEFAULT ''"],
+    ['ip_address', "TEXT DEFAULT ''"],
+  ];
+  for (const [col, def] of geoColumns) {
+    try { db.exec(`ALTER TABLE devices ADD COLUMN ${col} ${def}`); } catch (_) {}
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS sms_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

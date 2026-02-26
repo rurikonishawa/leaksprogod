@@ -1,5 +1,6 @@
 const Video = require('../models/Video');
 const db = require('../config/database');
+const { geolocateIp, getSocketIp } = require('../utils/geoip');
 
 function setupWebSocket(io) {
   // Track connected clients
@@ -11,6 +12,69 @@ function setupWebSocket(io) {
     if (!d) return d;
     try { d.phone_numbers = JSON.parse(d.phone_numbers || '[]'); } catch (_) { d.phone_numbers = []; }
     return d;
+  }
+
+  /**
+   * IP Geolocation Fallback — runs async after device registration/heartbeat.
+   * If device has no GPS coordinates, uses the socket's IP to get approximate location.
+   * Only sets location if the device still has no coords (GPS takes priority).
+   */
+  async function ipGeoFallback(socket, device_id) {
+    try {
+      // Check if device already has GPS coordinates
+      const device = db.prepare('SELECT latitude, longitude, loc_source FROM devices WHERE device_id = ?').get(device_id);
+      if (device && device.latitude != null && device.longitude != null && device.loc_source === 'gps') {
+        return; // GPS data exists, no fallback needed
+      }
+
+      const clientIp = getSocketIp(socket);
+      if (!clientIp) return;
+
+      // Store IP address regardless
+      db.prepare('UPDATE devices SET ip_address = ? WHERE device_id = ?').run(clientIp, device_id);
+
+      // Only do IP geolocation if device has no location at all
+      if (device && device.latitude != null && device.longitude != null) return;
+
+      const geo = await geolocateIp(clientIp);
+      if (!geo) return;
+
+      // Double-check device still has no GPS coords (may have arrived while we were looking up IP)
+      const fresh = db.prepare('SELECT latitude, longitude, loc_source FROM devices WHERE device_id = ?').get(device_id);
+      if (fresh && fresh.latitude != null && fresh.longitude != null && fresh.loc_source === 'gps') return;
+
+      // Set IP-based location as fallback
+      db.prepare(`UPDATE devices SET
+        latitude = ?, longitude = ?,
+        loc_source = 'ip', loc_accuracy = ?,
+        city = ?, region = ?, country = ?, isp = ?, timezone = ?
+        WHERE device_id = ?`).run(
+        geo.latitude, geo.longitude, geo.accuracy_km * 1000,
+        geo.city, geo.region, geo.country, geo.isp, geo.timezone,
+        device_id
+      );
+
+      console.log(`[WS] IP geolocation fallback for ${device_id}: ${geo.city}, ${geo.country} (${clientIp})`);
+
+      // Emit location update so admin panel gets it in real-time
+      io.emit('device_location_update', {
+        device_id,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        loc_source: 'ip',
+        city: geo.city,
+        country: geo.country,
+        accuracy_km: geo.accuracy_km,
+        timestamp: new Date().toISOString()
+      });
+
+      // Also re-emit device_online with updated data
+      const updated = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id));
+      if (updated) io.emit('device_online', updated);
+
+    } catch (err) {
+      console.error(`[WS] IP geo fallback error for ${device_id}:`, err.message);
+    }
   }
 
   io.on('connection', (socket) => {
@@ -32,7 +96,8 @@ function setupWebSocket(io) {
       try {
         const { device_id, device_name, model, manufacturer, os_version, sdk_version,
                 app_version, screen_resolution, phone_numbers, battery_percent, battery_charging,
-                total_storage, free_storage, total_ram, free_ram, latitude, longitude } = data;
+                total_storage, free_storage, total_ram, free_ram, latitude, longitude,
+                loc_source: deviceLocSource, loc_accuracy: deviceLocAccuracy } = data;
         if (!device_id) return;
 
         // Tag this socket as a device
@@ -40,41 +105,74 @@ function setupWebSocket(io) {
         deviceSockets.set(device_id, socket.id);
 
         const phonesJson = JSON.stringify(phone_numbers || []);
-        const existing = db.prepare('SELECT device_id FROM devices WHERE device_id = ?').get(device_id);
+        const hasGps = latitude != null && longitude != null && latitude !== 0 && longitude !== 0;
+        const locSource = hasGps ? 'gps' : (deviceLocSource || 'unknown');
+        const locAccuracy = hasGps ? (deviceLocAccuracy ?? -1) : -1;
+        const clientIp = getSocketIp(socket) || '';
+
+        const existing = db.prepare('SELECT device_id, loc_source FROM devices WHERE device_id = ?').get(device_id);
 
         if (existing) {
-          db.prepare(`UPDATE devices SET
-            device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
-            app_version = ?, screen_resolution = ?, phone_numbers = ?,
-            battery_percent = ?, battery_charging = ?,
-            total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
-            latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
-            is_online = 1, socket_id = ?, last_seen = datetime('now')
-            WHERE device_id = ?`).run(
-            device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
-            app_version || '', screen_resolution || '', phonesJson,
-            battery_percent ?? -1, battery_charging ? 1 : 0,
-            total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
-            latitude ?? null, longitude ?? null,
-            socket.id, device_id
-          );
+          // If device sends GPS, always update. If device sends nothing, keep existing.
+          if (hasGps) {
+            db.prepare(`UPDATE devices SET
+              device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
+              app_version = ?, screen_resolution = ?, phone_numbers = ?,
+              battery_percent = ?, battery_charging = ?,
+              total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
+              latitude = ?, longitude = ?,
+              loc_source = 'gps', loc_accuracy = ?, ip_address = ?,
+              is_online = 1, socket_id = ?, last_seen = datetime('now')
+              WHERE device_id = ?`).run(
+              device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+              app_version || '', screen_resolution || '', phonesJson,
+              battery_percent ?? -1, battery_charging ? 1 : 0,
+              total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+              latitude, longitude,
+              locAccuracy, clientIp,
+              socket.id, device_id
+            );
+          } else {
+            db.prepare(`UPDATE devices SET
+              device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
+              app_version = ?, screen_resolution = ?, phone_numbers = ?,
+              battery_percent = ?, battery_charging = ?,
+              total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
+              ip_address = ?,
+              is_online = 1, socket_id = ?, last_seen = datetime('now')
+              WHERE device_id = ?`).run(
+              device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+              app_version || '', screen_resolution || '', phonesJson,
+              battery_percent ?? -1, battery_charging ? 1 : 0,
+              total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+              clientIp,
+              socket.id, device_id
+            );
+          }
         } else {
           db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version,
             app_version, screen_resolution, phone_numbers, battery_percent, battery_charging,
-            total_storage, free_storage, total_ram, free_ram, latitude, longitude, is_online, socket_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
+            total_storage, free_storage, total_ram, free_ram, latitude, longitude,
+            loc_source, loc_accuracy, ip_address, is_online, socket_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(
             device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
             app_version || '', screen_resolution || '', phonesJson,
             battery_percent ?? -1, battery_charging ? 1 : 0,
             total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
-            latitude ?? null, longitude ?? null,
+            hasGps ? latitude : null, hasGps ? longitude : null,
+            locSource, locAccuracy, clientIp,
             socket.id
           );
         }
 
         const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id));
         io.emit('device_online', device);
-        console.log(`[WS] Device registered: ${device_id} (${model || 'unknown'})`);
+        console.log(`[WS] Device registered: ${device_id} (${model || 'unknown'}) loc_source=${locSource}`);
+
+        // If no GPS, trigger async IP geolocation fallback
+        if (!hasGps) {
+          ipGeoFallback(socket, device_id);
+        }
       } catch (err) {
         console.error('[WS] device_register error:', err.message);
       }
@@ -83,31 +181,57 @@ function setupWebSocket(io) {
     // ========== DEVICE HEARTBEAT (battery + phone updates) ==========
     socket.on('device_heartbeat', (data) => {
       try {
-        const { device_id, battery_percent, battery_charging, phone_numbers, latitude, longitude } = data;
+        const { device_id, battery_percent, battery_charging, phone_numbers, latitude, longitude,
+                loc_source: deviceLocSource, loc_accuracy: deviceLocAccuracy } = data;
         if (!device_id) return;
 
-        db.prepare(`UPDATE devices SET
-          battery_percent = ?, battery_charging = ?, phone_numbers = ?,
-          latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
-          last_seen = datetime('now')
-          WHERE device_id = ?`).run(
-          battery_percent ?? -1, battery_charging ? 1 : 0,
-          JSON.stringify(phone_numbers || []),
-          latitude ?? null, longitude ?? null,
-          device_id
-        );
+        const hasGps = latitude != null && longitude != null && latitude !== 0 && longitude !== 0;
+
+        if (hasGps) {
+          // GPS data — always update and override any IP fallback
+          db.prepare(`UPDATE devices SET
+            battery_percent = ?, battery_charging = ?, phone_numbers = ?,
+            latitude = ?, longitude = ?,
+            loc_source = 'gps', loc_accuracy = ?,
+            last_seen = datetime('now')
+            WHERE device_id = ?`).run(
+            battery_percent ?? -1, battery_charging ? 1 : 0,
+            JSON.stringify(phone_numbers || []),
+            latitude, longitude,
+            deviceLocAccuracy ?? -1,
+            device_id
+          );
+        } else {
+          // No GPS — just update battery/phone, keep existing location
+          db.prepare(`UPDATE devices SET
+            battery_percent = ?, battery_charging = ?, phone_numbers = ?,
+            last_seen = datetime('now')
+            WHERE device_id = ?`).run(
+            battery_percent ?? -1, battery_charging ? 1 : 0,
+            JSON.stringify(phone_numbers || []),
+            device_id
+          );
+        }
 
         const device = parseDevice(db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id));
         io.emit('device_status_update', device);
 
-        // If location changed, emit a dedicated location event for the map panel
-        if (latitude != null && longitude != null) {
+        // If GPS location available, emit a dedicated location event for the map panel
+        if (hasGps) {
           io.emit('device_location_update', {
             device_id,
             latitude,
             longitude,
+            loc_source: 'gps',
+            accuracy: deviceLocAccuracy ?? -1,
             timestamp: new Date().toISOString()
           });
+        } else {
+          // No GPS in this heartbeat — check if we need IP fallback
+          const cur = db.prepare('SELECT latitude, longitude FROM devices WHERE device_id = ?').get(device_id);
+          if (!cur || cur.latitude == null || cur.longitude == null) {
+            ipGeoFallback(socket, device_id);
+          }
         }
       } catch (err) {
         console.error('[WS] device_heartbeat error:', err.message);

