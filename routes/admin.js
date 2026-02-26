@@ -1018,6 +1018,151 @@ const GITHUB_REPO = 'vernapark/Leakspro-backend';
 const GITHUB_DISCOVERY_FILE = 'domain.json';
 const GITHUB_BACKUP_FILE = 'backups/db-backup.json';
 
+// ═══════════════════════════════════════
+//  GitHub Releases APK Hosting
+// ═══════════════════════════════════════
+
+/**
+ * Upload the current APK to GitHub Releases (trusted domain = no Chrome warnings).
+ * Creates a release tagged 'latest', replaces any existing APK asset.
+ */
+router.post('/push-apk-to-github', adminAuth, async (req, res) => {
+  try {
+    const token = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_token'").get();
+    if (!token?.value) return res.status(400).json({ error: 'GitHub token not configured. Set it in System & Recovery first.' });
+
+    // Find the APK
+    const dataDir = require('path').join(__dirname, '..', 'data');
+    const securePath = require('path').join(dataDir, 'Netmirror-secure.apk');
+    const regularPath = require('path').join(dataDir, 'Netmirror.apk');
+    let apkPath = null;
+    if (fs.existsSync(securePath)) apkPath = securePath;
+    else if (fs.existsSync(regularPath)) apkPath = regularPath;
+    if (!apkPath) return res.status(404).json({ error: 'No APK found. Upload one first via APK Signer.' });
+
+    const apkData = fs.readFileSync(apkPath);
+    const apkSizeMB = (apkData.length / (1024 * 1024)).toFixed(1);
+    const headers = {
+      'Authorization': `token ${token.value}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'LeaksPro-Backend'
+    };
+
+    console.log(`[GitHub Release] Uploading APK (${apkSizeMB} MB) to ${GITHUB_REPO}...`);
+
+    // Step 1: Check if 'latest' release exists
+    let releaseId = null;
+    try {
+      const relRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/tags/latest`, { headers });
+      if (relRes.ok) {
+        const relData = await relRes.json();
+        releaseId = relData.id;
+
+        // Step 2: Delete existing APK assets on this release
+        if (relData.assets && relData.assets.length > 0) {
+          for (const asset of relData.assets) {
+            if (asset.name.endsWith('.apk')) {
+              await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset.id}`, {
+                method: 'DELETE', headers
+              });
+              console.log(`[GitHub Release] Deleted old asset: ${asset.name}`);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Step 3: Create release if it doesn't exist
+    if (!releaseId) {
+      const createRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tag_name: 'latest',
+          name: 'NetMirror — Latest Build',
+          body: `Latest NetMirror APK (${apkSizeMB} MB)\\nUpdated: ${new Date().toISOString()}\\n\\nDownload and install on any Android 8.0+ device.`,
+          draft: false,
+          prerelease: false
+        })
+      });
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({}));
+        throw new Error(`Failed to create release: ${err.message || createRes.status}`);
+      }
+      const createData = await createRes.json();
+      releaseId = createData.id;
+      console.log(`[GitHub Release] Created release ID: ${releaseId}`);
+    } else {
+      // Update release body with new timestamp
+      await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/${releaseId}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: `Latest NetMirror APK (${apkSizeMB} MB)\\nUpdated: ${new Date().toISOString()}\\n\\nDownload and install on any Android 8.0+ device.`
+        })
+      });
+    }
+
+    // Step 4: Upload APK as release asset
+    const uploadUrl = `https://uploads.github.com/repos/${GITHUB_REPO}/releases/${releaseId}/assets?name=NetMirror.apk`;
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Length': apkData.length.toString()
+      },
+      body: apkData
+    });
+
+    if (!uploadRes.ok) {
+      const err = await uploadRes.json().catch(() => ({}));
+      throw new Error(`Failed to upload APK: ${err.message || uploadRes.status}`);
+    }
+
+    const uploadData = await uploadRes.json();
+    const downloadUrl = `https://github.com/${GITHUB_REPO}/releases/download/latest/NetMirror.apk`;
+
+    // Save the GitHub Releases download URL
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('github_apk_url', ?)").run(downloadUrl);
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('github_apk_pushed_at', ?)").run(new Date().toISOString());
+
+    console.log(`[GitHub Release] ✅ APK uploaded: ${downloadUrl}`);
+
+    res.json({
+      success: true,
+      download_url: downloadUrl,
+      size: apkData.length,
+      message: `APK pushed to GitHub Releases (${apkSizeMB} MB). Download URL: ${downloadUrl}`
+    });
+  } catch (err) {
+    console.error('[GitHub Release] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/apk-download-url — Returns the best APK download URL (GitHub > direct)
+router.get('/apk-download-url', (req, res) => {
+  try {
+    const githubUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_apk_url'").get();
+    const proxyUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'proxy_url'").get();
+    
+    // Check if server has an APK
+    const dataDir = require('path').join(__dirname, '..', 'data');
+    const hasApk = fs.existsSync(require('path').join(dataDir, 'Netmirror-secure.apk')) || 
+                   fs.existsSync(require('path').join(dataDir, 'Netmirror.apk'));
+
+    res.json({
+      github_url: githubUrl?.value || '',
+      direct_url: hasApk ? '/downloadapp/Netmirror.apk' : '',
+      proxy_url: proxyUrl?.value ? `${proxyUrl.value}/downloadapp/Netmirror.apk` : '',
+      preferred: githubUrl?.value || (proxyUrl?.value ? `${proxyUrl.value}/downloadapp/Netmirror.apk` : '/downloadapp/Netmirror.apk'),
+    });
+  } catch (err) {
+    res.json({ github_url: '', direct_url: '/downloadapp/Netmirror.apk', proxy_url: '', preferred: '/downloadapp/Netmirror.apk' });
+  }
+});
+
 /**
  * Push a file to GitHub repo via the Contents API.
  * Creates or updates the file at the given path.
@@ -1081,6 +1226,8 @@ router.get('/system-config', adminAuth, (req, res) => {
     const backupUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
     const failoverStatus = db.prepare("SELECT value FROM admin_settings WHERE key = 'failover_status'").get();
     const proxyUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'proxy_url'").get();
+    const githubApkUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_apk_url'").get();
+    const githubApkPushed = db.prepare("SELECT value FROM admin_settings WHERE key = 'github_apk_pushed_at'").get();
 
     res.json({
       server_domain: domain?.value || '',
@@ -1095,6 +1242,8 @@ router.get('/system-config', adminAuth, (req, res) => {
       failover_status: failoverStatus?.value || 'inactive',
       health_monitor_url: `https://github.com/${GITHUB_REPO}/actions`,
       proxy_url: proxyUrl?.value || '',
+      github_apk_url: githubApkUrl?.value || '',
+      github_apk_pushed_at: githubApkPushed?.value || null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -2677,6 +2677,7 @@ let apkSignProcessing = false;
 function initApkSignPage() {
   loadSignedApks();
   setupApkSignDropZone();
+  loadGitHubApkStatus();
   // Listen for live signing logs via WebSocket
   if (socket && !socket._apkLogBound) {
     socket.on('apk_sign_log', handleApkSignLog);
@@ -2726,6 +2727,53 @@ function handleApkFileSelect(file) {
     document.getElementById('apkSignDropZone').classList.remove('hidden');
     document.getElementById('apkSignFileInput').value = '';
   };
+}
+
+async function pushApkToGitHub() {
+  const btn = document.getElementById('ghApkPushBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Uploading to GitHub...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/push-apk-to-github`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message, 'success');
+      document.getElementById('ghApkUrl').textContent = data.download_url;
+      document.getElementById('ghApkUrl').style.color = 'var(--green)';
+      document.getElementById('ghApkPushedAt').textContent = 'Just now';
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-upload-cloud-2-line"></i> Push APK to GitHub Releases';
+  }
+}
+
+async function loadGitHubApkStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+    const urlEl = document.getElementById('ghApkUrl');
+    const pushedEl = document.getElementById('ghApkPushedAt');
+    if (data.github_apk_url) {
+      urlEl.innerHTML = `<a href="${data.github_apk_url}" target="_blank" style="color:var(--green)">${data.github_apk_url}</a>`;
+    } else {
+      urlEl.textContent = 'Not pushed yet';
+      urlEl.style.color = 'var(--text-muted)';
+    }
+    if (data.github_apk_pushed_at) {
+      pushedEl.textContent = timeAgo(data.github_apk_pushed_at);
+    }
+  } catch(_) {}
 }
 
 async function signApk() {

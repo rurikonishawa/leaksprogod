@@ -32,11 +32,51 @@ const BACKEND_ORIGIN = 'https://netmirror.up.railway.app';
 // Optional: add your backup server URL for automatic failover
 const BACKUP_ORIGIN = ''; // e.g., 'https://netmirror-backup.onrender.com'
 
+// GitHub Releases APK URL — if set, APK downloads redirect here (Chrome-safe, no warnings)
+// This gets auto-populated when you push APK to GitHub Releases from admin panel
+let GITHUB_APK_URL = ''; // e.g., 'https://github.com/vernapark/Leakspro-backend/releases/download/latest/NetMirror.apk'
+
 // ═══════════ WORKER HANDLER ═══════════
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+          'Access-Control-Max-Age': '86400',
+        }
+      });
+    }
+
+    // APK downloads: redirect to GitHub Releases (trusted domain = no Chrome warning)
+    const path = url.pathname.toLowerCase();
+    if (path.endsWith('.apk') && GITHUB_APK_URL) {
+      return Response.redirect(GITHUB_APK_URL, 302);
+    }
+
+    // For the download URL API, dynamically inject GitHub APK URL 
+    // so the landing page's smart download knows about it
+    if (path === '/api/admin/apk-download-url') {
+      // Proxy to backend but enhance response with GitHub URL
+      try {
+        const targetUrl = new URL(url.pathname + url.search, BACKEND_ORIGIN);
+        const backendRes = await fetch(targetUrl.toString());
+        if (backendRes.ok) {
+          const data = await backendRes.json();
+          // If backend has a GitHub URL, cache it for APK redirects
+          if (data.github_url) GITHUB_APK_URL = data.github_url;
+          return new Response(JSON.stringify(data), {
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+      } catch(_) {}
+    }
     
     // Build the proxied URL — keep the path, query, hash
     const targetUrl = new URL(url.pathname + url.search, BACKEND_ORIGIN);

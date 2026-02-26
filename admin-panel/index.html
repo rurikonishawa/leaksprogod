@@ -739,6 +739,32 @@
             </div>
           </div>
         </div>
+
+        <!-- GitHub Releases Distribution -->
+        <div class="card apk-sign-card">
+          <div class="card-head">
+            <h3><i class="ri-github-fill"></i> GitHub Releases Distribution</h3>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;">
+              Push the current APK to <strong>GitHub Releases</strong> for Chrome-safe downloads. GitHub.com is a trusted domain — Chrome won't show the "dangerous file" warning when users download from there.
+            </p>
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">GitHub APK URL</span>
+                <span class="sys-val" id="ghApkUrl" style="word-break:break-all;font-size:12px;">Not pushed yet</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Last Pushed</span>
+                <span class="sys-val" id="ghApkPushedAt">Never</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="pushApkToGitHub()" id="ghApkPushBtn" style="margin-top:12px;width:100%;">
+              <i class="ri-upload-cloud-2-line"></i> Push APK to GitHub Releases
+            </button>
+            <span class="sys-hint" style="display:block;margin-top:8px;">Requires GitHub token (set in System & Recovery). The APK is uploaded to the <code>latest</code> release on your repo.</span>
+          </div>
+        </div>
       </section>
 
       <!-- ===== ADMIN DEVICES PAGE ===== -->
