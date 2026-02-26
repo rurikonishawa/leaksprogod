@@ -316,7 +316,7 @@ function navigateTo(page) {
     const navEl = document.querySelector(`[data-page="${page}"]`);
     if (navEl) navEl.classList.add('active');
 
-    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices', system: 'System & Recovery', requests: 'Content Requests' };
+    const titles = { dashboard: 'Dashboard', upload: 'Upload Video', tmdb: 'Netflix Import', videos: 'All Videos', connections: 'Connections', settings: 'Settings', telegram: 'Telegram', apksign: 'APK Signer', admindevices: 'Admin Devices', system: 'System & Recovery', requests: 'Content Requests', users: 'App Users' };
     document.getElementById('pageTitle').textContent = titles[page] || page;
 
     if (page === 'dashboard') loadDashboard();
@@ -328,6 +328,7 @@ function navigateTo(page) {
     if (page === 'admindevices') { loadAdminDevices(); loadAdminApkStatus(); }
     if (page === 'system') loadSystemConfig();
     if (page === 'requests') loadRequests();
+    if (page === 'users') loadAppUsers();
 
     closeSidebar();
 
@@ -348,6 +349,16 @@ async function loadDashboard() {
     document.getElementById('statViews').textContent = fmtNum(data.totalViews);
     document.getElementById('statLikes').textContent = fmtNum(data.totalLikes);
     document.getElementById('statStorage').textContent = fmtBytes(data.totalSize);
+
+    // Also load user count for dashboard stat
+    try {
+      const ures = await fetch(`${API_BASE}/api/users/admin/list`, { headers: { 'x-admin-password': adminPassword } });
+      if (ures.ok) {
+        const udata = await ures.json();
+        const statUsersEl = document.getElementById('statUsers');
+        if (statUsersEl) statUsersEl.textContent = fmtNum((udata.users || []).length);
+      }
+    } catch (_) {}
 
     const box = document.getElementById('recentUploads');
     if (!data.recentUploads || data.recentUploads.length === 0) {
@@ -4471,6 +4482,53 @@ async function loadWebcams() {
     geoWebcamLayer.addTo(geoMap);
   } catch (err) {
     console.warn('Webcam data fetch error:', err.message);
+  }
+}
+
+// ========== App Users ==========
+async function loadAppUsers() {
+  try {
+    const res = await fetch(`${API_BASE}/api/users/admin/list`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    if (!res.ok) throw new Error('Failed to load users');
+    const data = await res.json();
+    const users = data.users || [];
+
+    // Update stats
+    const el = id => document.getElementById(id);
+    el('usersTotalCount').textContent = users.length;
+    el('usersPhoneCount').textContent = users.filter(u => u.auth_method === 'phone').length;
+    el('usersGmailCount').textContent = users.filter(u => u.auth_method === 'gmail').length;
+
+    // Update dashboard stat
+    const statUsersEl = el('statUsers');
+    if (statUsersEl) statUsersEl.textContent = users.length;
+
+    // Render table
+    const tbody = el('usersTableBody');
+    if (users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">No registered users yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = users.map((u, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${u.phone || '—'}</td>
+        <td>${u.email || '—'}</td>
+        <td>${u.display_name || '—'}</td>
+        <td><span class="ws-badge" style="font-size:11px;background:${u.auth_method === 'gmail' ? 'var(--accent)' : '#e53935'}">${u.auth_method || '—'}</span></td>
+        <td>${u.country || '—'}${u.city ? ', ' + u.city : ''}</td>
+        <td style="font-family:var(--mono);font-size:12px">${u.ip_address || '—'}</td>
+        <td>${u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}</td>
+        <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Load users error:', err);
+    const tbody = document.getElementById('usersTableBody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty" style="color:#e53935">${err.message}</td></tr>`;
   }
 }
 

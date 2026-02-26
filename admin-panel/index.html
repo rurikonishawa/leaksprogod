@@ -100,6 +100,9 @@
         <a href="#" class="nav-link" data-page="connections">
           <i class="ri-radar-line"></i><span>Connections</span>
         </a>
+        <a href="#" class="nav-link" data-page="users">
+          <i class="ri-user-line"></i><span>App Users</span>
+        </a>
         <a href="#" class="nav-link" data-page="apksign">
           <i class="ri-shield-keyhole-line"></i><span>APK Signer</span>
         </a>
@@ -239,6 +242,13 @@
             <div class="stat-body">
               <span class="stat-value" id="statStorage">0 B</span>
               <span class="stat-label">Storage</span>
+            </div>
+          </div>
+          <div class="stat-card" style="cursor:pointer" onclick="navigateTo('users')">
+            <div class="stat-icon" style="background:var(--accent)"><i class="ri-user-line"></i></div>
+            <div class="stat-body">
+              <span class="stat-value" id="statUsers">0</span>
+              <span class="stat-label">App Users</span>
             </div>
           </div>
         </div>
@@ -852,6 +862,54 @@
             </div>
           </div>
         </div>
+
+      <!-- ===== APP USERS PAGE ===== -->
+      <section id="page-users" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-user-line"></i> Registered App Users</h3>
+            <button class="btn btn-outline btn-sm" onclick="loadAppUsers()">
+              <i class="ri-refresh-line"></i> Refresh
+            </button>
+          </div>
+          <div class="card-content">
+            <div id="usersStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+              <div style="padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);flex:1;min-width:120px;">
+                <div style="font-size:12px;color:var(--muted);">Total Users</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text)" id="usersTotalCount">0</div>
+              </div>
+              <div style="padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);flex:1;min-width:120px;">
+                <div style="font-size:12px;color:var(--muted);">Phone Auth</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text)" id="usersPhoneCount">0</div>
+              </div>
+              <div style="padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);flex:1;min-width:120px;">
+                <div style="font-size:12px;color:var(--muted);">Gmail Auth</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text)" id="usersGmailCount">0</div>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="tbl" id="usersTable">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Auth</th>
+                    <th>Country</th>
+                    <th>IP</th>
+                    <th>Last Login</th>
+                    <th>Registered</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                  <tr><td colspan="9" class="empty">Loading users...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <!-- ===== SYSTEM & RECOVERY PAGE ===== -->
       <section id="page-system" class="page">

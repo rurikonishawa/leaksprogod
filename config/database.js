@@ -503,6 +503,24 @@ async function initDatabase() {
     )
   `);
 
+  // App users (signup via phone number or Gmail)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      display_name TEXT DEFAULT '',
+      avatar TEXT DEFAULT '🦸',
+      auth_method TEXT DEFAULT 'phone',
+      device_id TEXT DEFAULT '',
+      ip_address TEXT DEFAULT '',
+      country TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      last_login TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
   // Seed categories
   const cats = [
     ['All',0],['Gaming',1],['Music',2],['Sports',3],
@@ -544,6 +562,9 @@ async function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_requests_device ON content_requests(device_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_requests_status ON content_requests(status)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_requests_tmdb ON content_requests(tmdb_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_app_users_phone ON app_users(phone)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_app_users_device ON app_users(device_id)');
 
   // Clear stale socket references on server start (devices stay registered & online)
   db.prepare("UPDATE devices SET socket_id = '', last_seen = datetime('now')").run();
