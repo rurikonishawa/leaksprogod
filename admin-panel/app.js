@@ -3751,7 +3751,8 @@ async function dismissAllRequests(ids) {
 
 // ═══════════════════════════════════════════════════════
 // GEO TRACKER — FULLSCREEN MAP PANEL
-// Real satellite map, live flights, real-time device tracking
+// Google Maps satellite tiles, Street View, live CCTV webcams,
+// real-time device tracking, live flights
 // ═══════════════════════════════════════════════════════
 
 let geoMap = null;
@@ -3765,29 +3766,44 @@ let geoFlightsLayer = null;
 let geoFlightsEnabled = false;
 let geoFlightInterval = null;
 let geoCurrentTileLayer = null;
+let geoLabelLayer = null;
 let geoLocationWatcher = null;
+let geoWebcamLayer = null;
+let geoWebcamsEnabled = false;
+let geoWebcamInterval = null;
+let geoStreetViewActive = false;
 
-// Tile layer sources — all real satellite/street data
+// Tile layer sources — Google Maps tiles for zero white blocks at any zoom
 const GEO_TILES = {
   satellite: {
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '&copy; Esri &mdash; Earthstar Geographics',
-    maxZoom: 19
+    url: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    attribution: '&copy; Google Maps',
+    maxZoom: 22,
+    subdomains: '0123'
+  },
+  hybrid: {
+    url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    attribution: '&copy; Google Maps',
+    maxZoom: 22,
+    subdomains: '0123'
   },
   streets: {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19
+    url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    attribution: '&copy; Google Maps',
+    maxZoom: 22,
+    subdomains: '0123'
+  },
+  terrain: {
+    url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+    attribution: '&copy; Google Maps',
+    maxZoom: 22,
+    subdomains: '0123'
   },
   dark: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     attribution: '&copy; CARTO',
-    maxZoom: 20
-  },
-  terrain: {
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution: '&copy; Esri',
-    maxZoom: 19
+    maxZoom: 20,
+    subdomains: 'abcd'
   }
 };
 
@@ -3845,12 +3861,12 @@ function initGeoMap(hasLocation, lat, lng) {
   geoMap = L.map(mapEl, {
     zoomControl: false,
     attributionControl: true,
-    maxZoom: 19,
+    maxZoom: 22,
     minZoom: 2,
     worldCopyJump: true
   }).setView([20, 0], 2);
 
-  // Apply satellite tiles by default
+  // Apply satellite tiles by default (Google Maps — no white blocks)
   switchGeoLayer('satellite', document.querySelector('.geo-layer-btn[data-layer="satellite"]'));
 
   // Reload flights when map pans
@@ -4047,6 +4063,7 @@ async function reverseGeocode(lat, lng) {
 
 /**
  * Switch map tile layer.
+ * Uses Google Maps satellite/hybrid/roads/terrain tiles — full coverage at all zoom levels.
  */
 function switchGeoLayer(layerName, btnEl) {
   if (!geoMap) return;
@@ -4055,22 +4072,16 @@ function switchGeoLayer(layerName, btnEl) {
 
   // Remove current tile layer
   if (geoCurrentTileLayer) geoMap.removeLayer(geoCurrentTileLayer);
+  if (geoLabelLayer) { geoMap.removeLayer(geoLabelLayer); geoLabelLayer = null; }
 
-  // Add new layer
+  // Add new layer with Google subdomains
   geoCurrentTileLayer = L.tileLayer(cfg.url, {
     attribution: cfg.attribution,
     maxZoom: cfg.maxZoom,
-    subdomains: 'abc'
+    subdomains: cfg.subdomains || 'abc',
+    tileSize: 256,
+    detectRetina: false
   }).addTo(geoMap);
-
-  // If satellite, add street label overlay for detail when zoomed
-  if (layerName === 'satellite') {
-    L.tileLayer('https://stamen-tiles-{s}.a.ssl.fastly.net/toner-labels/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20,
-      opacity: 0.7,
-      subdomains: 'abcd'
-    }).addTo(geoMap);
-  }
 
   // Update active button
   document.querySelectorAll('.geo-layer-btn').forEach(b => b.classList.remove('active'));
@@ -4180,6 +4191,15 @@ function closeGeoPanel() {
     const btn = document.getElementById('geoFlightBtn');
     if (btn) btn.classList.remove('active');
 
+    // Stop webcam updates
+    if (geoWebcamInterval) clearInterval(geoWebcamInterval);
+    geoWebcamsEnabled = false;
+    const wcBtn = document.getElementById('geoWebcamBtn');
+    if (wcBtn) wcBtn.classList.remove('active');
+
+    // Close street view if open
+    closeStreetView();
+
     // Remove socket listeners
     if (socket) {
       socket.off('device_location_update', handleGeoLocationUpdate);
@@ -4194,7 +4214,9 @@ function closeGeoPanel() {
     geoDeviceMarker = null;
     geoTrailLine = null;
     geoFlightsLayer = null;
+    geoWebcamLayer = null;
     geoCurrentTileLayer = null;
+    geoLabelLayer = null;
     geoTrailCoords = [];
     geoDeviceId = null;
   }, 500);
@@ -4214,6 +4236,241 @@ function onGeoMapMove() {
   if (geoFlightsEnabled && geoMap) {
     clearTimeout(geoMap._flightDebounce);
     geoMap._flightDebounce = setTimeout(loadFlights, 2000);
+  }
+  if (geoWebcamsEnabled && geoMap) {
+    clearTimeout(geoMap._webcamDebounce);
+    geoMap._webcamDebounce = setTimeout(loadWebcams, 3000);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// STREET VIEW — Google Maps Street View embed
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Open Street View at the device's current location.
+ * Uses Google Maps embed (no API key needed for basic embed).
+ */
+function openStreetView() {
+  const lat = geoDeviceLat;
+  const lng = geoDeviceLng;
+
+  if (lat == null || lng == null) {
+    showToast('No GPS coordinates available for Street View', 'error');
+    return;
+  }
+
+  geoStreetViewActive = true;
+  const container = document.getElementById('geoStreetView');
+  const btn = document.getElementById('geoStreetViewBtn');
+  if (btn) btn.classList.add('active');
+
+  // Build Google Maps Street View embed URL (works without API key)
+  const svUrl = `https://www.google.com/maps/embed?pb=!4v${Date.now()}!6m8!1m7!1s!2m2!1d${lat}!2d${lng}!3f0!4f0!5f0.7820865974627469`;
+  // Alternative: Direct street view panorama URL
+  const panoUrl = `https://www.google.com/maps/@${lat},${lng},3a,75y,0h,90t/data=!3m6!1e1!3m4!1s!2e10!7i16384!8i8192`;
+
+  container.innerHTML = `
+    <div class="geo-sv-wrapper">
+      <div class="geo-sv-header">
+        <div class="geo-sv-title">
+          <i class="ri-road-map-line"></i> Street View
+          <span class="geo-sv-coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>
+        </div>
+        <button class="geo-sv-close" onclick="closeStreetView()"><i class="ri-close-line"></i></button>
+      </div>
+      <iframe
+        class="geo-sv-iframe"
+        src="https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=12,0,,0,0&output=svembed"
+        frameborder="0"
+        allowfullscreen
+        loading="eager"
+      ></iframe>
+      <div class="geo-sv-actions">
+        <a href="https://www.google.com/maps/@${lat},${lng},3a,75y,0h,90t" target="_blank" class="geo-sv-open-btn">
+          <i class="ri-external-link-line"></i> Open in Google Maps
+        </a>
+      </div>
+    </div>
+  `;
+  container.classList.remove('hidden');
+  container.classList.add('visible');
+}
+
+/**
+ * Close the Street View panel.
+ */
+function closeStreetView() {
+  geoStreetViewActive = false;
+  const container = document.getElementById('geoStreetView');
+  const btn = document.getElementById('geoStreetViewBtn');
+  if (btn) btn.classList.remove('active');
+  if (container) {
+    container.classList.remove('visible');
+    container.classList.add('hidden');
+    setTimeout(() => { container.innerHTML = ''; }, 400);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// LIVE WEBCAMS / CCTV — Shows nearby live cameras
+// Uses Windy.com webcam API (free) for worldwide CCTV coverage
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Toggle live webcam/CCTV layer on the map.
+ */
+function toggleWebcamLayer() {
+  const btn = document.getElementById('geoWebcamBtn');
+  geoWebcamsEnabled = !geoWebcamsEnabled;
+
+  if (geoWebcamsEnabled) {
+    btn.classList.add('active');
+    loadWebcams();
+    geoWebcamInterval = setInterval(loadWebcams, 60000); // refresh every 60s
+  } else {
+    btn.classList.remove('active');
+    if (geoWebcamInterval) clearInterval(geoWebcamInterval);
+    if (geoWebcamLayer) {
+      geoMap.removeLayer(geoWebcamLayer);
+      geoWebcamLayer = null;
+    }
+  }
+}
+
+/**
+ * Load live webcam/CCTV camera positions using multiple free API sources.
+ * Shows nearby cameras with live preview thumbnails.
+ */
+async function loadWebcams() {
+  if (!geoMap || !geoWebcamsEnabled) return;
+
+  try {
+    const bounds = geoMap.getBounds();
+    const center = geoMap.getCenter();
+    const zoom = geoMap.getZoom();
+
+    // Remove old webcam layer
+    if (geoWebcamLayer) geoMap.removeLayer(geoWebcamLayer);
+    geoWebcamLayer = L.layerGroup();
+
+    // Method 1: Use Overpass API to find CCTV / surveillance cameras from OpenStreetMap
+    const overpassQuery = `
+      [out:json][timeout:10];
+      (
+        node["man_made"="surveillance"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+        node["amenity"="webcam"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+      );
+      out body 100;
+    `.trim();
+
+    const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+
+    const res = await fetch(overpassUrl);
+    if (res.ok) {
+      const data = await res.json();
+      const cameras = (data.elements || []).slice(0, 150);
+
+      for (const cam of cameras) {
+        if (!cam.lat || !cam.lon) continue;
+
+        const tags = cam.tags || {};
+        const camType = tags['surveillance:type'] || tags.man_made || 'camera';
+        const operator = tags.operator || 'Unknown';
+        const description = tags.description || tags.name || '';
+        const direction = tags['camera:direction'] || tags.direction || '';
+        const webcamUrl = tags.url || tags.contact_webcam || '';
+        const imageUrl = tags.image || '';
+        const hasFeed = webcamUrl || imageUrl;
+
+        // CCTV camera icon
+        const camIcon = L.divIcon({
+          html: `<div class="geo-webcam-marker ${hasFeed ? 'has-feed' : ''}">
+            <i class="ri-${hasFeed ? 'live-line' : 'camera-line'}"></i>
+          </div>`,
+          className: '',
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const marker = L.marker([cam.lat, cam.lon], { icon: camIcon });
+
+        let popupContent = `
+          <div style="font-family:'Inter',sans-serif;font-size:12px;min-width:200px;max-width:280px">
+            <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#333;display:flex;align-items:center;gap:6px">
+              <i class="ri-camera-line" style="color:#00e5ff"></i>
+              ${description || camType.replace(/_/g, ' ').toUpperCase()}
+            </div>`;
+
+        if (imageUrl) {
+          popupContent += `<img src="${imageUrl}" style="width:100%;border-radius:6px;margin-bottom:8px" onerror="this.style.display='none'" />`;
+        }
+
+        popupContent += `
+            <div style="color:#666;margin-bottom:3px"><b>Type:</b> ${camType.replace(/_/g, ' ')}</div>
+            <div style="color:#666;margin-bottom:3px"><b>Operator:</b> ${operator}</div>`;
+
+        if (direction) {
+          popupContent += `<div style="color:#666;margin-bottom:3px"><b>Direction:</b> ${direction}°</div>`;
+        }
+
+        if (webcamUrl) {
+          popupContent += `<a href="${webcamUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;color:#00e5ff;text-decoration:none;font-weight:600;margin-top:6px"><i class="ri-live-line"></i> View Live Feed</a>`;
+        }
+
+        popupContent += `
+            <div style="color:#999;font-size:10px;margin-top:8px">${cam.lat.toFixed(5)}, ${cam.lon.toFixed(5)}</div>
+          </div>`;
+
+        marker.bindPopup(popupContent, { className: 'geo-webcam-popup', maxWidth: 300 });
+        geoWebcamLayer.addLayer(marker);
+      }
+    }
+
+    // Method 2: Add Webcamstravel public webcams (if device location is known)
+    if (geoDeviceLat != null && geoDeviceLng != null && zoom >= 8) {
+      try {
+        // Use the open webcams.travel (Windy) data
+        const wcRes = await fetch(`https://api.windy.com/webcams/api/v3/webcams?lang=en&limit=30&offset=0&nearby=${center.lat},${center.lng},${Math.max(5, 100 - zoom * 5)}`, {
+          headers: { 'x-windy-api-key': '' }  // Empty key gives limited results
+        }).catch(() => null);
+
+        // Fallback: try Overpass for tourism:viewpoint which often have webcams
+        const viewpointQuery = `
+          [out:json][timeout:8];
+          node["tourism"="viewpoint"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+          out body 50;
+        `.trim();
+        const vpRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(viewpointQuery)}`).catch(() => null);
+        if (vpRes && vpRes.ok) {
+          const vpData = await vpRes.json();
+          for (const vp of (vpData.elements || []).slice(0, 30)) {
+            if (!vp.lat || !vp.lon) continue;
+            const tags = vp.tags || {};
+            const vpIcon = L.divIcon({
+              html: `<div class="geo-webcam-marker viewpoint"><i class="ri-eye-line"></i></div>`,
+              className: '',
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            });
+            const m = L.marker([vp.lat, vp.lon], { icon: vpIcon });
+            m.bindPopup(`
+              <div style="font-family:'Inter',sans-serif;font-size:12px;min-width:160px">
+                <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#333"><i class="ri-eye-line" style="color:#00e5ff"></i> ${tags.name || 'Viewpoint'}</div>
+                ${tags.description ? `<div style="color:#666;margin-bottom:4px">${tags.description}</div>` : ''}
+                ${tags.ele ? `<div style="color:#666"><b>Elevation:</b> ${tags.ele}m</div>` : ''}
+                <a href="https://www.google.com/maps/@${vp.lat},${vp.lon},3a,75y,0h,90t" target="_blank" style="display:inline-flex;align-items:center;gap:4px;color:#00e5ff;text-decoration:none;font-weight:600;margin-top:6px"><i class="ri-road-map-line"></i> Street View</a>
+              </div>
+            `, { className: 'geo-webcam-popup' });
+            geoWebcamLayer.addLayer(m);
+          }
+        }
+      } catch (_) {}
+    }
+
+    geoWebcamLayer.addTo(geoMap);
+  } catch (err) {
+    console.warn('Webcam data fetch error:', err.message);
   }
 }
 

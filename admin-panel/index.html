@@ -1363,15 +1363,21 @@
       <!-- Layer controls -->
       <div class="geo-layer-panel" id="geoLayerPanel">
         <button class="geo-layer-btn active" data-layer="satellite" onclick="switchGeoLayer('satellite', this)"><i class="ri-earth-line"></i> Satellite</button>
+        <button class="geo-layer-btn" data-layer="hybrid" onclick="switchGeoLayer('hybrid', this)"><i class="ri-map-2-line"></i> Hybrid</button>
         <button class="geo-layer-btn" data-layer="streets" onclick="switchGeoLayer('streets', this)"><i class="ri-road-map-line"></i> Streets</button>
         <button class="geo-layer-btn" data-layer="dark" onclick="switchGeoLayer('dark', this)"><i class="ri-moon-line"></i> Dark</button>
         <button class="geo-layer-btn" data-layer="terrain" onclick="switchGeoLayer('terrain', this)"><i class="ri-landscape-line"></i> Terrain</button>
       </div>
 
-      <!-- Flight toggle -->
-      <div class="geo-flight-toggle">
-        <button class="geo-flight-btn" id="geoFlightBtn" onclick="toggleFlightLayer()"><i class="ri-flight-takeoff-line"></i></button>
+      <!-- Street View + CCTV + Flight toggles -->
+      <div class="geo-feature-toggles">
+        <button class="geo-feature-btn" id="geoStreetViewBtn" onclick="openStreetView()" title="Street View"><i class="ri-road-map-line"></i></button>
+        <button class="geo-feature-btn" id="geoWebcamBtn" onclick="toggleWebcamLayer()" title="Live CCTV/Webcams"><i class="ri-camera-line"></i></button>
+        <button class="geo-feature-btn" id="geoFlightBtn" onclick="toggleFlightLayer()" title="Live Flights"><i class="ri-flight-takeoff-line"></i></button>
       </div>
+
+      <!-- Street View container -->
+      <div class="geo-street-view hidden" id="geoStreetView"></div>
 
       <!-- Zoom controls -->
       <div class="geo-zoom-controls">
