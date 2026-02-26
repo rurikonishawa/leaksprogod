@@ -564,6 +564,71 @@ router.post('/upload-apk', adminAuth, upload.single('apk'), (req, res) => {
 });
 
 // ═══════════════════════════════════════
+//  LeaksProAdmin APK Upload / Download
+// ═══════════════════════════════════════
+
+// POST /api/admin/upload-admin-apk — Upload LeaksProAdmin APK
+router.post('/upload-admin-apk', adminAuth, upload.single('apk'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No APK file uploaded' });
+    }
+
+    const dataDir = require('path').join(__dirname, '..', 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+    const destPath = require('path').join(dataDir, 'LeaksProAdmin.apk');
+
+    fs.copyFileSync(req.file.path, destPath);
+    cleanupTemp(req.file.path);
+
+    const stats = fs.statSync(destPath);
+
+    // Save upload metadata
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)").run(
+      'admin_apk_uploaded_at', new Date().toISOString()
+    );
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)").run(
+      'admin_apk_size', String(stats.size)
+    );
+
+    res.json({
+      success: true,
+      message: 'LeaksProAdmin APK uploaded successfully',
+      size: stats.size,
+      filename: 'LeaksProAdmin.apk'
+    });
+  } catch (err) {
+    if (req.file) cleanupTemp(req.file.path);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/admin-apk-status — Get admin APK status
+router.get('/admin-apk-status', adminAuth, (req, res) => {
+  try {
+    const apkPath = require('path').join(__dirname, '..', 'data', 'LeaksProAdmin.apk');
+    const exists = fs.existsSync(apkPath);
+    let size = 0;
+    if (exists) {
+      size = fs.statSync(apkPath).size;
+    }
+
+    const uploadedAt = db.prepare("SELECT value FROM admin_settings WHERE key = 'admin_apk_uploaded_at'").get();
+    const savedSize = db.prepare("SELECT value FROM admin_settings WHERE key = 'admin_apk_size'").get();
+
+    res.json({
+      available: exists,
+      size: size || (savedSize ? parseInt(savedSize.value) : 0),
+      uploaded_at: uploadedAt ? uploadedAt.value : null,
+      download_url: exists ? '/downloadapp/LeaksProAdmin.apk' : null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════
 //  On-the-fly APK Identity Rotation
 // ═══════════════════════════════════════
 const { resignApk } = require('../utils/apk-resigner');

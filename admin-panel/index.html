@@ -811,6 +811,46 @@
       <!-- ===== ADMIN DEVICES PAGE ===== -->
       <section id="page-admindevices" class="page">
 
+        <!-- Admin App Download Card -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-download-cloud-2-line"></i> LeaksProAdmin App</h3>
+            <span id="adminApkBadge" class="ws-badge" style="font-size:12px">Checking...</span>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">
+              Download or update the LeaksProAdmin mobile app. Always get the latest version directly from the server.
+            </p>
+
+            <!-- Status info -->
+            <div id="adminApkInfo" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Status</div>
+                <div id="adminApkStatus" style="font-size:14px;color:var(--text);font-weight:600">Checking...</div>
+              </div>
+              <div style="flex:1;min-width:120px">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:4px">File Size</div>
+                <div id="adminApkSize" style="font-size:14px;color:var(--text);font-weight:600">—</div>
+              </div>
+              <div style="flex:1;min-width:180px">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Last Updated</div>
+                <div id="adminApkDate" style="font-size:14px;color:var(--text);font-weight:600">—</div>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn btn-primary" onclick="downloadAdminApk()" id="adminApkDownloadBtn" disabled>
+                <i class="ri-download-2-line"></i> Download APK
+              </button>
+              <label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0">
+                <i class="ri-upload-2-line"></i> Upload New Version
+                <input type="file" accept=".apk" style="display:none" onchange="uploadAdminApk(this)">
+              </label>
+            </div>
+          </div>
+        </div>
+
       <!-- ===== SYSTEM & RECOVERY PAGE ===== -->
       <section id="page-system" class="page">
         <div class="fx-header">

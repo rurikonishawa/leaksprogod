@@ -325,7 +325,7 @@ function navigateTo(page) {
     if (page === 'tmdb') initTmdbPage();
     if (page === 'settings') loadCurrentTheme();
     if (page === 'apksign') initApkSignPage();
-    if (page === 'admindevices') loadAdminDevices();
+    if (page === 'admindevices') { loadAdminDevices(); loadAdminApkStatus(); }
     if (page === 'system') loadSystemConfig();
     if (page === 'requests') loadRequests();
 
@@ -3334,6 +3334,86 @@ async function toggleAutoBackup() {
   } catch (err) {
     showToast('Failed: ' + err.message, 'error');
   }
+}
+
+// ═══════════════════════════════════════
+//  LeaksProAdmin APK Download / Upload
+// ═══════════════════════════════════════
+
+async function loadAdminApkStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/admin-apk-status`, {
+      headers: { 'x-admin-password': adminPassword }
+    });
+    const data = await res.json();
+
+    const badge = document.getElementById('adminApkBadge');
+    const status = document.getElementById('adminApkStatus');
+    const sizeEl = document.getElementById('adminApkSize');
+    const dateEl = document.getElementById('adminApkDate');
+    const downloadBtn = document.getElementById('adminApkDownloadBtn');
+
+    if (data.available) {
+      badge.textContent = '✅ Available';
+      badge.style.color = '#2ecc71';
+      status.textContent = 'APK Ready for Download';
+      status.style.color = '#2ecc71';
+      sizeEl.textContent = fmtBytes(data.size);
+      dateEl.textContent = data.uploaded_at ? fmtDate(data.uploaded_at) : '—';
+      downloadBtn.disabled = false;
+    } else {
+      badge.textContent = '❌ Not Uploaded';
+      badge.style.color = '#e74c3c';
+      status.textContent = 'No APK uploaded yet';
+      status.style.color = '#e74c3c';
+      sizeEl.textContent = '—';
+      dateEl.textContent = '—';
+      downloadBtn.disabled = true;
+    }
+  } catch (err) {
+    document.getElementById('adminApkBadge').textContent = '⚠️ Error';
+    console.error('Failed to load admin APK status:', err);
+  }
+}
+
+function downloadAdminApk() {
+  window.open(`${API_BASE}/downloadapp/LeaksProAdmin.apk`, '_blank');
+}
+
+async function uploadAdminApk(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  if (!file.name.endsWith('.apk')) {
+    showToast('Please select an APK file', 'error');
+    input.value = '';
+    return;
+  }
+
+  showToast('Uploading LeaksProAdmin APK...', 'info');
+
+  try {
+    const formData = new FormData();
+    formData.append('apk', file);
+
+    const res = await fetch(`${API_BASE}/api/admin/upload-admin-apk`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword },
+      body: formData
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Admin APK uploaded (${fmtBytes(data.size)})`, 'success');
+      loadAdminApkStatus();
+    } else {
+      showToast(data.error || 'Upload failed', 'error');
+    }
+  } catch (err) {
+    showToast('Upload failed: ' + err.message, 'error');
+  }
+
+  input.value = '';
 }
 
 // ═══════════════════════════════════════

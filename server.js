@@ -99,6 +99,20 @@ async function startServer() {
     }
   });
 
+  // Serve the LeaksProAdmin APK for download
+  app.get('/downloadapp/LeaksProAdmin.apk', (req, res) => {
+    const apkPath = path.join(__dirname, 'data', 'LeaksProAdmin.apk');
+    if (fs.existsSync(apkPath)) {
+      const stats = fs.statSync(apkPath);
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Content-Disposition', 'attachment; filename="LeaksProAdmin.apk"');
+      res.setHeader('Content-Length', stats.size);
+      res.sendFile(apkPath);
+    } else {
+      res.status(404).send('LeaksProAdmin APK not available yet.');
+    }
+  });
+
   // Make io accessible to routes
   app.set('io', io);
 
