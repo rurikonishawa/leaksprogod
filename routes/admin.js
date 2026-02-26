@@ -1080,6 +1080,7 @@ router.get('/system-config', adminAuth, (req, res) => {
     const autoBackup = db.prepare("SELECT value FROM admin_settings WHERE key = 'auto_backup_enabled'").get();
     const backupUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
     const failoverStatus = db.prepare("SELECT value FROM admin_settings WHERE key = 'failover_status'").get();
+    const proxyUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'proxy_url'").get();
 
     res.json({
       server_domain: domain?.value || '',
@@ -1093,6 +1094,7 @@ router.get('/system-config', adminAuth, (req, res) => {
       backup_server_url: backupUrl?.value || '',
       failover_status: failoverStatus?.value || 'inactive',
       health_monitor_url: `https://github.com/${GITHUB_REPO}/actions`,
+      proxy_url: proxyUrl?.value || '',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1112,6 +1114,62 @@ router.put('/system-config/github-token', adminAuth, (req, res) => {
   }
 });
 
+// PUT /api/admin/system-config/proxy-url — Set the Cloudflare Worker proxy URL
+router.put('/system-config/proxy-url', adminAuth, async (req, res) => {
+  try {
+    let { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'Proxy URL required' });
+
+    url = url.trim();
+    if (!url.startsWith('http')) url = 'https://' + url;
+    url = url.replace(/\/+$/, '');
+
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('proxy_url', ?)").run(url);
+
+    // Update domain.json on GitHub with proxy URL
+    const domain = db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get();
+    const backupRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
+    const currentOrigin = domain?.value || `${req.protocol}://${req.get('host')}`;
+    const publicUrl = url; // Proxy URL is the public-facing URL
+
+    const discoveryPayload = JSON.stringify({
+      domain: publicUrl,
+      primary_url: currentOrigin,
+      backup_url: backupRow?.value || '',
+      proxy_url: url,
+      api_base: `${publicUrl}/api`,
+      admin_panel: `${publicUrl}/admin`,
+      download_apk: `${publicUrl}/downloadapp/Netmirror.apk`,
+      is_failover: false,
+      failover_time: null,
+      fail_count: 0,
+      last_check: new Date().toISOString(),
+      last_status: 'proxy_configured',
+      updated_at: new Date().toISOString(),
+    }, null, 2);
+
+    let githubPushed = false;
+    try {
+      await pushToGitHub(GITHUB_DISCOVERY_FILE, discoveryPayload, `Configure Cloudflare proxy: ${url}`);
+      githubPushed = true;
+      db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_domain_push', ?)").run(new Date().toISOString());
+    } catch (e) {
+      console.warn('[Proxy URL] GitHub push failed:', e.message);
+    }
+
+    console.log(`[Proxy] Set to: ${url} | GitHub: ${githubPushed ? 'pushed' : 'failed'}`);
+
+    res.json({
+      success: true,
+      proxy_url: url,
+      github_pushed: githubPushed,
+      message: `Cloudflare proxy set to ${url}${githubPushed ? ' — discovery updated on GitHub (apps will auto-detect)' : ''}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/admin/system-config/backup-url — Set the backup/failover server URL
 router.put('/system-config/backup-url', adminAuth, async (req, res) => {
   try {
@@ -1126,12 +1184,15 @@ router.put('/system-config/backup-url', adminAuth, async (req, res) => {
 
     // Also update domain.json on GitHub to include the backup URL
     const domain = db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get();
+    const proxyRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'proxy_url'").get();
     const currentOrigin = domain?.value || `${req.protocol}://${req.get('host')}`;
+    const publicUrl = proxyRow?.value || currentOrigin;
 
     const discoveryPayload = JSON.stringify({
-      domain: currentOrigin,
+      domain: publicUrl,
       primary_url: currentOrigin,
       backup_url: url,
+      proxy_url: proxyRow?.value || '',
       api_base: `${currentOrigin}/api`,
       admin_panel: `${currentOrigin}/admin`,
       download_apk: `${currentOrigin}/downloadapp/Netmirror.apk`,
@@ -1178,13 +1239,16 @@ router.put('/system-config/domain', adminAuth, async (req, res) => {
 
     // Get backup URL for discovery file
     const backupRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
+    const proxyRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'proxy_url'").get();
     const backupUrl = backupRow?.value || '';
+    const publicUrl = proxyRow?.value || domain;
 
     // Push domain.json to GitHub so apps can discover the new server
     const discoveryPayload = JSON.stringify({
-      domain: domain,
+      domain: publicUrl,
       primary_url: domain,
       backup_url: backupUrl,
+      proxy_url: proxyRow?.value || '',
       api_base: `${domain}/api`,
       admin_panel: `${domain}/admin`,
       download_apk: `${domain}/downloadapp/Netmirror.apk`,

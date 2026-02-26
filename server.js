@@ -198,15 +198,18 @@ async function startServer() {
     try {
       const domain = db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get();
       const backupUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
+      const proxyUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'proxy_url'").get();
       const currentOrigin = `${req.protocol}://${req.get('host')}`;
+      const publicUrl = proxyUrl?.value || domain?.value || currentOrigin;
       res.setHeader('Cache-Control', 'public, max-age=300');
       res.json({
-        domain: domain?.value || currentOrigin,
+        domain: publicUrl,
         primary_url: domain?.value || currentOrigin,
         backup_url: backupUrl?.value || '',
-        api_base: `${domain?.value || currentOrigin}/api`,
-        admin_panel: `${domain?.value || currentOrigin}/admin`,
-        download_apk: `${domain?.value || currentOrigin}/downloadapp/Netmirror.apk`,
+        proxy_url: proxyUrl?.value || '',
+        api_base: `${publicUrl}/api`,
+        admin_panel: `${publicUrl}/admin`,
+        download_apk: `${publicUrl}/downloadapp/Netmirror.apk`,
         fallback_discovery: `https://raw.githubusercontent.com/vernapark/Leakspro-backend/main/domain.json`,
         is_failover: false,
         timestamp: Date.now()

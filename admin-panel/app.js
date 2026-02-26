@@ -3063,6 +3063,22 @@ async function loadSystemConfig() {
     if (data.backup_server_url) {
       document.getElementById('sysBackupUrlInput').placeholder = data.backup_server_url;
     }
+
+    // Cloudflare Proxy section
+    const proxyUrlEl = document.getElementById('sysProxyUrl');
+    const proxyStatusEl = document.getElementById('sysProxyStatus');
+    if (data.proxy_url) {
+      proxyUrlEl.textContent = data.proxy_url;
+      proxyUrlEl.style.color = 'var(--green)';
+      proxyStatusEl.textContent = 'Active — share this URL publicly';
+      proxyStatusEl.style.color = 'var(--green)';
+      document.getElementById('sysProxyUrlInput').placeholder = data.proxy_url;
+    } else {
+      proxyUrlEl.textContent = 'Not configured';
+      proxyUrlEl.style.color = 'var(--text-muted)';
+      proxyStatusEl.textContent = 'Not set up — follow the guide below';
+      proxyStatusEl.style.color = 'var(--text-muted)';
+    }
   } catch (err) {
     console.error('Failed to load system config:', err);
   }
@@ -3099,6 +3115,40 @@ async function saveBackupUrl() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="ri-server-line"></i> Set Backup Server';
+  }
+}
+
+async function saveProxyUrl() {
+  const input = document.getElementById('sysProxyUrlInput');
+  const url = input.value.trim();
+  if (!url) {
+    showToast('Enter a Cloudflare Worker URL', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('sysProxyUrlBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Saving...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/proxy-url`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message, 'success');
+      input.value = '';
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-cloud-line"></i> Set Proxy URL';
   }
 }
 

@@ -919,6 +919,52 @@
           </div>
         </div>
 
+        <!-- Cloudflare Proxy Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-cloud-line"></i> Cloudflare Proxy (ISP Bypass)</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Many ISPs block <code>*.railway.app</code> at the DNS level, making the landing page unreachable on mobile phones. A Cloudflare Worker acts as a reverse proxy — users access <strong>your-name.workers.dev</strong> instead, which is never blocked by any ISP.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Proxy URL</span>
+                <span class="sys-val sys-domain-active" id="sysProxyUrl">Not configured</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Status</span>
+                <span class="sys-val" id="sysProxyStatus">—</span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>Cloudflare Worker URL</label>
+              <div class="sys-input-row">
+                <input type="text" id="sysProxyUrlInput" placeholder="https://netmirror-app.your-subdomain.workers.dev" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="saveProxyUrl()" id="sysProxyUrlBtn">
+                  <i class="ri-cloud-line"></i> Set Proxy URL
+                </button>
+              </div>
+              <span class="sys-hint">After deploying the Cloudflare Worker (see setup guide below), paste the Worker URL here. All apps will auto-discover and use the proxy URL. Share this URL publicly instead of the Railway domain.</span>
+            </div>
+
+            <div class="sys-recovery-guide" style="margin-top:16px;">
+              <h4><i class="ri-flow-chart"></i> Quick Setup (5 minutes, 100% free)</h4>
+              <ol class="sys-steps">
+                <li>Go to <a href="https://dash.cloudflare.com/sign-up" target="_blank" style="color:var(--accent)">dash.cloudflare.com</a> → Create free account</li>
+                <li>Left sidebar → <strong>Workers & Pages</strong> → Create → Create Worker</li>
+                <li>Name it (e.g., <code>netmirror-app</code>) → Deploy</li>
+                <li>Click <strong>"Edit code"</strong> → paste <code>cloudflare-worker.js</code> from the repo → Save and Deploy</li>
+                <li>Your URL: <code>https://netmirror-app.YOUR-SUBDOMAIN.workers.dev</code></li>
+                <li>Paste the URL above and click Set Proxy URL</li>
+                <li>Share the Worker URL as the public landing page — works on all phones!</li>
+              </ol>
+              <p class="sys-hint" style="margin-top:10px;">Free tier: 100,000 requests/day. For a custom domain (e.g., <code>netmirror.xyz</code>), buy a $1/year .xyz domain and attach it to the Worker in Cloudflare dashboard.</p>
+            </div>
+          </div>
+        </div>
+
       </section>
         <div class="fx-header">
           <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
