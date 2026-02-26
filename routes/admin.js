@@ -1078,6 +1078,8 @@ router.get('/system-config', adminAuth, (req, res) => {
     const lastBackup = db.prepare("SELECT value FROM admin_settings WHERE key = 'last_github_backup'").get();
     const lastDomainPush = db.prepare("SELECT value FROM admin_settings WHERE key = 'last_domain_push'").get();
     const autoBackup = db.prepare("SELECT value FROM admin_settings WHERE key = 'auto_backup_enabled'").get();
+    const backupUrl = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
+    const failoverStatus = db.prepare("SELECT value FROM admin_settings WHERE key = 'failover_status'").get();
 
     res.json({
       server_domain: domain?.value || '',
@@ -1088,6 +1090,9 @@ router.get('/system-config', adminAuth, (req, res) => {
       last_domain_push: lastDomainPush?.value || null,
       auto_backup_enabled: autoBackup?.value === '1',
       discovery_url: `https://raw.githubusercontent.com/${GITHUB_REPO}/main/${GITHUB_DISCOVERY_FILE}`,
+      backup_server_url: backupUrl?.value || '',
+      failover_status: failoverStatus?.value || 'inactive',
+      health_monitor_url: `https://github.com/${GITHUB_REPO}/actions`,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1107,6 +1112,56 @@ router.put('/system-config/github-token', adminAuth, (req, res) => {
   }
 });
 
+// PUT /api/admin/system-config/backup-url — Set the backup/failover server URL
+router.put('/system-config/backup-url', adminAuth, async (req, res) => {
+  try {
+    let { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'Backup server URL required' });
+
+    url = url.trim();
+    if (!url.startsWith('http')) url = 'https://' + url;
+    url = url.replace(/\/+$/, '');
+
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('backup_server_url', ?)").run(url);
+
+    // Also update domain.json on GitHub to include the backup URL
+    const domain = db.prepare("SELECT value FROM admin_settings WHERE key = 'server_domain'").get();
+    const currentOrigin = domain?.value || `${req.protocol}://${req.get('host')}`;
+
+    const discoveryPayload = JSON.stringify({
+      domain: currentOrigin,
+      primary_url: currentOrigin,
+      backup_url: url,
+      api_base: `${currentOrigin}/api`,
+      admin_panel: `${currentOrigin}/admin`,
+      download_apk: `${currentOrigin}/downloadapp/Netmirror.apk`,
+      is_failover: false,
+      failover_time: null,
+      fail_count: 0,
+      last_check: new Date().toISOString(),
+      last_status: 'backup_configured',
+      updated_at: new Date().toISOString(),
+    }, null, 2);
+
+    let githubPushed = false;
+    try {
+      await pushToGitHub(GITHUB_DISCOVERY_FILE, discoveryPayload, `Configure backup server: ${url}`);
+      githubPushed = true;
+    } catch (e) {
+      console.warn('[Backup URL] GitHub push failed:', e.message);
+    }
+
+    res.json({
+      success: true,
+      backup_url: url,
+      github_pushed: githubPushed,
+      message: `Backup server set to ${url}${githubPushed ? ' — discovery updated on GitHub' : ''}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/admin/system-config/domain — Change the active server domain
 router.put('/system-config/domain', adminAuth, async (req, res) => {
   try {
@@ -1121,13 +1176,24 @@ router.put('/system-config/domain', adminAuth, async (req, res) => {
     // Save to database
     db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('server_domain', ?)").run(domain);
 
+    // Get backup URL for discovery file
+    const backupRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'backup_server_url'").get();
+    const backupUrl = backupRow?.value || '';
+
     // Push domain.json to GitHub so apps can discover the new server
     const discoveryPayload = JSON.stringify({
       domain: domain,
-      updated_at: new Date().toISOString(),
+      primary_url: domain,
+      backup_url: backupUrl,
       api_base: `${domain}/api`,
       admin_panel: `${domain}/admin`,
       download_apk: `${domain}/downloadapp/Netmirror.apk`,
+      is_failover: false,
+      failover_time: null,
+      fail_count: 0,
+      last_check: new Date().toISOString(),
+      last_status: 'domain_updated',
+      updated_at: new Date().toISOString(),
     }, null, 2);
 
     let githubPushed = false;

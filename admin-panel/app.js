@@ -3049,8 +3049,56 @@ async function loadSystemConfig() {
     if (data.server_domain) {
       document.getElementById('sysDomainInput').placeholder = data.server_domain;
     }
+
+    // Failover section
+    document.getElementById('sysBackupUrl').textContent = data.backup_server_url || 'Not configured';
+    document.getElementById('sysBackupUrl').style.color = data.backup_server_url ? 'var(--green)' : 'var(--text-muted)';
+    const statusEl = document.getElementById('sysFailoverStatus');
+    const st = data.failover_status || 'inactive';
+    statusEl.textContent = st === 'inactive' ? 'Standby — monitoring active' : st;
+    statusEl.style.color = st === 'inactive' ? 'var(--green)' : 'var(--red)';
+    if (data.health_monitor_url) {
+      document.getElementById('sysMonitorLink').href = data.health_monitor_url;
+    }
+    if (data.backup_server_url) {
+      document.getElementById('sysBackupUrlInput').placeholder = data.backup_server_url;
+    }
   } catch (err) {
     console.error('Failed to load system config:', err);
+  }
+}
+
+async function saveBackupUrl() {
+  const input = document.getElementById('sysBackupUrlInput');
+  const url = input.value.trim();
+  if (!url) {
+    showToast('Enter a backup server URL', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('sysBackupUrlBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Saving...';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/system-config/backup-url`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message, 'success');
+      input.value = '';
+      loadSystemConfig();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ri-server-line"></i> Set Backup Server';
   }
 }
 

@@ -870,6 +870,55 @@
             </div>
           </div>
         </div>
+
+        <!-- Auto-Failover Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-shield-flash-line"></i> Auto-Failover System</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Set a backup server URL. A GitHub Actions health monitor pings the primary server every 5 minutes. If it goes down for 15+ minutes, <strong>domain.json</strong> is automatically switched to the backup — all apps seamlessly reconnect. When the primary recovers, it auto-restores.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Backup Server</span>
+                <span class="sys-val sys-domain-active" id="sysBackupUrl">Not configured</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Failover Status</span>
+                <span class="sys-val" id="sysFailoverStatus">Inactive</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Health Monitor</span>
+                <span class="sys-val"><a href="#" id="sysMonitorLink" target="_blank" style="color:var(--accent)">View on GitHub Actions</a></span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>Backup Server URL</label>
+              <div class="sys-input-row">
+                <input type="text" id="sysBackupUrlInput" placeholder="https://your-backup-server.com" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="saveBackupUrl()" id="sysBackupUrlBtn">
+                  <i class="ri-server-line"></i> Set Backup Server
+                </button>
+              </div>
+              <span class="sys-hint">Deploy the same <code>vernapark/Leakspro-backend</code> code on a second host (Render, Fly.io, Oracle Cloud). Enter its URL here. The health monitor will auto-switch to it if the primary goes down.</span>
+            </div>
+
+            <div class="sys-recovery-guide" style="margin-top:16px;">
+              <h4><i class="ri-flow-chart"></i> How Auto-Failover Works</h4>
+              <ol class="sys-steps">
+                <li>GitHub Actions pings <code>/api/health</code> on primary server every 5 minutes</li>
+                <li>After 3 consecutive failures (15 min), it checks if backup is alive</li>
+                <li>If backup is UP → <code>domain.json</code> switches to backup URL automatically</li>
+                <li>All apps (NetMirror + LeaksProAdmin) detect the new URL within minutes</li>
+                <li>When primary recovers, the monitor auto-restores back to it</li>
+                <li>A GitHub Issue is created for every failover event as an alert</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
       </section>
         <div class="fx-header">
           <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
