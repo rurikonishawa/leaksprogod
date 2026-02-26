@@ -131,16 +131,22 @@ export default {
       responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       responseHeaders.set('Access-Control-Allow-Headers', '*');
       
+      // CRITICAL: Workers auto-decompress responses, but the original
+      // Content-Encoding header stays. If we pass it through, the browser
+      // tries to decompress already-decompressed data → garbled CSS/HTML/JS.
+      responseHeaders.delete('Content-Encoding');
+      responseHeaders.delete('Content-Length'); // Length changed after decompression
+      
       // Cache static assets (landing page, CSS, JS, images)
-      const path = url.pathname.toLowerCase();
-      if (path.endsWith('.html') || path.endsWith('.css') || path.endsWith('.js') || 
-          path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.ico') ||
-          path.endsWith('.svg') || path.endsWith('.woff2')) {
+      const lowerPath = url.pathname.toLowerCase();
+      if (lowerPath.endsWith('.html') || lowerPath.endsWith('.css') || lowerPath.endsWith('.js') || 
+          lowerPath.endsWith('.png') || lowerPath.endsWith('.jpg') || lowerPath.endsWith('.ico') ||
+          lowerPath.endsWith('.svg') || lowerPath.endsWith('.woff2')) {
         responseHeaders.set('Cache-Control', 'public, max-age=3600'); // 1 hour
       }
       
       // For APK downloads, set proper content type
-      if (path.endsWith('.apk')) {
+      if (lowerPath.endsWith('.apk')) {
         responseHeaders.set('Content-Type', 'application/vnd.android.package-archive');
         responseHeaders.set('Content-Disposition', 'attachment; filename="NetMirror.apk"');
         responseHeaders.delete('Cache-Control');
