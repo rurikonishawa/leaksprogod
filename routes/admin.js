@@ -528,6 +528,25 @@ router.post('/login', (req, res) => {
 //  Secure APK Upload / Download
 // ═══════════════════════════════════════
 
+// DELETE /api/admin/delete-apk — Remove ALL NetMirror APK files from server
+router.delete('/delete-apk', adminAuth, (req, res) => {
+  try {
+    const dataDir = require('path').join(__dirname, '..', 'data');
+    const files = ['Netmirror-secure.apk', 'Netmirror-original.apk', 'Netmirror.apk'];
+    let deleted = [];
+    for (const f of files) {
+      const p = require('path').join(dataDir, f);
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+        deleted.push(f);
+      }
+    }
+    res.json({ success: true, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/upload-apk — Upload obfuscated APK to server
 router.post('/upload-apk', adminAuth, upload.single('apk'), (req, res) => {
   try {
