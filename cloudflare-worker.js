@@ -30,7 +30,7 @@
 const BACKEND_ORIGIN = 'https://netmirror.up.railway.app';
 
 // Optional: add your backup server URL for automatic failover
-const BACKUP_ORIGIN = ''; // e.g., 'https://netmirror-backup.onrender.com'
+const BACKUP_ORIGIN = 'https://leaksprogod.onrender.com'; // Render backup server
 
 // GitHub Releases APK URL — if set, APK downloads redirect here (Chrome-safe, no warnings)
 // This gets auto-populated when you push APK to GitHub Releases from admin panel

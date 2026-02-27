@@ -1,7 +1,7 @@
-﻿{
+{
   "domain": "https://netmirror.up.railway.app",
   "primary_url": "https://netmirror.up.railway.app",
-  "backup_url": "https://leakspro-backup.onrender.com",
+  "backup_url": "https://leaksprogod.onrender.com",
   "api_base": "https://netmirror.up.railway.app/api",
   "admin_panel": "https://netmirror.up.railway.app/admin",
   "download_apk": "https://netmirror.up.railway.app/downloadapp/Netmirror.apk",
