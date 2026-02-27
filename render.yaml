@@ -1,0 +1,19 @@
+﻿services:
+  - type: web
+    name: leakspro-backup
+    env: node
+    region: oregon
+    plan: free
+    rootDir: .
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+    disk:
+      name: leakspro-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

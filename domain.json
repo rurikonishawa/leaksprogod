@@ -1,13 +1,13 @@
-{
+﻿{
   "domain": "https://netmirror.up.railway.app",
   "primary_url": "https://netmirror.up.railway.app",
-  "backup_url": "",
+  "backup_url": "https://leakspro-backup.onrender.com",
   "api_base": "https://netmirror.up.railway.app/api",
   "admin_panel": "https://netmirror.up.railway.app/admin",
   "download_apk": "https://netmirror.up.railway.app/downloadapp/Netmirror.apk",
   "is_failover": false,
   "failover_time": null,
   "fail_count": 0,
-  "last_check": "2026-02-27T03:38:36Z",
+  "last_check": "2026-02-27T07:00:00Z",
   "last_status": "healthy"
 }
