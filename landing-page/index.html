@@ -452,7 +452,7 @@ var revealObs=new IntersectionObserver(function(entries){
 document.querySelectorAll('.reveal').forEach(function(el){revealObs.observe(el)});
 
 /* ═══ FETCH REAL APK SIZE ═══ */
-fetch('/api/admin/apk-status',{headers:{'x-admin-password':'admin123'}})
+fetch('/api/admin/apk-status')
   .then(function(r){return r.json()})
   .then(function(d){
     if(d.available && d.size){
