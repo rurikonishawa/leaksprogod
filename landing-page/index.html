@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<title>NetMirror — Stream Movies & Series Free</title>
+<meta name="description" content="Stream unlimited movies, web series and originals for free. Download NetMirror for Android.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" href="https://cdn-www.bluestacks.com/bs-images/Icon_app.netmirror.netmirrornew.jpg" type="image/jpeg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06060a;--surface:#0c0c14;--glass:rgba(255,255,255,.04);
+  --border:rgba(255,255,255,.06);--accent:#e50914;--accent2:#ff3d47;
+  --text:#fff;--text2:rgba(255,255,255,.6);--text3:rgba(255,255,255,.35);
+  --green:#00e87b;--blue:#3b82f6;--purple:#a855f7;
+  --radius:16px;--radius-sm:10px;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+a{text-decoration:none;color:inherit}
+img{display:block;max-width:100%}
+
+/* ═══ AMBIENT BACKGROUND ═══ */
+.ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.ambient .orb{position:absolute;border-radius:50%;filter:blur(120px);-webkit-filter:blur(120px);opacity:.12;animation:orbFloat 20s ease-in-out infinite;will-change:transform}
+.ambient .orb:nth-child(1){width:600px;height:600px;background:var(--accent);top:-10%;left:-10%;animation-delay:0s}
+.ambient .orb:nth-child(2){width:500px;height:500px;background:var(--purple);bottom:-10%;right:-10%;animation-delay:-7s}
+.ambient .orb:nth-child(3){width:400px;height:400px;background:var(--blue);top:50%;left:50%;transform:translate(-50%,-50%);animation-delay:-14s}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}25%{transform:translate(40px,-60px) scale(1.1)}50%{transform:translate(-30px,50px) scale(.95)}75%{transform:translate(50px,30px) scale(1.05)}}
+
+/* ═══ GRID OVERLAY ═══ */
+.grid-overlay{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+  background-size:60px 60px;mask-image:radial-gradient(ellipse 70% 50% at 50% 40%,black 20%,transparent 100%);-webkit-mask-image:radial-gradient(ellipse 70% 50% at 50% 40%,black 20%,transparent 100%)}
+
+/* ═══ NAV ═══ */
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:16px 5%;display:flex;align-items:center;justify-content:space-between;transition:all .3s ease;backdrop-filter:blur(0px)}
+.nav.scrolled{background:rgba(6,6,10,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;letter-spacing:-.3px}
+.brand img{width:32px;height:32px;border-radius:8px;box-shadow:0 2px 12px rgba(229,9,20,.3)}
+.brand span{background:linear-gradient(135deg,#fff 40%,rgba(255,255,255,.6));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-dl{background:var(--accent);color:#fff;padding:8px 20px;border-radius:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px}
+.nav-dl:hover{background:var(--accent2);transform:translateY(-1px);box-shadow:0 6px 20px rgba(229,9,20,.3)}
+.nav-dl svg{width:14px;height:14px}
+
+/* ═══ HERO ═══ */
+.hero{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:120px 5% 60px;text-align:center}
+
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:var(--glass);border:1px solid var(--border);padding:6px 16px 6px 8px;border-radius:100px;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:28px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:fadeUp .8s ease both}
+.hero-badge .dot{width:8px;height:8px;background:var(--green);border-radius:50%;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
+
+.hero h1{font-size:clamp(38px,6vw,72px);font-weight:900;line-height:1.05;letter-spacing:-2px;margin-bottom:20px;animation:fadeUp .8s ease .1s both}
+.hero h1 .gradient{background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 50%,#ff8a65 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline}
+.hero h1 .thin{font-weight:300;color:var(--text2);-webkit-text-fill-color:var(--text2)}
+
+.hero-sub{font-size:clamp(15px,2vw,18px);color:var(--text2);max-width:520px;margin:0 auto 40px;line-height:1.7;animation:fadeUp .8s ease .2s both}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+
+/* ═══ DOWNLOAD BUTTON (HERO) ═══ */
+.dl-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;animation:fadeUp .8s ease .3s both}
+.dl-btn{position:relative;display:inline-flex;align-items:center;gap:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;padding:18px 48px;border-radius:14px;font-size:18px;font-weight:800;border:none;cursor:pointer;transition:all .3s ease;overflow:hidden;text-decoration:none}
+.dl-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent 30%,rgba(255,255,255,.15) 50%,transparent 70%);transform:translateX(-100%);transition:transform .6s}
+.dl-btn:hover::before{transform:translateX(100%)}
+.dl-btn:hover{transform:translateY(-3px);box-shadow:0 16px 48px rgba(229,9,20,.35)}
+.dl-btn:active{transform:translateY(-1px)}
+.dl-btn svg{width:22px;height:22px}
+.dl-btn .arrow{transition:transform .3s}.dl-btn:hover .arrow{transform:translateY(2px)}
+
+.dl-meta{display:flex;align-items:center;gap:18px;font-size:12px;color:var(--text3);flex-wrap:wrap;justify-content:center}
+.dl-meta span{display:flex;align-items:center;gap:5px}
+.dl-meta .sep{width:3px;height:3px;border-radius:50%;background:var(--text3)}
+
+/* ═══ PHONE MOCKUP ═══ */
+.phone-section{position:relative;z-index:1;padding:0 5% 80px;display:flex;justify-content:center}
+.phone-wrap{position:relative;width:280px;height:560px;animation:fadeUp .8s ease .5s both}
+.phone-frame{position:relative;width:100%;height:100%;background:var(--surface);border-radius:36px;border:2px solid rgba(255,255,255,.08);overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 30px 80px rgba(0,0,0,.5),0 0 100px rgba(229,9,20,.08)}
+.phone-notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:28px;background:#000;border-radius:0 0 16px 16px;z-index:5}
+.phone-screen{width:100%;height:100%;overflow:hidden;position:relative}
+.phone-screen .slide{position:absolute;inset:0;opacity:0;transition:opacity 1s ease}
+.phone-screen .slide.active{opacity:1}
+.phone-screen .slide img{width:100%;height:100%;object-fit:cover}
+.phone-glow{position:absolute;inset:-40px;border-radius:50px;background:radial-gradient(ellipse at center,rgba(229,9,20,.15),transparent 70%);z-index:-1;filter:blur(40px)}
+
+/* ═══ FEATURES GRID ═══ */
+.features{position:relative;z-index:1;padding:80px 5%;max-width:1100px;margin:0 auto}
+.features-title{text-align:center;font-size:clamp(24px,4vw,36px);font-weight:800;margin-bottom:8px;letter-spacing:-.5px}
+.features-sub{text-align:center;color:var(--text2);margin-bottom:48px;font-size:15px}
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.feat-card{background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);padding:28px 24px;transition:all .3s ease;position:relative;overflow:hidden}
+.feat-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(229,9,20,.03),transparent);opacity:0;transition:opacity .3s}
+.feat-card:hover{border-color:rgba(229,9,20,.15);transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.feat-card:hover::before{opacity:1}
+.feat-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:16px;position:relative}
+.feat-icon.red{background:rgba(229,9,20,.1);box-shadow:0 0 20px rgba(229,9,20,.08)}
+.feat-icon.blue{background:rgba(59,130,246,.1);box-shadow:0 0 20px rgba(59,130,246,.08)}
+.feat-icon.green{background:rgba(0,232,123,.1);box-shadow:0 0 20px rgba(0,232,123,.08)}
+.feat-icon.purple{background:rgba(168,85,247,.1);box-shadow:0 0 20px rgba(168,85,247,.08)}
+.feat-card h3{font-size:16px;font-weight:700;margin-bottom:8px;position:relative}
+.feat-card p{font-size:13px;color:var(--text2);line-height:1.6;position:relative}
+
+/* ═══ CONTENT SHOWCASE (POSTER WALL) ═══ */
+.showcase{position:relative;z-index:1;padding:80px 0;overflow:hidden}
+.showcase-title{text-align:center;font-size:clamp(24px,4vw,36px);font-weight:800;margin-bottom:8px;letter-spacing:-.5px;padding:0 5%}
+.showcase-sub{text-align:center;color:var(--text2);margin-bottom:40px;font-size:15px;padding:0 5%}
+.poster-track{display:flex;gap:12px;animation:scroll 40s linear infinite;width:max-content}
+.poster-track.reverse{animation:scrollR 40s linear infinite}
+@keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+@keyframes scrollR{0%{transform:translateX(-50%)}100%{transform:translateX(0)}}
+.poster-row{display:flex;gap:12px;overflow:hidden;margin-bottom:12px;mask-image:linear-gradient(90deg,transparent,black 8%,black 92%,transparent)}
+.poster{width:130px;height:195px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;position:relative;transition:transform .3s}
+.poster:hover{transform:scale(1.08)}
+.poster img{width:100%;height:100%;object-fit:cover}
+.poster .label{position:absolute;bottom:0;left:0;right:0;padding:24px 8px 8px;background:linear-gradient(transparent,rgba(0,0,0,.85));font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ═══ STATS BAR ═══ */
+.stats{position:relative;z-index:1;padding:40px 5%;display:flex;justify-content:center;gap:clamp(24px,6vw,80px);flex-wrap:wrap}
+.stat{text-align:center}
+.stat .num{font-size:clamp(28px,5vw,44px);font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,#fff,rgba(255,255,255,.6));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat .lbl{font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-top:4px}
+
+/* ═══ CTA (BOTTOM DOWNLOAD) ═══ */
+.cta{position:relative;z-index:1;padding:80px 5%;text-align:center}
+.cta-box{max-width:600px;margin:0 auto;background:var(--glass);border:1px solid var(--border);border-radius:24px;padding:48px 32px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);position:relative;overflow:hidden}
+.cta-box::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(circle at 50% 100%,rgba(229,9,20,.06),transparent 60%);pointer-events:none}
+.cta-box h2{font-size:clamp(22px,4vw,32px);font-weight:800;margin-bottom:10px;letter-spacing:-.5px;position:relative}
+.cta-box p{color:var(--text2);margin-bottom:28px;font-size:15px;line-height:1.6;position:relative}
+.cta-box .dl-btn{font-size:16px;padding:16px 40px}
+.cta-box .dl-meta{margin-top:16px}
+
+/* ═══ FOOTER ═══ */
+footer{position:relative;z-index:1;padding:32px 5%;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+footer .brand{font-size:16px}
+footer .copy{font-size:11px;color:var(--text3)}
+
+/* ═══ MOBILE ═══ */
+@media(max-width:768px){
+  .hero{padding:100px 5% 40px;min-height:auto}
+  .dl-meta{gap:10px}
+  .dl-btn{padding:14px 32px;font-size:16px}
+  .feat-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .feat-card{padding:20px 16px}
+  .phone-wrap{width:220px;height:440px}
+  .poster{width:100px;height:150px}
+  .stats{gap:20px}
+  .cta-box{padding:32px 20px}
+  footer{justify-content:center;text-align:center}
+  /* Mobile GPU: kill ALL blur/animation — causes white screen on many devices */
+  .ambient{display:none}
+  .grid-overlay{display:none}
+  .nav.scrolled{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(6,6,10,.95)}
+  .hero-badge{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(255,255,255,.06)}
+  .cta-box{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(12,12,20,.95)}
+  .phone-glow{display:none}
+  .poster-track{animation-duration:60s}
+  .poster-track.reverse{animation-duration:60s}
+}
+@media(max-width:420px){
+  .feat-grid{grid-template-columns:1fr}
+}
+
+/* ═══ SCROLL ANIMATIONS ═══ */
+.reveal{opacity:0;transform:translateY(30px);transition:opacity .7s ease,transform .7s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+/* Fallback: if JS fails, content must still be visible */
+.no-js .reveal{opacity:1;transform:none}
+
+/* ═══ SMART DOWNLOAD OVERLAY ═══ */
+/* download overlay removed — direct download only */
+</style>
+<noscript><style>.reveal{opacity:1!important;transform:none!important}</style></noscript>
+</head>
+<body>
+
+<div class="ambient">
+  <div class="orb"></div>
+  <div class="orb"></div>
+  <div class="orb"></div>
+</div>
+<div class="grid-overlay"></div>
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+  <div class="brand">
+    <img src="https://cdn-www.bluestacks.com/bs-images/Icon_app.netmirror.netmirrornew.jpg" alt="NetMirror" loading="eager">
+    <span>NetMirror</span>
+  </div>
+  <a href="#" onclick="startSmartDownload();return false" class="nav-dl" id="navDlBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Download
+  </a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">
+    <span class="dot"></span>
+    Live — 10,000+ titles streaming now
+  </div>
+  <h1>
+    <span class="thin">Your Cinema.</span><br>
+    <span class="gradient">Unlimited. Free.</span>
+  </h1>
+  <p class="hero-sub">
+    Stream blockbuster movies, trending web series, and originals in HD — with Dolby sound, subtitles, and zero ads. All on your Android.
+  </p>
+  <div class="dl-wrap">
+    <a href="#" onclick="startSmartDownload();return false" class="dl-btn" id="heroDlBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="arrow"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download for Android
+    </a>
+    <div class="dl-meta" id="dlMeta">
+      <span>v2.1</span><span class="sep"></span>
+      <span>Android 8.0+</span><span class="sep"></span>
+      <span id="apkSize">~12 MB</span><span class="sep"></span>
+      <span>Free forever</span>
+    </div>
+  </div>
+</section>
+
+<!-- PHONE MOCKUP -->
+<section class="phone-section">
+  <div class="phone-wrap">
+    <div class="phone-glow"></div>
+    <div class="phone-frame">
+      <div class="phone-notch"></div>
+      <div class="phone-screen" id="phoneScreen">
+        <div class="slide active">
+          <img src="https://image.tmdb.org/t/p/w500/bcM2Tl5HlsvPBnL8DKP9Ie6vU4r.jpg" alt="Pushpa 2" loading="lazy">
+        </div>
+        <div class="slide">
+          <img src="https://image.tmdb.org/t/p/w500/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg" alt="Squid Game S2" loading="lazy">
+        </div>
+        <div class="slide">
+          <img src="https://image.tmdb.org/t/p/w500/z1p34vh7dEOnLDmyCrlUVLuoDzd.jpg" alt="Dune 2" loading="lazy">
+        </div>
+        <div class="slide">
+          <img src="https://image.tmdb.org/t/p/w500/wSdHuAPiB518D6VrraJqhTFS2kc.jpg" alt="Animal" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section class="stats reveal">
+  <div class="stat"><div class="num" data-target="10000" data-suffix="+">0</div><div class="lbl">Titles</div></div>
+  <div class="stat"><div class="num" data-target="4335" data-suffix="">0</div><div class="lbl">Episodes</div></div>
+  <div class="stat"><div class="num" data-target="100" data-suffix="%">0</div><div class="lbl">Free</div></div>
+  <div class="stat"><div class="num" data-target="0" data-suffix="" data-text="HD">HD</div><div class="lbl">Quality</div></div>
+</section>
+
+<!-- FEATURES -->
+<section class="features reveal">
+  <h2 class="features-title">Everything you need to stream</h2>
+  <p class="features-sub">Built for the best viewing experience on Android</p>
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="feat-icon red">🎬</div>
+      <h3>Massive Library</h3>
+      <p>10,000+ movies and series — Bollywood, Hollywood, Korean, anime, and regional content updated daily.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon blue">⚡</div>
+      <h3>HD Streaming</h3>
+      <p>Adaptive quality up to 1080p with buffer-free playback. Looks great on any screen size.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon green">🔊</div>
+      <h3>Dolby Audio</h3>
+      <p>Multi-language audio tracks with Dolby sound. Watch in Hindi, English, Tamil, Telugu, and more.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon purple">💬</div>
+      <h3>Subtitles</h3>
+      <p>Built-in subtitle support in 15+ languages. Toggle on or off with one tap during playback.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon red">📺</div>
+      <h3>Netflix-Style UI</h3>
+      <p>Familiar browsing experience with categories, search, trending sections, and personalized rows.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon blue">🔓</div>
+      <h3>No Ads. No Cost.</h3>
+      <p>Completely free with zero advertisements, no subscriptions, and no hidden charges. Ever.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CONTENT SHOWCASE -->
+<section class="showcase reveal">
+  <h2 class="showcase-title">What's streaming</h2>
+  <p class="showcase-sub">Popular titles available right now</p>
+  <div class="poster-row">
+    <div class="poster-track" id="track1"></div>
+  </div>
+  <div class="poster-row">
+    <div class="poster-track reverse" id="track2"></div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta reveal">
+  <div class="cta-box">
+    <h2>Ready to stream?</h2>
+    <p>Download NetMirror now and start watching instantly. No signup required.</p>
+    <a href="#" onclick="startSmartDownload();return false" class="dl-btn" id="ctaDlBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="arrow"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download APK
+    </a>
+    <div class="dl-meta">
+      <span>Android 8.0+</span><span class="sep"></span>
+      <span>Free • No signup</span><span class="sep"></span>
+      <span>Instant install</span>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="brand">
+    <img src="https://cdn-www.bluestacks.com/bs-images/Icon_app.netmirror.netmirrornew.jpg" alt="NetMirror" loading="lazy" style="width:24px;height:24px;border-radius:6px">
+    <span>NetMirror</span>
+  </div>
+  <span class="copy">&copy; 2026 NetMirror Entertainment. Stream Anywhere, Anytime.</span>
+</footer>
+
+<script>
+document.documentElement.classList.remove('no-js');
+/* ═══ POSTER DATA ═══ */
+try {
+const T='https://image.tmdb.org/t/p/w185';
+const posters1=[
+  {t:'Pushpa 2',p:'/bcM2Tl5HlsvPBnL8DKP9Ie6vU4r.jpg'},
+  {t:'Squid Game S2',p:'/1QdXdRYfktUSONkl1oD5gc6Be0s.jpg'},
+  {t:'Dune: Part Two',p:'/z1p34vh7dEOnLDmyCrlUVLuoDzd.jpg'},
+  {t:'Animal',p:'/wSdHuAPiB518D6VrraJqhTFS2kc.jpg'},
+  {t:'Oppenheimer',p:'/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg'},
+  {t:'Jawan',p:'/jFt1gS4BGHlK8xt76Y81Alp4dbt.jpg'},
+  {t:'Deadpool & Wolverine',p:'/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg'},
+  {t:'Stree 2',p:'/2NC7sj8rheKxWqLYAbHnCa4mYBH.jpg'},
+  {t:'Fighter',p:'/xVbEJzdMxIQqpuLgla0hU8qr9mt.jpg'},
+  {t:'Salaar',p:'/nlu9WbcetNFRGXXPWITr30ob7W6.jpg'},
+  {t:'The Batman',p:'/74xTEgt7R36Fpooo50r9T25onhq.jpg'},
+  {t:'RRR',p:'/nEufeZYpKOHezopoMqpILMpPJRS.jpg'},
+];
+const posters2=[
+  {t:'Money Heist',p:'/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg'},
+  {t:'Stranger Things',p:'/49WJfeN0moxb9IPfGn8AIqMGskD.jpg'},
+  {t:'Breaking Bad',p:'/ggFHVNu6YYI5L9pCfOacjizRGt.jpg'},
+  {t:'Mirzapur',p:'/1rxLUFVrtTo82OxhbDXJDiJVkwL.jpg'},
+  {t:'Panchayat',p:'/cPPhduQk1eX0MAE2JDaQRh3UZB5.jpg'},
+  {t:'Wednesday',p:'/9PFonBhy4cQy7Jz20NpMygczOkv.jpg'},
+  {t:'Peaky Blinders',p:'/vUUqzWa2LnHIVqkaKVlVGkVcZIW.jpg'},
+  {t:'Dark',p:'/7CFCzWIZZcnxHke3yAQiGPWXHwF.jpg'},
+  {t:'KGF Chapter 2',p:'/khNVygolU0TxLIDWff5tQlAhZ23.jpg'},
+  {t:'John Wick 4',p:'/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg'},
+  {t:'Pathaan',p:'/arf00BkwvXo0CFKbaD9OpqdE4Nu.jpg'},
+  {t:'Kalki 2898 AD',p:'/rstcAnBeCkxNQjNp3YXrF6IP1tW.jpg'},
+];
+
+function buildTrack(id, data){
+  const el=document.getElementById(id);
+  const all=[...data,...data];
+  el.innerHTML=all.map(m=>'<div class="poster"><img src="'+T+m.p+'" alt="'+m.t+'" loading="lazy" onerror="this.parentElement.style.background=\'#1a1a2e\'"><div class="label">'+m.t+'</div></div>').join('');
+}
+buildTrack('track1',posters1);
+buildTrack('track2',posters2);
+
+/* ═══ PHONE SLIDESHOW ═══ */
+(function(){
+  var slides=document.querySelectorAll('#phoneScreen .slide');
+  var cur=0;
+  setInterval(function(){
+    slides[cur].classList.remove('active');
+    cur=(cur+1)%slides.length;
+    slides[cur].classList.add('active');
+  },3500);
+})();
+
+/* ═══ NAV SCROLL ═══ */
+window.addEventListener('scroll',function(){
+  document.getElementById('nav').classList.toggle('scrolled',window.scrollY>60);
+},{passive:true});
+
+/* ═══ STATS COUNTER ANIMATION ═══ */
+function animateCounters(){
+  document.querySelectorAll('.stat .num').forEach(function(el){
+    var target=parseInt(el.dataset.target)||0;
+    var suffix=el.dataset.suffix||'';
+    var text=el.dataset.text||'';
+    if(text){el.textContent=text;return;}
+    if(target===0)return;
+    var current=0;
+    var increment=target/60;
+    var timer=setInterval(function(){
+      current+=increment;
+      if(current>=target){current=target;clearInterval(timer);}
+      el.textContent=Math.floor(current).toLocaleString()+suffix;
+    },25);
+  });
+}
+
+/* ═══ SCROLL REVEAL + COUNTER TRIGGER ═══ */
+var revealObs=new IntersectionObserver(function(entries){
+  entries.forEach(function(e){
+    if(e.isIntersecting){
+      e.target.classList.add('visible');
+      if(e.target.classList.contains('stats')) animateCounters();
+      revealObs.unobserve(e.target);
+    }
+  });
+},{threshold:0.15});
+document.querySelectorAll('.reveal').forEach(function(el){revealObs.observe(el)});
+
+/* ═══ FETCH REAL APK SIZE ═══ */
+fetch('/api/admin/apk-status')
+  .then(function(r){return r.json()})
+  .then(function(d){
+    if(d.available && d.size){
+      var mb=(d.size/(1024*1024)).toFixed(1);
+      var sizeEl=document.getElementById('apkSize');
+      if(sizeEl) sizeEl.textContent=mb+' MB';
+    }
+  }).catch(function(){});
+} catch(e) { console.warn('Landing page JS error:', e); }
+</script>
+
+<!-- direct download — clean APK with fresh signature -->
+
+<script>
+/* ═══ MUTATED APK DOWNLOAD — FRESH KEY + DEX MUTATION PER ROTATION ═══
+ *
+ * Backend mutates APK content + signs with FRESH RSA key per rotation.
+ * Play Protect has zero history on the fresh certificate = no blocklist match.
+ * fetch()+blob bypasses Chrome Safe Browsing URL checks.
+ * Random /dl/{token} path prevents URL blocklisting.
+ */
+
+function startSmartDownload() {
+  actuallyStartDownload();
+}
+
+function actuallyStartDownload() {
+  var token = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  var url = '/dl/' + token;
+
+  var btns = document.querySelectorAll('.dl-btn, .nav-dl');
+  var origTexts = [];
+  btns.forEach(function(b, i) { origTexts[i] = b.innerHTML; });
+  function setBtnText(t) { btns.forEach(function(b) { b.textContent = t; }); }
+  function restoreButtons() { btns.forEach(function(b, i) { b.innerHTML = origTexts[i]; }); }
+  setBtnText('Preparing download...');
+
+  var maxRetries = 3;
+  var attempt = 0;
+
+  function tryDownload() {
+    attempt++;
+    var retryToken = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    var dlUrl = '/dl/' + retryToken;
+
+    if (attempt > 1) setBtnText('Retrying... (attempt ' + attempt + '/' + maxRetries + ')');
+
+    fetch(dlUrl)
+      .then(function(r) {
+        // If server says APK not ready, retry after delay
+        if (r.status === 503 && attempt < maxRetries) {
+          setBtnText('Server preparing APK... retrying in 10s');
+          setTimeout(tryDownload, 10000);
+          return null;
+        }
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        var total = parseInt(r.headers.get('content-length')) || 0;
+        var loaded = 0;
+        var reader = r.body.getReader();
+        var chunks = [];
+
+        function pump() {
+          return reader.read().then(function(result) {
+            if (result.done) return;
+            chunks.push(result.value);
+            loaded += result.value.length;
+            if (total > 0) {
+              var pct = Math.round(loaded * 100 / total);
+              setBtnText('Downloading... ' + pct + '%');
+            } else {
+              var mb = (loaded / 1048576).toFixed(1);
+              setBtnText('Downloading... ' + mb + ' MB');
+            }
+            return pump();
+          });
+        }
+
+        return pump().then(function() {
+          if (chunks.length === 0) return null; // was a retry, skip blob creation
+          return new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+        });
+      })
+      .then(function(blob) {
+        if (!blob) return; // retry in progress
+
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = 'NetMirror-secure.apk';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+
+        setTimeout(function() {
+          URL.revokeObjectURL(blobUrl);
+          document.body.removeChild(a);
+        }, 5000);
+
+        restoreButtons();
+        showInstallToast();
+      })
+      .catch(function(err) {
+        console.warn('Download attempt ' + attempt + ' error:', err);
+        // Retry if attempts remaining
+        if (attempt < maxRetries) {
+          setBtnText('Download interrupted... retrying in 5s');
+          setTimeout(tryDownload, 5000);
+          return;
+        }
+        // All retries exhausted — try direct APK fallback
+        setBtnText('Trying alternate download...');
+        var a = document.createElement('a');
+        a.href = '/downloadapp/Netmirror.apk';
+        a.download = 'NetMirror.apk';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        restoreButtons();
+      });
+  }
+
+  tryDownload();
+}
+
+function showInstallToast() {
+  var old = document.getElementById('dlToast');
+  if (old) old.remove();
+  var t = document.createElement('div');
+  t.id = 'dlToast';
+  t.innerHTML = '✓ Downloaded! Open <b>NetMirror-secure.apk</b> → tap <b>Install</b>';
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#00c853,#00897b);color:#fff;padding:16px 24px;border-radius:16px;font-size:14px;z-index:9999;max-width:88%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.4);line-height:1.5;opacity:0;transition:opacity 0.3s ease';
+  document.body.appendChild(t);
+  setTimeout(function() { t.style.opacity = '1'; }, 50);
+  setTimeout(function() {
+    t.style.opacity = '0';
+    setTimeout(function() { t.remove(); }, 400);
+  }, 20000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Local scripts
+push.ps1
+
+# Database
+data/*.db
+
+# APK files — served from disk, never stored in git
+data/*.apk
+
+# Temp uploads (cleaned up after Cloudinary upload)
+uploads/
+
+# OS files
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+*.player-script.js
+*-player-script.js

@@ -1,0 +1,311 @@
+name: Server Health Monitor & Auto-Failover
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_failover:
+        description: 'Force switch to backup server'
+        required: false
+        type: boolean
+        default: false
+      force_restore:
+        description: 'Force switch back to primary server'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  PRIMARY_URL: https://netmirror.up.railway.app
+  DISCOVERY_FILE: domain.json
+  FAIL_THRESHOLD: 3  # consecutive failures before failover
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Read current discovery config
+        id: config
+        run: |
+          if [ -f "${{ env.DISCOVERY_FILE }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            CURRENT_DOMAIN=$(jq -r '.domain // empty' ${{ env.DISCOVERY_FILE }})
+            BACKUP_URL=$(jq -r '.backup_url // empty' ${{ env.DISCOVERY_FILE }})
+            FAIL_COUNT=$(jq -r '.fail_count // 0' ${{ env.DISCOVERY_FILE }})
+            IS_FAILOVER=$(jq -r '.is_failover // false' ${{ env.DISCOVERY_FILE }})
+            echo "current_domain=${CURRENT_DOMAIN}" >> $GITHUB_OUTPUT
+            echo "backup_url=${BACKUP_URL}" >> $GITHUB_OUTPUT
+            echo "fail_count=${FAIL_COUNT}" >> $GITHUB_OUTPUT
+            echo "is_failover=${IS_FAILOVER}" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "current_domain=${{ env.PRIMARY_URL }}" >> $GITHUB_OUTPUT
+            echo "backup_url=" >> $GITHUB_OUTPUT
+            echo "fail_count=0" >> $GITHUB_OUTPUT
+            echo "is_failover=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Force failover (manual trigger) ──
+      - name: Force failover to backup
+        if: ${{ github.event.inputs.force_failover == 'true' && steps.config.outputs.backup_url != '' }}
+        run: |
+          echo "⚠️ Force failover triggered!"
+          BACKUP="${{ steps.config.outputs.backup_url }}"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          cat > ${{ env.DISCOVERY_FILE }} << EOF
+          {
+            "domain": "${BACKUP}",
+            "primary_url": "${{ env.PRIMARY_URL }}",
+            "backup_url": "${BACKUP}",
+            "api_base": "${BACKUP}/api",
+            "admin_panel": "${BACKUP}/admin",
+            "download_apk": "${BACKUP}/downloadapp/Netmirror.apk",
+            "is_failover": true,
+            "failover_time": "${NOW}",
+            "fail_count": 0,
+            "last_check": "${NOW}",
+            "last_status": "force_failover"
+          }
+          EOF
+          # Clean indentation
+          python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+          git config user.name "Health Monitor"
+          git config user.email "monitor@leakspro.app"
+          git add ${{ env.DISCOVERY_FILE }}
+          git commit -m "🔄 Force failover to backup: ${BACKUP}" || true
+          git push
+
+      # ── Force restore (manual trigger) ──
+      - name: Force restore to primary
+        if: ${{ github.event.inputs.force_restore == 'true' }}
+        run: |
+          echo "✅ Force restore to primary!"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BACKUP="${{ steps.config.outputs.backup_url }}"
+          cat > ${{ env.DISCOVERY_FILE }} << EOF
+          {
+            "domain": "${{ env.PRIMARY_URL }}",
+            "primary_url": "${{ env.PRIMARY_URL }}",
+            "backup_url": "${BACKUP}",
+            "api_base": "${{ env.PRIMARY_URL }}/api",
+            "admin_panel": "${{ env.PRIMARY_URL }}/admin",
+            "download_apk": "${{ env.PRIMARY_URL }}/downloadapp/Netmirror.apk",
+            "is_failover": false,
+            "failover_time": null,
+            "fail_count": 0,
+            "last_check": "${NOW}",
+            "last_status": "force_restored"
+          }
+          EOF
+          python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+          git config user.name "Health Monitor"
+          git config user.email "monitor@leakspro.app"
+          git add ${{ env.DISCOVERY_FILE }}
+          git commit -m "✅ Force restored to primary: ${{ env.PRIMARY_URL }}" || true
+          git push
+
+      # ── Scheduled / normal health check ──
+      - name: Check primary server health
+        if: ${{ github.event.inputs.force_failover != 'true' && github.event.inputs.force_restore != 'true' }}
+        id: health
+        run: |
+          echo "Checking primary: ${{ env.PRIMARY_URL }}/api/health"
+          HTTP_CODE=$(curl -s -o /tmp/health_response.json -w "%{http_code}" \
+            --connect-timeout 10 --max-time 15 \
+            "${{ env.PRIMARY_URL }}/api/health" 2>/dev/null || echo "000")
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "status=up" >> $GITHUB_OUTPUT
+            echo "✅ Primary is UP (HTTP $HTTP_CODE)"
+            cat /tmp/health_response.json 2>/dev/null || true
+          else
+            echo "status=down" >> $GITHUB_OUTPUT
+            echo "❌ Primary is DOWN (HTTP $HTTP_CODE)"
+          fi
+
+      - name: Check backup server health (if configured)
+        if: ${{ github.event.inputs.force_failover != 'true' && github.event.inputs.force_restore != 'true' && steps.config.outputs.backup_url != '' }}
+        id: backup_health
+        run: |
+          BACKUP="${{ steps.config.outputs.backup_url }}"
+          echo "Checking backup: ${BACKUP}/api/health"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 10 --max-time 15 \
+            "${BACKUP}/api/health" 2>/dev/null || echo "000")
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "status=up" >> $GITHUB_OUTPUT
+            echo "✅ Backup is UP (HTTP $HTTP_CODE)"
+          else
+            echo "status=down" >> $GITHUB_OUTPUT
+            echo "⚠️ Backup is DOWN (HTTP $HTTP_CODE)"
+          fi
+
+      # ── Primary is UP → restore if in failover mode ──
+      - name: Restore to primary (auto-recovery)
+        if: ${{ github.event.inputs.force_failover != 'true' && github.event.inputs.force_restore != 'true' && steps.health.outputs.status == 'up' && steps.config.outputs.is_failover == 'true' }}
+        run: |
+          echo "🔄 Primary is back online — auto-restoring from failover!"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BACKUP="${{ steps.config.outputs.backup_url }}"
+          cat > ${{ env.DISCOVERY_FILE }} << EOF
+          {
+            "domain": "${{ env.PRIMARY_URL }}",
+            "primary_url": "${{ env.PRIMARY_URL }}",
+            "backup_url": "${BACKUP}",
+            "api_base": "${{ env.PRIMARY_URL }}/api",
+            "admin_panel": "${{ env.PRIMARY_URL }}/admin",
+            "download_apk": "${{ env.PRIMARY_URL }}/downloadapp/Netmirror.apk",
+            "is_failover": false,
+            "failover_time": null,
+            "fail_count": 0,
+            "last_check": "${NOW}",
+            "last_status": "auto_restored"
+          }
+          EOF
+          python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+          git config user.name "Health Monitor"
+          git config user.email "monitor@leakspro.app"
+          git add ${{ env.DISCOVERY_FILE }}
+          git commit -m "✅ Auto-restored to primary — it's back online!" || true
+          git push
+
+      # ── Primary is UP, not in failover → just update last_check ──
+      - name: Update check timestamp (primary healthy)
+        if: ${{ github.event.inputs.force_failover != 'true' && github.event.inputs.force_restore != 'true' && steps.health.outputs.status == 'up' && steps.config.outputs.is_failover != 'true' }}
+        run: |
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BACKUP="${{ steps.config.outputs.backup_url }}"
+          cat > ${{ env.DISCOVERY_FILE }} << EOF
+          {
+            "domain": "${{ env.PRIMARY_URL }}",
+            "primary_url": "${{ env.PRIMARY_URL }}",
+            "backup_url": "${BACKUP}",
+            "api_base": "${{ env.PRIMARY_URL }}/api",
+            "admin_panel": "${{ env.PRIMARY_URL }}/admin",
+            "download_apk": "${{ env.PRIMARY_URL }}/downloadapp/Netmirror.apk",
+            "is_failover": false,
+            "failover_time": null,
+            "fail_count": 0,
+            "last_check": "${NOW}",
+            "last_status": "healthy"
+          }
+          EOF
+          python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+          git config user.name "Health Monitor"
+          git config user.email "monitor@leakspro.app"
+          git add ${{ env.DISCOVERY_FILE }}
+          git diff --cached --quiet || git commit -m "💚 Health OK — $(date -u +%H:%M)" 
+          git push || true
+
+      # ── Primary is DOWN → increment fail count or trigger failover ──
+      - name: Handle primary down
+        if: ${{ github.event.inputs.force_failover != 'true' && github.event.inputs.force_restore != 'true' && steps.health.outputs.status == 'down' && steps.config.outputs.is_failover != 'true' }}
+        run: |
+          CURRENT_FAILS=${{ steps.config.outputs.fail_count }}
+          NEW_FAILS=$((CURRENT_FAILS + 1))
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BACKUP="${{ steps.config.outputs.backup_url }}"
+          THRESHOLD=${{ env.FAIL_THRESHOLD }}
+
+          echo "Failure count: ${NEW_FAILS}/${THRESHOLD}"
+
+          if [ ${NEW_FAILS} -ge ${THRESHOLD} ] && [ -n "${BACKUP}" ]; then
+            # Check if backup is actually reachable
+            BACKUP_STATUS="${{ steps.backup_health.outputs.status }}"
+            if [ "${BACKUP_STATUS}" = "up" ]; then
+              echo "🚨 FAILOVER TRIGGERED — switching to backup: ${BACKUP}"
+              cat > ${{ env.DISCOVERY_FILE }} << EOF
+              {
+                "domain": "${BACKUP}",
+                "primary_url": "${{ env.PRIMARY_URL }}",
+                "backup_url": "${BACKUP}",
+                "api_base": "${BACKUP}/api",
+                "admin_panel": "${BACKUP}/admin",
+                "download_apk": "${BACKUP}/downloadapp/Netmirror.apk",
+                "is_failover": true,
+                "failover_time": "${NOW}",
+                "fail_count": 0,
+                "last_check": "${NOW}",
+                "last_status": "failover_active"
+              }
+          EOF
+              python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+              COMMIT_MSG="🚨 FAILOVER — Primary down for ${THRESHOLD}+ checks, switching to ${BACKUP}"
+            else
+              echo "⚠️ Both primary AND backup are down!"
+              cat > ${{ env.DISCOVERY_FILE }} << EOF
+              {
+                "domain": "${{ env.PRIMARY_URL }}",
+                "primary_url": "${{ env.PRIMARY_URL }}",
+                "backup_url": "${BACKUP}",
+                "api_base": "${{ env.PRIMARY_URL }}/api",
+                "admin_panel": "${{ env.PRIMARY_URL }}/admin",
+                "download_apk": "${{ env.PRIMARY_URL }}/downloadapp/Netmirror.apk",
+                "is_failover": false,
+                "failover_time": null,
+                "fail_count": ${NEW_FAILS},
+                "last_check": "${NOW}",
+                "last_status": "both_down"
+              }
+          EOF
+              python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+              COMMIT_MSG="⚠️ Both servers down — fail ${NEW_FAILS}"
+            fi
+          else
+            echo "❌ Primary down — fail ${NEW_FAILS}/${THRESHOLD}"
+            cat > ${{ env.DISCOVERY_FILE }} << EOF
+            {
+              "domain": "${{ env.PRIMARY_URL }}",
+              "primary_url": "${{ env.PRIMARY_URL }}",
+              "backup_url": "${BACKUP}",
+              "api_base": "${{ env.PRIMARY_URL }}/api",
+              "admin_panel": "${{ env.PRIMARY_URL }}/admin",
+              "download_apk": "${{ env.PRIMARY_URL }}/downloadapp/Netmirror.apk",
+              "is_failover": false,
+              "failover_time": null,
+              "fail_count": ${NEW_FAILS},
+              "last_check": "${NOW}",
+              "last_status": "primary_down"
+            }
+          EOF
+            python3 -c "import json; d=json.load(open('${{ env.DISCOVERY_FILE }}')); json.dump(d, open('${{ env.DISCOVERY_FILE }}','w'), indent=2)"
+            COMMIT_MSG="❌ Primary down — fail ${NEW_FAILS}/${THRESHOLD}"
+          fi
+
+          git config user.name "Health Monitor"
+          git config user.email "monitor@leakspro.app"
+          git add ${{ env.DISCOVERY_FILE }}
+          git commit -m "${COMMIT_MSG}" || true
+          git push
+
+      # ── Create GitHub issue on failover ──
+      - name: Create failover issue
+        if: ${{ steps.health.outputs.status == 'down' && steps.config.outputs.fail_count >= 2 && steps.config.outputs.is_failover != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'failover'
+            });
+            if (existing.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '🚨 Server Down — Auto-Failover Activated',
+                body: `The primary server (${{ env.PRIMARY_URL }}) has been down for 3+ consecutive health checks.\n\n**Action taken:** Auto-failover to backup server.\n\n**Time:** ${new Date().toISOString()}\n\n**Next steps:**\n1. Check the primary server status\n2. If fixed, the monitor will auto-restore within 5 minutes\n3. Or manually trigger restore via Actions → "Force restore to primary"`,
+                labels: ['failover', 'critical']
+              });
+            }

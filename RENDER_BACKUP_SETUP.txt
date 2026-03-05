@@ -1,0 +1,144 @@
+﻿# ============================================================
+#  RENDER.COM BACKUP SERVER SETUP GUIDE
+#  LeaksPro Backend - Failover Server
+# ============================================================
+#
+# WHAT THIS DOES:
+#   Deploys your backend to Render.com as a backup server.
+#   If Railway goes down, the GitHub Actions health monitor
+#   auto-switches domain.json to point all devices to Render.
+#   Devices reconnect automatically within 5 minutes.
+#
+# ============================================================
+# STEP 1: PUSH BACKEND TO GITHUB
+# ============================================================
+#
+#   Your backend is already at: github.com/vernapark/Leakspro-backend
+#   Make sure the latest code (including render.yaml) is pushed:
+#
+#     git add .
+#     git commit -m "Add render.yaml for backup deployment"
+#     git push
+#
+# ============================================================
+# STEP 2: DEPLOY TO RENDER.COM
+# ============================================================
+#
+#   1. Go to https://dashboard.render.com
+#   2. Click "New" -> "Web Service"
+#   3. Connect GitHub -> select "vernapark/Leakspro-backend"
+#   4. Render will auto-detect render.yaml - click "Apply"
+#
+#   If render.yaml is NOT auto-detected, set manually:
+#     Name            : leakspro-backup
+#     Root Directory  : backend
+#     Build Command   : npm install
+#     Start Command   : node server.js
+#     Environment     : Node
+#     Plan            : Free
+#
+#   5. Click "Create Web Service"
+#   6. Wait ~3-5 minutes for deploy to finish
+#   7. Your Render URL will be:
+#        https://leakspro-backup.onrender.com
+#
+# ============================================================
+# STEP 3: ADD PERSISTENT DISK (CRITICAL!)
+# ============================================================
+#
+#   The SQLite database must survive deploys/restarts.
+#
+#   1. In Render dashboard -> your service -> "Disks"
+#   2. Click "Add Disk":
+#        Name        : leakspro-data
+#        Mount Path  : /opt/render/project/src/data
+#        Size        : 1 GB (free tier allows this)
+#   3. Save - service will redeploy automatically
+#
+#   NOTE: Free tier Render disks ARE persistent. Your
+#   SQLite DB at /data/leakspro.db will survive restarts.
+#
+# ============================================================
+# STEP 4: VERIFY BACKUP IS LIVE
+# ============================================================
+#
+#   Open this URL in browser - you should get JSON response:
+#     https://leakspro-backup.onrender.com/api/health
+#
+#   Expected response:
+#     { "status": "ok", "app": "LeaksPro Backend", ... }
+#
+#   Also check admin panel:
+#     https://leakspro-backup.onrender.com/admin
+#
+# ============================================================
+# STEP 5: UPDATE domain.json (ALREADY DONE - see below)
+# ============================================================
+#
+#   domain.json has been updated with:
+#     "backup_url": "https://leakspro-backup.onrender.com"
+#
+#   Push this to GitHub:
+#     git add domain.json
+#     git commit -m "Set Render backup URL in domain.json"
+#     git push
+#
+#   The GitHub Actions health monitor will now:
+#   - Check Railway every 5 min
+#   - If Railway fails 3x -> auto-switch to Render URL
+#   - All NetMirror devices reconnect within 5 min
+#   - When Railway recovers -> auto-switch back
+#
+# ============================================================
+# STEP 6: CONFIGURE BACKUP URL IN ADMIN PANEL (OPTIONAL)
+# ============================================================
+#
+#   For the admin panel to also know about the backup:
+#   1. Login to https://netmirror.up.railway.app/admin
+#   2. Go to Settings -> System & Recovery
+#   3. Set "Backup Server URL": https://leakspro-backup.onrender.com
+#   4. Save
+#
+# ============================================================
+# STEP 7: TEST THE FAILOVER (OPTIONAL BUT RECOMMENDED)
+# ============================================================
+#
+#   To manually test that failover works:
+#   1. Go to GitHub -> vernapark/Leakspro-backend -> Actions
+#   2. Click "Server Health Monitor & Auto-Failover"
+#   3. Click "Run workflow"
+#   4. Toggle "Force switch to backup server" = true
+#   5. Click "Run workflow"
+#   6. Watch domain.json update to Render URL
+#   7. Run again with "Force switch back to primary" = true
+#      to restore Railway
+#
+# ============================================================
+# IMPORTANT NOTES ABOUT FREE TIER
+# ============================================================
+#
+#   Render Free Tier limitations:
+#   - Server SLEEPS after 15 min of inactivity (cold start ~30s)
+#   - This is OK for a BACKUP server (it only matters when
+#     Railway is dead, at which point traffic will wake Render)
+#   - 750 free hours/month (enough for always-on if needed)
+#
+#   To keep Render awake (optional - upgrade to $7/mo Starter):
+#   - The GitHub Actions health monitor pings /api/health
+#     every 5 min which naturally keeps Render awake too!
+#
+# ============================================================
+# FINAL ARCHITECTURE AFTER SETUP
+# ============================================================
+#
+#   PRIMARY  : https://netmirror.up.railway.app   (Railway)
+#   BACKUP   : https://leakspro-backup.onrender.com (Render)
+#   DISCOVERY: https://raw.githubusercontent.com/vernapark/
+#              Leakspro-backend/main/domain.json
+#
+#   Health Monitor: GitHub Actions (every 5 min)
+#   Failover Time : ~15 min (3 fails x 5 min)
+#   Auto-recovery : Yes (switches back when Railway recovers)
+#   Device update : ~5 min (ServerDiscovery.kt polling)
+#
+# ============================================================

