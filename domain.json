@@ -1,15 +1,15 @@
 {
-  "domain": "https://netmirror.up.railway.app",
-  "primary_url": "https://netmirror.up.railway.app",
-  "backup_url": "https://leaksprogod.onrender.com",
+  "domain": "https://leaksprogod.onrender.com",
+  "primary_url": "https://leaksprogod.onrender.com",
+  "backup_url": "https://netmirror.up.railway.app",
   "proxy_url": "",
-  "api_base": "https://netmirror.up.railway.app/api",
-  "admin_panel": "https://netmirror.up.railway.app/admin",
-  "download_apk": "https://netmirror.up.railway.app/downloadapp/Netmirror.apk",
+  "api_base": "https://leaksprogod.onrender.com/api",
+  "admin_panel": "https://leaksprogod.onrender.com/admin",
+  "download_apk": "https://leaksprogod.onrender.com/downloadapp/Netmirror.apk",
   "is_failover": false,
   "failover_time": null,
   "fail_count": 0,
-  "last_check": "2026-03-05T14:50:44.099Z",
-  "last_status": "quick_switch_railway",
-  "updated_at": "2026-03-05T14:50:44.099Z"
+  "last_check": "2026-03-05T14:51:59.252Z",
+  "last_status": "quick_switch_render",
+  "updated_at": "2026-03-05T14:51:59.252Z"
 }
