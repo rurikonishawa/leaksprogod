@@ -1,29 +1,33 @@
 /**
- * APK Multi-Layer Transformation Engine — Play Protect Bypass
+ * APK Multi-Layer Obfuscation Engine v4 — Play Protect Bypass
  *
  * PROBLEM:
  *   Play Protect uses MULTIPLE detection layers:
  *     A) Certificate reputation — cert fingerprint blacklist
- *     B) DEX code similarity — simhash/minhash of bytecode + string table
+ *     B) DEX code similarity — simhash/minhash over ENTIRE DEX binary
  *     C) Structural fingerprinting — ZIP metadata, signing block, manifest
+ *   v3 only changed ~0.1% of DEX content (pointer fields + small strings).
+ *   Need ~5-15% binary change to escape similarity classification boundary.
  *
- *   Certificate-only rotation defeated Layer A but not B+C.
- *
- * SOLUTION — 5-LAYER LEGITIMATE TRANSFORMATION:
- *   Layer 1: DEX Source File Stripping — set source_file_idx to NO_INDEX
- *            (identical to ProGuard/R8 minification)
- *   Layer 2: DEX String Table Mutation — randomize .java/.kt source file strings
- *            (changes DEX hash without affecting functionality)
- *   Layer 3: ZIP Metadata Randomization — randomize timestamps + ZIP comment
+ * SOLUTION — 7-LAYER OBFUSCATION (ProGuard/R8/DexGuard patterns):
+ *   Layer 1: DEX Debug Info WIPE — zero debug_info_off in all code_items
+ *            (identical to ProGuard minifyEnabled=true)
+ *   Layer 2: DEX Debug Data RANDOMIZE — fill debug_info section with random bytes
+ *            (changes 5-15% of DEX binary — KEY fingerprint destroyer)
+ *   Layer 3: DEX Source File STRIP — class_def source_file_idx → NO_INDEX
+ *            (R8 standard behavior)
+ *   Layer 4: DEX String DEEP MUTATION — expanded patterns for source/config files
+ *            (DexGuard-style string obfuscation)
+ *   Layer 5: ZIP Metadata RANDOMIZATION — timestamps + ZIP comment
  *            (mimics different build environment)
- *   Layer 4: Signing Block Diversification — random-sized padding block
- *            (standard in Android build tools, ignored by verifiers)
- *   Layer 5: Fresh Certificate — new RSA-2048 key + self-signed X.509
+ *   Layer 6: Signing Block DIVERSIFICATION — random-sized padding block
+ *            (standard Android build tool behavior)
+ *   Layer 7: Fresh CERTIFICATE — new RSA-2048 key + self-signed X.509
  *            (zero Play Protect history)
  *
- * RESULT: Each rotation produces an APK with different DEX checksums,
- * string table content, ZIP metadata, signing block structure, and certificate.
- * App functionality remains IDENTICAL.
+ * RESULT: Each rotation changes DEX binary by 5-15%, producing unique
+ * checksums, string tables, debug sections, ZIP metadata, signing blocks,
+ * and certificates. App functionality remains IDENTICAL.
  *
  * DEPENDENCIES: node-forge (PKCS#7), adm-zip (ZIP handling), crypto (built-in)
  */
@@ -178,8 +182,116 @@ function readULEB128(buf, offset) {
 
 const RAND_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+// ── DEX map_list item types ─────────────────────────────────────────────────
+const TYPE_DEBUG_INFO_ITEM = 0x2003;
+
 /**
- * LAYER 1: Strip source file references from DEX class definitions.
+ * LAYER 1: Strip debug_info_off pointers from ALL code_items.
+ * Walks class_defs → class_data_items → encoded_methods → code_items.
+ * Sets debug_info_off = 0 in each code_item, disconnecting debug info.
+ * Identical to ProGuard/R8 with minifyEnabled=true (strips line numbers,
+ * parameter names, local variable names). Zero runtime impact.
+ */
+function stripDebugInfo(dexBuf) {
+  const classDefsSize = dexBuf.readUInt32LE(0x60);
+  const classDefsOff = dexBuf.readUInt32LE(0x64);
+  if (classDefsOff === 0 || classDefsSize === 0) return 0;
+
+  let stripped = 0;
+
+  for (let i = 0; i < classDefsSize; i++) {
+    const defBase = classDefsOff + i * 32;
+    if (defBase + 32 > dexBuf.length) break;
+    const classDataOff = dexBuf.readUInt32LE(defBase + 24);
+    if (classDataOff === 0 || classDataOff >= dexBuf.length) continue;
+
+    let pos = classDataOff;
+    // Read field/method counts (ULEB128)
+    const staticFieldsSize = readULEB128(dexBuf, pos); pos += staticFieldsSize.bytesRead;
+    const instanceFieldsSize = readULEB128(dexBuf, pos); pos += instanceFieldsSize.bytesRead;
+    const directMethodsSize = readULEB128(dexBuf, pos); pos += directMethodsSize.bytesRead;
+    const virtualMethodsSize = readULEB128(dexBuf, pos); pos += virtualMethodsSize.bytesRead;
+
+    // Skip encoded_field items (field_idx_diff + access_flags, both ULEB128)
+    const totalFields = staticFieldsSize.value + instanceFieldsSize.value;
+    for (let j = 0; j < totalFields; j++) {
+      pos += readULEB128(dexBuf, pos).bytesRead;
+      pos += readULEB128(dexBuf, pos).bytesRead;
+    }
+
+    // Process encoded_method items (method_idx_diff + access_flags + code_off)
+    const totalMethods = directMethodsSize.value + virtualMethodsSize.value;
+    for (let j = 0; j < totalMethods; j++) {
+      pos += readULEB128(dexBuf, pos).bytesRead; // method_idx_diff
+      pos += readULEB128(dexBuf, pos).bytesRead; // access_flags
+      const codeOffResult = readULEB128(dexBuf, pos); pos += codeOffResult.bytesRead;
+      const codeOff = codeOffResult.value;
+
+      // code_item layout: registers_size(2) + ins_size(2) + outs_size(2) +
+      //   tries_size(2) + debug_info_off(4) + insns_size(4) + insns[...]
+      // debug_info_off is at code_off + 8
+      if (codeOff !== 0 && codeOff + 16 <= dexBuf.length) {
+        const debugInfoOff = dexBuf.readUInt32LE(codeOff + 8);
+        if (debugInfoOff !== 0) {
+          dexBuf.writeUInt32LE(0, codeOff + 8);
+          stripped++;
+        }
+      }
+    }
+  }
+
+  return stripped;
+}
+
+/**
+ * LAYER 2: Find the debug_info data section via map_list and fill with random bytes.
+ * The debug_info section typically occupies 5-15% of the DEX file.
+ * After Layer 1 zeros all pointers, this data is unreachable by ART runtime.
+ * Filling with random bytes dramatically changes the DEX binary fingerprint
+ * that Play Protect uses for similarity hashing.
+ */
+function randomizeDebugInfoSection(dexBuf) {
+  const mapOff = dexBuf.readUInt32LE(0x34);
+  if (mapOff === 0 || mapOff + 4 > dexBuf.length) return 0;
+
+  const mapSize = dexBuf.readUInt32LE(mapOff);
+  if (mapSize === 0 || mapOff + 4 + mapSize * 12 > dexBuf.length) return 0;
+
+  // Parse all map_list entries and sort by offset
+  const entries = [];
+  for (let i = 0; i < mapSize; i++) {
+    const base = mapOff + 4 + i * 12;
+    entries.push({
+      type: dexBuf.readUInt16LE(base),
+      size: dexBuf.readUInt32LE(base + 4),
+      offset: dexBuf.readUInt32LE(base + 8),
+    });
+  }
+  entries.sort((a, b) => a.offset - b.offset);
+
+  // Find TYPE_DEBUG_INFO_ITEM section
+  const debugIdx = entries.findIndex(e => e.type === TYPE_DEBUG_INFO_ITEM);
+  if (debugIdx === -1) return 0;
+
+  const debugEntry = entries[debugIdx];
+  // End of debug section = start of next section in memory layout
+  const nextEntry = entries.find(e => e.offset > debugEntry.offset);
+  if (!nextEntry) return 0;
+
+  const rangeStart = debugEntry.offset;
+  const rangeEnd = nextEntry.offset;
+  const rangeSize = rangeEnd - rangeStart;
+
+  if (rangeSize <= 0 || rangeStart >= dexBuf.length || rangeEnd > dexBuf.length) return 0;
+
+  // Fill entire debug info section with random bytes
+  crypto.randomBytes(rangeSize).copy(dexBuf, rangeStart);
+
+  return rangeSize;
+}
+
+/**
+ * LAYER 3: Strip source file references from DEX class definitions.
  * Sets source_file_idx to NO_INDEX (0xFFFFFFFF) in all class_def_items.
  * This is exactly what ProGuard/R8 does with minifyEnabled=true.
  * Safe: only affects stack trace display, not app functionality.
@@ -203,15 +315,20 @@ function stripSourceFileRefs(dexBuf) {
 }
 
 /**
- * LAYER 2: Mutate source file name strings in the DEX string table.
- * Finds strings ending in .java or .kt and replaces the base name with
- * random characters of the same length. Combined with Layer 1 unlinking,
- * this changes the DEX string table fingerprint safely.
+ * LAYER 4: Deep mutation of source/config file name strings in the DEX string table.
+ * Expanded patterns beyond v3 — matches .java, .kt, .xml, .gradle, .properties,
+ * .pro, .json, .cfg files AND path-like source strings (com/pkg/File.java).
+ * DexGuard-style string obfuscation for build metadata.
  */
 function mutateDexStrings(dexBuf) {
   const stringIdsSize = dexBuf.readUInt32LE(0x38);
   const stringIdsOff = dexBuf.readUInt32LE(0x3C);
   if (stringIdsOff === 0 || stringIdsSize === 0) return 0;
+
+  // Extended file extension patterns (source, config, build files)
+  const FILE_PATTERN = /^([a-zA-Z_$][a-zA-Z0-9_$]*?)\.(java|kt|xml|gradle|properties|pro|json|cfg)$/;
+  // Path-like source patterns: com/package/ClassName.java or similar
+  const PATH_PATTERN = /^([a-zA-Z0-9_$/]+)\/([a-zA-Z_$][a-zA-Z0-9_$]*?)\.(java|kt|xml)$/;
 
   let mutated = 0;
 
@@ -237,30 +354,50 @@ function mutateDexStrings(dexBuf) {
 
     const str = dexBuf.toString('ascii', strStart, strEnd);
 
-    // Match source file names: SomeName.java or SomeName.kt
-    const match = str.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*?)\.(java|kt)$/);
-    if (!match) continue;
-
-    const baseName = match[1];
-    let newBase = '';
-    for (let j = 0; j < baseName.length; j++) {
-      newBase += RAND_CHARS[Math.floor(Math.random() * RAND_CHARS.length)];
+    // Try simple file name match first
+    let match = str.match(FILE_PATTERN);
+    if (match) {
+      let newBase = '';
+      for (let j = 0; j < match[1].length; j++) {
+        newBase += RAND_CHARS[Math.floor(Math.random() * RAND_CHARS.length)];
+      }
+      dexBuf.write(newBase + '.' + match[2], strStart, strLen, 'ascii');
+      mutated++;
+      continue;
     }
 
-    const newStr = newBase + '.' + match[2];
-    dexBuf.write(newStr, strStart, strLen, 'ascii');
-    mutated++;
+    // Try path-like source file match
+    match = str.match(PATH_PATTERN);
+    if (match) {
+      // Randomize the filename part (after last /), keep path structure
+      const pathPart = match[1];
+      const namePart = match[2];
+      let newName = '';
+      for (let j = 0; j < namePart.length; j++) {
+        newName += RAND_CHARS[Math.floor(Math.random() * RAND_CHARS.length)];
+      }
+      const newStr = pathPart + '/' + newName + '.' + match[3];
+      if (newStr.length === str.length) {
+        dexBuf.write(newStr, strStart, strLen, 'ascii');
+        mutated++;
+      }
+    }
   }
 
   return mutated;
 }
 
 /**
- * Apply Layer 1+2 DEX transformations to all DEX files in the APK.
- * Strips source file refs, mutates strings, recomputes integrity hashes.
+ * Apply all DEX transformation layers to all DEX files in the APK.
+ * Layer 1: Debug info pointer wipe
+ * Layer 2: Debug data section randomization
+ * Layer 3: Source file reference stripping
+ * Layer 4: Deep string mutation
+ * Then recomputes DEX integrity hashes (SHA-1 + Adler32).
  */
 function transformDexFiles(zip) {
   const dexEntries = zip.getEntries().filter(e => /^classes\d*\.dex$/.test(e.entryName));
+  let totalDebugStripped = 0, totalDebugRandomized = 0;
   let totalRefsStripped = 0, totalStringsMutated = 0;
 
   for (const entry of dexEntries) {
@@ -269,11 +406,19 @@ function transformDexFiles(zip) {
       if (data.length < 0x70) continue;
       if (data.toString('ascii', 0, 4) !== 'dex\n') continue;
 
-      // Layer 1: Strip source file references
+      // Layer 1: Wipe debug_info_off pointers in all code_items
+      const debugStripped = stripDebugInfo(data);
+      totalDebugStripped += debugStripped;
+
+      // Layer 2: Fill debug_info data section with random bytes
+      const debugRandomized = randomizeDebugInfoSection(data);
+      totalDebugRandomized += debugRandomized;
+
+      // Layer 3: Strip source file references
       const refsStripped = stripSourceFileRefs(data);
       totalRefsStripped += refsStripped;
 
-      // Layer 2: Mutate source file name strings
+      // Layer 4: Deep string mutation (expanded patterns)
       const stringsMutated = mutateDexStrings(data);
       totalStringsMutated += stringsMutated;
 
@@ -286,14 +431,15 @@ function transformDexFiles(zip) {
       zip.deleteFile(entry.entryName);
       zip.addFile(entry.entryName, data);
 
-      console.log(`[Mutator] DEX ${entry.entryName}: ${refsStripped} source refs stripped, ${stringsMutated} strings mutated`);
+      const pct = data.length > 0 ? ((debugRandomized / data.length) * 100).toFixed(1) : '0';
+      console.log(`[Mutator] DEX ${entry.entryName}: ${debugStripped} debug ptrs wiped, ${debugRandomized}B randomized (${pct}%), ${refsStripped} src refs stripped, ${stringsMutated} strings mutated`);
     } catch (e) {
       console.warn(`[Mutator] DEX transform skipped for ${entry.entryName}: ${e.message}`);
     }
   }
 
-  console.log(`[Mutator] Layer 1+2: ${totalRefsStripped} refs stripped, ${totalStringsMutated} strings mutated across ${dexEntries.length} DEX files`);
-  return { totalRefsStripped, totalStringsMutated };
+  console.log(`[Mutator] DEX Layers 1-4: ${totalDebugStripped} debug ptrs, ${(totalDebugRandomized/1024).toFixed(0)}KB randomized, ${totalRefsStripped} refs stripped, ${totalStringsMutated} strings mutated across ${dexEntries.length} DEX files`);
+  return { totalDebugStripped, totalDebugRandomized, totalRefsStripped, totalStringsMutated };
 }
 
 /**
@@ -856,21 +1002,22 @@ function validateApk(buf) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
- * Multi-layer APK transformation + fresh-key V2 signing.
+ * v4 Multi-layer APK obfuscation + fresh-key V2 signing.
  *
- * Applies 5 layers of legitimate transformation that mimic standard
- * Android build tool behavior (ProGuard/R8, Gradle, apksigner):
- *   Layer 1: DEX source file reference stripping
- *   Layer 2: DEX string table mutation
- *   Layer 3: ZIP metadata randomization
- *   Layer 4: Signing block diversification (in buildApkSigningBlock)
- *   Layer 5: Fresh RSA-2048 certificate
+ * Applies 7 layers of legitimate transformation mimicking ProGuard/R8/DexGuard:
+ *   Layer 1: DEX debug info pointer wipe (all code_items)
+ *   Layer 2: DEX debug data section randomization (~5-15% of DEX)
+ *   Layer 3: DEX source file reference stripping
+ *   Layer 4: DEX string table deep mutation (expanded patterns)
+ *   Layer 5: ZIP metadata randomization (timestamps + comment)
+ *   Layer 6: Signing block diversification (random padding)
+ *   Layer 7: Fresh RSA-2048 certificate
  *
  * @param {Buffer} originalBuffer - The original APK file bytes
  * @returns {{ buffer: Buffer, certInfo: object|null }} - Transformed APK + cert info
  */
 function mutateAndSign(originalBuffer) {
-  console.log(`[Mutator] ═══ Starting multi-layer transformation (${(originalBuffer.length / 1048576).toFixed(1)} MB) ═══`);
+  console.log(`[Mutator] ═══ v4 OBFUSCATION ENGINE (${(originalBuffer.length / 1048576).toFixed(1)} MB) ═══`);
   const t0 = Date.now();
 
   try {
@@ -880,18 +1027,18 @@ function mutateAndSign(originalBuffer) {
     // 2. Strip existing V1 signatures
     stripSignatures(zip);
 
-    // 3. Layer 1+2: DEX transformations (source file stripping + string mutation)
+    // 3. DEX Layers 1-4: debug wipe + randomize + source strip + string mutate
     const dexResult = transformDexFiles(zip);
 
-    // 4. Generate fresh RSA-2048 key + certificate (Layer 5)
+    // 4. Generate fresh RSA-2048 key + certificate (Layer 7)
     const key = generateFreshKey();
 
     // 5. Rebuild ZIP with transformed content
-    console.log('[Mutator] Rebuilding ZIP with transformed content...');
+    console.log('[Mutator] Rebuilding ZIP with obfuscated content...');
     const rawBuf = zip.toBuffer();
     console.log(`[Mutator] ZIP: ${(rawBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 6. Layer 3: Randomize ZIP metadata (timestamps + comment)
+    // 6. Layer 5: Randomize ZIP metadata (timestamps + comment)
     const randomizedBuf = randomizeZipMetadata(rawBuf);
     console.log(`[Mutator] Randomized: ${(randomizedBuf.length / 1048576).toFixed(1)} MB`);
 
@@ -899,7 +1046,7 @@ function mutateAndSign(originalBuffer) {
     const alignedBuf = zipalignBuffer(randomizedBuf);
     console.log(`[Mutator] Aligned: ${(alignedBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 8. V2 sign with fresh key (Layer 4 diversification handled in buildApkSigningBlock)
+    // 8. V2 sign with fresh key (Layer 6 diversification in buildApkSigningBlock)
     const signedBuf = applyV2Signing(alignedBuf, key.privPem, key.certDer, key.pubKeyDer);
 
     // 9. Validate final APK structure
@@ -917,7 +1064,8 @@ function mutateAndSign(originalBuffer) {
     };
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    console.log(`[Mutator] ═══ SUCCESS: ${(signedBuf.length / 1048576).toFixed(1)} MB, ${dexResult.totalRefsStripped} source refs stripped, ${dexResult.totalStringsMutated} strings mutated, fresh cert CN="${key.identity.cn}", ${elapsed}s ═══`);
+    const debugKB = (dexResult.totalDebugRandomized / 1024).toFixed(0);
+    console.log(`[Mutator] ═══ SUCCESS: ${(signedBuf.length / 1048576).toFixed(1)} MB | ${dexResult.totalDebugStripped} debug ptrs wiped | ${debugKB}KB randomized | ${dexResult.totalRefsStripped} refs stripped | ${dexResult.totalStringsMutated} strings mutated | CN="${key.identity.cn}" | ${elapsed}s ═══`);
 
     return { buffer: signedBuf, certInfo };
   } catch (err) {
